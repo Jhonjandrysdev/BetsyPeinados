@@ -109,7 +109,7 @@ const gReady = googleConfigured();
     </div>
   </section>
 
-  <form method="post" class="panel settings" id="datos" data-keep data-draft="settings">
+  <form method="post" class="panel settings" id="datos" data-keep data-draft="settings" data-sticky-save data-dirty-form>
     <input type="hidden" name="action" value="settings" />
     <div class="sec">
       <div class="sec-h">
@@ -155,6 +155,7 @@ const gReady = googleConfigured();
       </div>
     </div>
     <div class="save-row">
+      <p class="unsaved" data-unsaved hidden>Tienes cambios sin guardar</p>
       <button class="btn btn-clay"><Icon name="check" /> Guardar cambios</button>
     </div>
   </form>
@@ -175,9 +176,9 @@ const gReady = googleConfigured();
       <div class="up-row">
         <div class="field">
           <label for="alt">Descripción de las fotos (opcional)</label>
-          <input class="input" id="alt" name="alt" maxlength="160" placeholder="¿Qué peinado es? Ej.: Ondas para grado" />
+          <input class="input" id="alt" name="alt" maxlength="160" placeholder="Ej.: Ondas para grado" />
         </div>
-        <button class="btn btn-clay"><Icon name="upload" /> Subir fotos</button>
+        <button class="btn btn-soft" data-upload-btn><Icon name="upload" /> Subir fotos</button>
       </div>
     </form>
     <ul class="photos">
@@ -259,18 +260,29 @@ const gReady = googleConfigured();
   .home span {
     display: grid;
   }
+  /* Barra de guardar: franja sólida pegada al pie del panel (escritorio); en el celular solo se
+     fija cuando hay cambios, como en Horario. */
   .save-row {
     position: sticky;
-    bottom: var(--s-4);
+    bottom: 0;
     z-index: 4;
     display: flex;
+    align-items: center;
     justify-content: flex-end;
-    margin-top: var(--s-5);
-    padding: var(--s-3);
-    border-radius: var(--r-md);
+    gap: var(--s-3);
+    flex-wrap: wrap;
+    margin: var(--s-5) calc(clamp(1.1rem, 3vw, 1.75rem) * -1) calc(clamp(1.1rem, 3vw, 1.75rem) * -1);
+    padding: var(--s-3) clamp(1.1rem, 3vw, 1.75rem);
+    border-radius: 0 0 var(--r-lg) var(--r-lg);
     background: var(--white);
+    border-top: 1px solid var(--line);
     box-shadow: 0 -10px 24px -18px rgb(42 28 22 / 0.35);
-    border: 1px solid var(--line);
+  }
+  .unsaved {
+    margin: 0 auto 0 0;
+    font-size: var(--t-sm);
+    font-weight: 700;
+    color: var(--accent-text);
   }
   @media (min-width: 1100px) {
     .sec {
@@ -289,15 +301,22 @@ const gReady = googleConfigured();
   }
   @media (max-width: 860px) {
     .save-row {
+      position: static;
+      box-shadow: none;
+    }
+    .settings.dirty .save-row {
+      position: sticky;
       bottom: calc(var(--tab-h) + env(safe-area-inset-bottom));
-      margin-inline: calc(clamp(1.1rem, 3vw, 1.75rem) * -1);
-      margin-bottom: calc(clamp(1.1rem, 3vw, 1.75rem) * -1);
-      padding: var(--s-3) var(--s-4);
-      border-radius: 0 0 var(--r-lg) var(--r-lg);
-      border-width: 1px 0 0;
+      border-radius: 0;
+      box-shadow: 0 -10px 24px -18px rgb(42 28 22 / 0.35);
     }
     .save-row .btn {
       width: 100%;
+    }
+  }
+  @media (max-width: 560px) {
+    .g-logo {
+      display: none;
     }
   }
   .upload {
@@ -435,16 +454,41 @@ const gReady = googleConfigured();
   const label = document.querySelector('[data-drop-label]');
   if (drop && input && label) {
     // En el celular no se arrastra: el texto solo menciona arrastrar donde hay mouse.
-    const idle = matchMedia('(hover: hover)').matches ? 'Toca para elegir fotos o arrástralas aquí' : 'Toca para elegir fotos';
+    const idle = matchMedia('(hover: hover)').matches ? 'Haz clic para elegir fotos o arrástralas aquí' : 'Toca para elegir fotos';
+    const upBtn = document.querySelector<HTMLElement>('[data-upload-btn]');
     const sync = () => {
       const n = input.files?.length ?? 0;
       drop.classList.toggle('has', n > 0);
       label.textContent = n ? `${n} ${n === 1 ? 'foto lista' : 'fotos listas'} para subir` : idle;
+      // Solo pasa a botón principal cuando ya hay fotos elegidas.
+      upBtn?.classList.toggle('btn-clay', n > 0);
+      upBtn?.classList.toggle('btn-soft', n === 0);
     };
     sync();
     input.addEventListener('change', sync);
     ['dragenter', 'dragover'].forEach((ev) => drop.addEventListener(ev, () => drop.classList.add('over')));
     ['dragleave', 'drop'].forEach((ev) => drop.addEventListener(ev, () => drop.classList.remove('over')));
     input.addEventListener('drop', () => setTimeout(sync, 0));
+  }
+
+  // Datos del negocio: cambios sin guardar → barra fija (celular), aviso y confirmación al salir.
+  const sf = document.querySelector<HTMLFormElement>('[data-dirty-form]');
+  if (sf) {
+    const fields = [...sf.querySelectorAll<HTMLInputElement | HTMLTextAreaElement>('input:not([type=hidden]), textarea')];
+    const note = sf.querySelector<HTMLElement>('[data-unsaved]');
+    let sending = false;
+    const isDirty = () => fields.some((f) => (f instanceof HTMLInputElement && f.type === 'checkbox' ? f.checked !== f.defaultChecked : f.value !== f.defaultValue));
+    const sync = () => {
+      const d = isDirty();
+      sf.classList.toggle('dirty', d);
+      if (note) note.hidden = !d;
+    };
+    sf.addEventListener('input', sync);
+    sf.addEventListener('change', sync);
+    sf.addEventListener('bp:restored', sync);
+    sf.addEventListener('submit', () => (sending = true));
+    addEventListener('beforeunload', (e) => {
+      if (!sending && isDirty()) e.preventDefault();
+    });
   }
 </script>

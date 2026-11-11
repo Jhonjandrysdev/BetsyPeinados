@@ -63,7 +63,7 @@ for (const a of upcoming) {
 <Admin title="Horario" subtitle="Elige qué días y a qué horas te pueden reservar. Los cambios se aplican de una.">
   <a slot="actions" href="#bloqueados" class="btn btn-soft" data-goto-block><Icon name="ban" /> Bloquear un día</a>
 
-  <form method="post" class="panel hours-form" id="horario" data-keep data-draft="hours" data-hours>
+  <form method="post" class="panel hours-form" id="horario" data-keep data-draft="hours" data-hours data-sticky-save>
     <input type="hidden" name="action" value="hours" />
     <div class="h-week">
       <div class="panel-head">
@@ -186,9 +186,10 @@ for (const a of upcoming) {
   }
   .hrow {
     display: grid;
-    grid-template-columns: 150px 1fr;
+    grid-template-columns: 150px minmax(0, 1fr);
     gap: var(--s-3);
     align-items: center;
+    min-width: 0;
     padding: var(--s-2) var(--s-3);
     border-radius: var(--r-md);
     background: var(--cream);
@@ -198,6 +199,7 @@ for (const a of upcoming) {
     font-size: var(--t-md);
   }
   .times {
+    min-width: 0;
     display: flex;
     align-items: center;
     gap: var(--s-2);
@@ -205,6 +207,7 @@ for (const a of upcoming) {
   }
   .times .input {
     flex: 1 1 0;
+    width: 100%;
     min-width: 0;
     min-height: 44px;
     padding: 0.5rem 0.7rem;
@@ -396,7 +399,7 @@ for (const a of upcoming) {
   }
   @media (max-width: 640px) {
     .hrow {
-      grid-template-columns: 1fr;
+      grid-template-columns: minmax(0, 1fr);
       gap: var(--s-1);
     }
     .block-form {
