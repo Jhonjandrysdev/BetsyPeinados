@@ -4,19 +4,21 @@ import Icon from '../../components/Icon.astro';
 import { getAppointment, getAppointments, getBlockedDates, getGoogleConnection, getHours, getServices, updateAppointment } from '../../lib/db';
 import { book, BookingError, bookingSchema } from '../../lib/booking';
 import { cancelCalendarEvent } from '../../lib/google';
-import { addDays, formatCOP, fromLocal, isDate, localDate, localTime, minutesOf, prettyDate, prettyTime, weekdayOf } from '../../lib/time';
+import { addDays, formatCOP, fromLocal, isDate, localDate, localTime, minutesOf, prettyDate, prettyTime as prettyTimeRaw, weekdayOf } from '../../lib/time';
 import { isUuid, str } from '../../lib/admin';
 import type { Appointment, AppointmentStatus } from '../../lib/types';
 
 /** Lunes de la semana que contiene la fecha. */
 const mondayOf = (d: string) => addDays(d, -((weekdayOf(d) + 6) % 7));
 const firstName = (n: string) => n.split(' ')[0];
+/** Hora con espacios duros: «3:00 p. m.» nunca se parte a mitad. */
+const prettyTime = (d: Date | string) => prettyTimeRaw(d).replace(/ /g, '\u00a0');
 
 if (Astro.request.method === 'POST') {
   const fd = await Astro.request.formData();
   const action = str(fd, 'action', 20);
   const desde = str(fd, 'desde', 10);
-  const go = (kind: 'ok' | 'error', msg: string, week = desde) =>
+  const go = (kind: 'ok' | 'error' | 'warn', msg: string, week = desde) =>
     new Response(null, {
       status: 303,
       headers: { Location: `/admin?${isDate(week) ? `desde=${week}&` : ''}${kind}=${encodeURIComponent(msg)}` },
@@ -82,7 +84,7 @@ if (Astro.request.method === 'POST') {
       const week = mondayOf(parsed.data.date);
       // El aviso solo menciona Google si de verdad quedó anotada allá.
       if (appt.google_event_id) return go('ok', `Cita de ${who} guardada y anotada en tu Google Calendar`, week);
-      if (await getGoogleConnection()) return go('ok', `Cita de ${who} guardada, pero no se pudo anotar en tu Google Calendar. Agrégala a mano allá.`, week);
+      if (await getGoogleConnection()) return go('warn', `Cita de ${who} guardada, pero no se pudo anotar en tu Google Calendar. Agrégala a mano allá.`, week);
       return go('ok', `Cita de ${who} guardada`, week);
     } catch (e) {
       if (e instanceof BookingError) return go('error', e.status === 409 ? 'Ya tienes una cita a esa hora. Elige otra hora.' : e.message);
@@ -126,7 +128,7 @@ const offOf = (d: string) => blockedMap.get(d) ?? (!hourOf(d)?.enabled ? 'Cerrad
 const enabled = hours.filter((h) => h.enabled);
 let minM = enabled.length ? Math.min(...enabled.map((h) => minutesOf(h.open_time))) : 8 * 60;
 let maxM = enabled.length ? Math.max(...enabled.map((h) => minutesOf(h.close_time))) : 18 * 60;
-for (const a of appts) {
+for (const a of appts.filter((x) => x.status !== 'cancelada')) {
   minM = Math.min(minM, minutesOf(localTime(new Date(a.starts_at))));
   const e = localTime(new Date(a.ends_at));
   maxM = Math.max(maxM, e === '00:00' ? 24 * 60 : minutesOf(e));
@@ -142,6 +144,7 @@ const priceOf = new Map(services.map((s) => [s.id, s.price_from ?? 0]));
 const weekActive = appts.filter(isActive);
 const income = appts.filter((a) => a.status !== 'cancelada').reduce((t, a) => t + (a.service_id ? (priceOf.get(a.service_id) ?? 0) : 0), 0);
 const next = upcoming.find((a) => new Date(a.starts_at) > now);
+const emptyWeek = weekActive.length === 0 && income === 0;
 const present = new Set(appts.filter((a) => a.status !== 'cancelada').map((a) => a.status));
 
 // Formatos
@@ -222,7 +225,7 @@ const dialogAppts = [...new Map([...appts, ...todayAll, ...(next ? [next] : [])]
 const todayOff = offOf(today);
 ---
 
-<Admin title="Agenda" greet mobileSub={thisWeek ? prettyDate(now) : `Semana del ${weekSpoken}`}>
+<Admin title="Agenda" greet mobileSub={thisWeek ? undefined : `Semana del ${weekSpoken}`}>
   <button slot="actions" type="button" class="btn btn-clay head-new" data-open-new>
     <Icon name="plus" /> Nueva cita
   </button>
@@ -279,6 +282,10 @@ const todayOff = offOf(today);
       }
     </div>
     <div class="t-week">
+      {emptyWeek ? (
+        <p class="t-none">{thisWeek ? 'Esta semana aún no tiene citas.' : 'Semana sin citas.'}</p>
+      ) : (
+      <>
       <p>
         <strong>{weekActive.length}</strong>
         <span>{weekActive.length === 1 ? 'cita activa' : 'citas activas'} {thisWeek ? 'esta semana' : 'en la semana mostrada'}</span>
@@ -287,6 +294,8 @@ const todayOff = offOf(today);
         <strong>{formatCOP(income)}</strong>
         <span>mínimo estimado de la semana</span>
       </p>
+      </>
+      )}
       {!thisWeek && <a class="t-back" href="/admin">Volver a esta semana</a>}
     </div>
   </section>
@@ -344,7 +353,7 @@ const todayOff = offOf(today);
         <span></span>
         {
           weekDays.map((d) => (
-            <div class:list={['w-day', { today: d === today }]}>
+            <div class:list={['w-day', { today: d === today, past: d < today }]}>
               <small>{dayShort(d)}</small>
               <b>{fmtNum(d)}</b>
             </div>
@@ -404,7 +413,7 @@ const todayOff = offOf(today);
               </h3>
               {list.length === 0 ? (
                 <div class="empty">
-                  <p>{off ? `${off} · sin citas` : 'Aún no tienes citas este día.'}</p>
+                  <p>{off ? `${off} · sin citas` : d < today ? 'Ese día no tuviste citas.' : 'Aún no tienes citas este día.'}</p>
                   {!off && d >= today && (
                     <button type="button" class="btn btn-soft btn-sm" data-open-new data-date={d}>
                       <Icon name="plus" /> Agendar una cita
@@ -429,7 +438,8 @@ const todayOff = offOf(today);
                           <b>{a.customer_name}</b>
                           <small>
                             {a.service_name}
-                            {a.status !== 'pendiente' && ` · ${statusLabel[a.status]}`}
+                            {a.status !== 'pendiente' && a.status !== 'confirmada' && ` · ${statusLabel[a.status]}`}
+                            {a.status === 'confirmada' && <span class="sr-only">, Confirmada</span>}
                           </small>
                           {a.status === 'pendiente' && <span class="tag pendiente">Pendiente</span>}
                         </span>
@@ -448,7 +458,7 @@ const todayOff = offOf(today);
         })
       }
       <p class="week-sum">
-        Semana: {weekActive.length} {weekActive.length === 1 ? 'cita activa' : 'citas activas'} · {formatCOP(income)} mínimo estimado
+        {emptyWeek ? 'Semana sin citas' : `Semana: ${weekActive.length} ${weekActive.length === 1 ? 'cita activa' : 'citas activas'} · ${formatCOP(income)} mínimo estimado`}
       </p>
     </div>
   </section>
@@ -665,7 +675,7 @@ const todayOff = offOf(today);
         </details>
       </div>
       <div class="new-acts">
-        <button type="button" class="btn btn-ghost" data-close>Cerrar sin guardar</button>
+        <button type="button" class="btn btn-ghost" data-close data-discard>Cerrar<span class="x-long"> sin guardar</span></button>
         <button class="btn btn-clay"><Icon name="check" /> Guardar cita</button>
       </div>
     </form>
@@ -699,7 +709,7 @@ const todayOff = offOf(today);
   /* ───────── Hoy ───────── */
   .hoy {
     display: grid;
-    grid-template-columns: 200px 1fr 200px;
+    grid-template-columns: 200px 1fr;
     gap: var(--s-5);
     padding: var(--s-5);
     align-items: start;
@@ -788,10 +798,13 @@ const todayOff = offOf(today);
     text-underline-offset: 3px;
   }
   .t-week {
-    display: grid;
-    gap: var(--s-4);
-    padding-left: var(--s-5);
-    border-left: 1px solid var(--line);
+    grid-column: 1 / -1;
+    display: flex;
+    flex-wrap: wrap;
+    align-items: end;
+    gap: var(--s-6);
+    padding-top: var(--s-4);
+    border-top: 1px solid var(--line);
   }
   .t-week p {
     display: grid;
@@ -803,6 +816,12 @@ const todayOff = offOf(today);
   }
   .t-week span {
     font-size: var(--t-xs);
+    color: var(--muted);
+    font-weight: 600;
+  }
+  .t-none {
+    margin: 0;
+    font-size: var(--t-sm);
     color: var(--muted);
     font-weight: 600;
   }
@@ -871,7 +890,7 @@ const todayOff = offOf(today);
     --axis: 58px;
     border: 1px solid var(--line);
     border-radius: var(--r-md);
-    overflow: hidden;
+    overflow: clip;
     background: var(--white);
   }
   .w-head,
@@ -880,6 +899,9 @@ const todayOff = offOf(today);
     grid-template-columns: var(--axis) repeat(7, 1fr);
   }
   .w-head {
+    position: sticky;
+    top: 0;
+    z-index: 4;
     border-bottom: 1px solid var(--line);
     background: var(--cream);
   }
@@ -961,8 +983,22 @@ const todayOff = offOf(today);
     background-size: 100% calc(60 * var(--ppm));
     background-position: 0 calc(var(--s, 0) * var(--ppm) * -1);
   }
+  /* Días que ya pasaron: rayado suave, se distinguen de los que vienen */
+  .w-col.past {
+    background-color: #efe7dc;
+    background-image: linear-gradient(var(--line) 1px, transparent 1px),
+      repeating-linear-gradient(-45deg, transparent 0 7px, rgb(42 28 22 / 0.05) 7px 14px);
+    background-size: 100% calc(60 * var(--ppm)), auto;
+  }
   .w-col.past .open-band {
-    background-color: #fbf6ef;
+    background-color: #f6efe6;
+    background-image: linear-gradient(var(--line) 1px, transparent 1px),
+      repeating-linear-gradient(-45deg, transparent 0 7px, rgb(42 28 22 / 0.04) 7px 14px);
+    background-size: 100% calc(60 * var(--ppm)), auto;
+  }
+  .w-day.past b,
+  .w-day.past small {
+    color: var(--muted);
   }
   .w-col.today .open-band {
     background-color: #fffdf9;
@@ -1031,6 +1067,14 @@ const todayOff = offOf(today);
   }
   .ev.short span:not(.sr-only) {
     display: none;
+  }
+  /* En citas altas el nombre puede ocupar dos líneas (columnas angostas a 1024 px) */
+  .ev.tall b {
+    white-space: normal;
+    display: -webkit-box;
+    -webkit-line-clamp: 2;
+    -webkit-box-orient: vertical;
+    overflow-wrap: anywhere;
   }
   .ev.completada b {
     text-decoration: line-through;
@@ -1212,6 +1256,7 @@ const todayOff = offOf(today);
   }
   .c-time {
     flex: none;
+    width: 6.6rem;
     white-space: nowrap;
     padding-right: var(--s-3);
     border-right: 1px solid var(--line);
@@ -1247,16 +1292,6 @@ const todayOff = offOf(today);
   @media (max-width: 1100px) {
     .hoy {
       grid-template-columns: 180px 1fr;
-    }
-    .t-week {
-      grid-column: 1 / -1;
-      display: flex;
-      flex-wrap: wrap;
-      align-items: end;
-      gap: var(--s-6);
-      padding: var(--s-4) 0 0;
-      border-left: 0;
-      border-top: 1px solid var(--line);
     }
   }
   @media (max-width: 860px) {
@@ -1376,7 +1411,7 @@ const todayOff = offOf(today);
     width: 56px;
     height: 56px;
     border-radius: 50%;
-    background: var(--ev);
+    background: color-mix(in oklab, var(--ev) 58%, var(--cocoa));
     color: #fff;
     font: 600 1.25rem/1 var(--font-display);
     letter-spacing: 0.02em;
@@ -1577,11 +1612,29 @@ const todayOff = offOf(today);
   .more summary {
     display: flex;
     align-items: center;
+    justify-content: space-between;
+    list-style: none;
     min-height: 44px;
     font-weight: 700;
     font-size: var(--t-sm);
     color: var(--cocoa-2);
     cursor: pointer;
+  }
+  .more summary::-webkit-details-marker {
+    display: none;
+  }
+  .more summary::after {
+    content: '';
+    width: 9px;
+    height: 9px;
+    margin-right: 6px;
+    border-right: 2px solid var(--muted);
+    border-bottom: 2px solid var(--muted);
+    transform: rotate(45deg) translateY(-3px);
+    transition: transform 0.35s var(--ease);
+  }
+  .more[open] summary::after {
+    transform: rotate(-135deg) translateY(-3px);
   }
   .more[open] summary {
     margin-bottom: var(--s-2);
@@ -1641,6 +1694,20 @@ const todayOff = offOf(today);
       border-color: transparent;
       padding-inline: 0.6rem;
     }
+    /* La cabecera con la X no se va con el scroll de la hoja */
+    .new .ap-head {
+      position: sticky;
+      top: -0.6rem;
+      z-index: 3;
+      margin: -0.6rem -1.2rem 0;
+      padding: 0.6rem 1.2rem 0.4rem;
+      background: var(--white);
+    }
+  }
+  @media (max-width: 400px) {
+    .x-long {
+      display: none;
+    }
   }
   @keyframes sheet-in {
     from {
@@ -1661,7 +1728,11 @@ const todayOff = offOf(today);
       el.style.setProperty('--s', el.dataset.s!);
       el.style.setProperty('--d', el.dataset.d!);
     });
-    week.querySelectorAll<HTMLElement>('.ev').forEach((ev) => ev.classList.toggle('short', Number(ev.dataset.d) * ppm() < 40));
+    week.querySelectorAll<HTMLElement>('.ev').forEach((ev) => {
+      const h = Number(ev.dataset.d) * ppm();
+      ev.classList.toggle('short', h < 40);
+      ev.classList.toggle('tall', h >= 76);
+    });
     const axis = week.querySelectorAll('.w-axis span').length;
     week.style.setProperty('--hours', String(axis));
 
@@ -1727,7 +1798,7 @@ const todayOff = offOf(today);
   // "Termina a las …" según la duración del servicio.
   const fmt12 = (m: number) => {
     const h = Math.floor(m / 60) % 24;
-    return `${h % 12 || 12}:${String(m % 60).padStart(2, '0')} ${h < 12 ? 'a. m.' : 'p. m.'}`;
+    return `${h % 12 || 12}:${String(m % 60).padStart(2, '0')}\u00a0${h < 12 ? 'a.\u00a0m.' : 'p.\u00a0m.'}`;
   };
   const showEnd = () => {
     if (!endEl || !timeEl || !svcEl) return;
@@ -1768,10 +1839,23 @@ const todayOff = offOf(today);
     if (!touch) $<HTMLInputElement>('#m-name')?.focus();
   }
   document.querySelectorAll<HTMLElement>('[data-open-new]').forEach((b) => b.addEventListener('click', () => openNew(b.dataset.date)));
-  dlgNew?.querySelectorAll('[data-close]').forEach((b) => b.addEventListener('click', () => dlgNew.close()));
+  dlgNew?.querySelectorAll('[data-close]').forEach((b) =>
+    b.addEventListener('click', () => {
+      dlgNew.close();
+      // «Cerrar sin guardar» descarta lo escrito; la X solo cierra (se conserva para seguir luego).
+      if ((b as HTMLElement).dataset.discard !== undefined && formNew) {
+        formNew.reset();
+        dirty = false;
+        if (errEl) errEl.hidden = true;
+        showEnd();
+      }
+    }),
+  );
 
   // Si el guardado falló: se reabre con lo escrito y se enfoca el campo a revisar.
   formNew?.addEventListener('bp:restored', (e) => {
+    // El error se muestra dentro del diálogo: no se repite en el aviso flotante.
+    e.preventDefault();
     const message = (e as CustomEvent<{ message: string }>).detail.message;
     const pick = /whatsapp/i.test(message)
       ? '#m-phone'
