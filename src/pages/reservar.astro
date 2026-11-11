@@ -1,0 +1,659 @@
+---
+import Base from '../layouts/Base.astro';
+import Header from '../components/Header.astro';
+import Icon from '../components/Icon.astro';
+import { getServices, getSettings } from '../lib/db';
+import { openDays } from '../lib/slots';
+import { formatCOP, formatDuration, localDate } from '../lib/time';
+import { formToken } from '../lib/http';
+
+const [s, services] = await Promise.all([getSettings(), getServices()]);
+const days = await openDays(localDate(), s.max_days_ahead + 1);
+const preselect = services.find((x) => x.slug === Astro.url.searchParams.get('servicio'))?.id ?? '';
+
+const data = {
+  ft: await formToken('book'),
+  days,
+  preselect,
+  services: services.map((x) => ({ id: x.id, name: x.name, duration: formatDuration(x.duration_min), price: formatCOP(x.price_from) })),
+};
+---
+
+<Base
+  title={`Reservar cita · ${s.business_name}`}
+  description={`Agenda tu peinado en ${s.city} en menos de un minuto. Elige servicio, fecha y hora disponibles en tiempo real.`}
+>
+  <Header minimal />
+  <main id="contenido" class="wrap book">
+    <div class="intro">
+      <p class="eyebrow">Reserva online</p>
+      <h1>Agenda tu <em>cita</em></h1>
+      <p class="lead">Tres pasos y listo. Tu espacio queda apartado al instante.</p>
+    </div>
+
+    <form class="card" id="booking" novalidate>
+      <ol class="progress" aria-label="Pasos">
+        <li data-step-dot="1" class="on"><span>1</span> Servicio</li>
+        <li data-step-dot="2"><span>2</span> Fecha y hora</li>
+        <li data-step-dot="3"><span>3</span> Tus datos</li>
+      </ol>
+
+      <!-- Paso 1 -->
+      <fieldset data-step="1">
+        <legend>¿Qué peinado quieres?</legend>
+        <div class="options">
+          {
+            services.map((sv) => (
+              <label class="option">
+                <input type="radio" name="service_id" value={sv.id} checked={sv.id === preselect} required />
+                <span class="option-body">
+                  <span class="option-title">{sv.name}</span>
+                  <span class="option-desc">{sv.description}</span>
+                  <span class="option-meta">
+                    <span>
+                      <Icon name="clock" size={15} /> {formatDuration(sv.duration_min)}
+                    </span>
+                    <strong>{sv.price_from != null ? `desde ${formatCOP(sv.price_from)}` : 'A convenir'}</strong>
+                  </span>
+                </span>
+              </label>
+            ))
+          }
+        </div>
+        <div class="actions">
+          <span></span>
+          <button type="button" class="btn btn-clay" data-next>Continuar <Icon name="arrow" /></button>
+        </div>
+      </fieldset>
+
+      <!-- Paso 2 -->
+      <fieldset data-step="2" hidden>
+        <legend>Elige el día y la hora</legend>
+        <div class="cal">
+          <div class="cal-head">
+            <button type="button" class="cal-nav" data-cal-prev aria-label="Mes anterior">‹</button>
+            <strong data-cal-title aria-live="polite"></strong>
+            <button type="button" class="cal-nav" data-cal-next aria-label="Mes siguiente">›</button>
+          </div>
+          <div class="cal-week" aria-hidden="true">
+            <span>L</span><span>M</span><span>M</span><span>J</span><span>V</span><span>S</span><span>D</span>
+          </div>
+          <div class="cal-grid" data-cal-grid role="group" aria-label="Días disponibles"></div>
+        </div>
+        <div class="slots-wrap">
+          <h2 class="slots-title" data-slots-title>Selecciona un día</h2>
+          <div class="slots" data-slots role="radiogroup" aria-label="Horas disponibles" aria-live="polite"></div>
+        </div>
+        <div class="actions">
+          <button type="button" class="btn btn-ghost" data-prev>Atrás</button>
+          <button type="button" class="btn btn-clay" data-next>Continuar <Icon name="arrow" /></button>
+        </div>
+      </fieldset>
+
+      <!-- Paso 3 -->
+      <fieldset data-step="3" hidden>
+        <legend>Tus datos</legend>
+        <div class="summary" data-summary></div>
+        <div class="fields">
+          <div class="field">
+            <label for="name">Nombre completo</label>
+            <input id="name" name="name" type="text" autocomplete="name" maxlength="80" required />
+          </div>
+          <div class="field">
+            <label for="phone">WhatsApp</label>
+            <input id="phone" name="phone" type="tel" inputmode="tel" autocomplete="tel" placeholder="300 123 4567" maxlength="20" required />
+          </div>
+          <div class="field">
+            <label for="email">Correo <span class="hint">(opcional, para recibir la invitación de calendario)</span></label>
+            <input id="email" name="email" type="email" autocomplete="email" maxlength="120" />
+          </div>
+          <div class="field full">
+            <label for="notes">¿Algo que deba saber? <span class="hint">(opcional)</span></label>
+            <textarea id="notes" name="notes" maxlength="500" placeholder="Ocasión, largo de tu cabello, idea de peinado, si es a domicilio…"></textarea>
+          </div>
+          <div class="hp" aria-hidden="true">
+            <label for="website">No llenar</label>
+            <input id="website" name="website" type="text" tabindex="-1" autocomplete="off" />
+          </div>
+          <label class="consent full">
+            <input type="checkbox" name="consent" required />
+            <span>Acepto el tratamiento de mis datos para gestionar mi cita, según la <a href="/privacidad" target="_blank">política de privacidad</a>.</span>
+          </label>
+        </div>
+        <p class="notice error" data-error hidden role="alert"></p>
+        <div class="actions">
+          <button type="button" class="btn btn-ghost" data-prev>Atrás</button>
+          <button type="submit" class="btn btn-clay" data-submit><Icon name="check" /> Confirmar cita</button>
+        </div>
+      </fieldset>
+    </form>
+
+    <p class="help">
+      ¿Prefieres hablar? <a href={`https://wa.me/${s.whatsapp}`} target="_blank" rel="noopener">Escríbeme por WhatsApp</a>.
+    </p>
+    <script type="application/json" id="booking-data" set:html={JSON.stringify(data).replace(/</g, '\\u003c')} />
+  </main>
+</Base>
+
+<style>
+  .book {
+    padding: 1.5rem 0 5rem;
+    max-width: 860px;
+  }
+  .intro {
+    text-align: center;
+    margin-bottom: 2rem;
+  }
+  .intro .eyebrow::before {
+    display: none;
+  }
+  .intro h1 {
+    font-size: clamp(2.4rem, 6vw, 4rem);
+  }
+  .intro .lead {
+    margin-inline: auto;
+  }
+  .card {
+    background: var(--white);
+    border: 1px solid var(--line);
+    border-radius: var(--radius-lg);
+    padding: clamp(1.25rem, 4vw, 2.5rem);
+    box-shadow: var(--shadow);
+  }
+  .progress {
+    display: flex;
+    gap: 0.5rem;
+    list-style: none;
+    padding: 0;
+    margin: 0 0 2rem;
+  }
+  .progress li {
+    flex: 1;
+    display: flex;
+    align-items: center;
+    gap: 0.5rem;
+    padding-bottom: 0.8rem;
+    border-bottom: 3px solid var(--line);
+    font-size: 0.85rem;
+    font-weight: 700;
+    color: var(--muted);
+    transition: all 0.4s var(--ease);
+  }
+  .progress span {
+    display: grid;
+    place-items: center;
+    width: 26px;
+    height: 26px;
+    border-radius: 50%;
+    background: var(--cream-2);
+    font-size: 0.8rem;
+  }
+  .progress li.on {
+    color: var(--cocoa);
+    border-color: var(--clay);
+  }
+  .progress li.on span {
+    background: var(--clay);
+    color: var(--white);
+  }
+  fieldset {
+    border: 0;
+    padding: 0;
+    margin: 0;
+    min-width: 0;
+    animation: stepIn 0.5s var(--ease);
+  }
+  @keyframes stepIn {
+    from {
+      opacity: 0;
+      transform: translateY(14px);
+    }
+  }
+  legend {
+    font-family: var(--font-display);
+    font-size: clamp(1.5rem, 3vw, 2rem);
+    margin-bottom: 1.2rem;
+    padding: 0;
+  }
+  .options {
+    display: grid;
+    gap: 0.75rem;
+  }
+  .option {
+    position: relative;
+    display: block;
+    cursor: pointer;
+  }
+  .option input {
+    position: absolute;
+    opacity: 0;
+    inset: 0;
+    cursor: pointer;
+  }
+  .option-body {
+    display: grid;
+    gap: 0.25rem;
+    padding: 1.1rem 1.25rem;
+    border-radius: 18px;
+    border: 1.5px solid var(--line);
+    background: var(--cream);
+    transition: all 0.25s;
+  }
+  .option:hover .option-body {
+    border-color: var(--blush);
+  }
+  .option input:checked + .option-body {
+    border-color: var(--clay);
+    background: #fdeee4;
+    box-shadow: 0 0 0 4px color-mix(in oklab, var(--clay) 14%, transparent);
+  }
+  .option input:focus-visible + .option-body {
+    outline: 2.5px solid var(--clay);
+    outline-offset: 3px;
+  }
+  .option-title {
+    font-family: var(--font-display);
+    font-size: 1.25rem;
+  }
+  .option-desc {
+    font-size: 0.92rem;
+    color: var(--cocoa-2);
+  }
+  .option-meta {
+    display: flex;
+    justify-content: space-between;
+    gap: 1rem;
+    margin-top: 0.3rem;
+    font-size: 0.88rem;
+    color: var(--muted);
+  }
+  .option-meta span {
+    display: inline-flex;
+    gap: 0.35rem;
+    align-items: center;
+  }
+  .option-meta strong {
+    color: var(--cocoa);
+  }
+  .actions {
+    display: flex;
+    justify-content: space-between;
+    gap: 0.75rem;
+    margin-top: 1.8rem;
+  }
+
+  /* Calendario */
+  .cal {
+    max-width: 420px;
+    margin-inline: auto;
+  }
+  .cal-head {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    margin-bottom: 0.8rem;
+    font-family: var(--font-display);
+    font-size: 1.25rem;
+  }
+  .cal-nav {
+    width: 44px;
+    height: 44px;
+    border-radius: 50%;
+    border: 1.5px solid var(--line);
+    background: var(--cream);
+    font-size: 1.4rem;
+    line-height: 1;
+    cursor: pointer;
+    color: var(--cocoa);
+  }
+  .cal-nav:disabled {
+    opacity: 0.3;
+    cursor: default;
+  }
+  .cal-week,
+  .cal-grid {
+    display: grid;
+    grid-template-columns: repeat(7, 1fr);
+    gap: 4px;
+    text-align: center;
+  }
+  .cal-week {
+    font-size: 0.75rem;
+    font-weight: 700;
+    color: var(--muted);
+    margin-bottom: 0.4rem;
+  }
+  .cal-grid :global(button) {
+    aspect-ratio: 1;
+    border-radius: 50%;
+    border: 0;
+    background: transparent;
+    font: 600 0.95rem var(--font-body);
+    color: var(--cocoa);
+    cursor: pointer;
+    transition: all 0.2s;
+  }
+  .cal-grid :global(button:hover:not(:disabled)) {
+    background: var(--cream-2);
+  }
+  .cal-grid :global(button:disabled) {
+    color: color-mix(in oklab, var(--muted) 40%, transparent);
+    cursor: default;
+    text-decoration: line-through;
+    text-decoration-color: transparent;
+  }
+  .cal-grid :global(button[aria-pressed='true']) {
+    background: var(--clay);
+    color: var(--white);
+  }
+  .cal-grid :global(button.today) {
+    box-shadow: inset 0 0 0 1.5px var(--blush);
+  }
+  .slots-wrap {
+    margin-top: 1.8rem;
+  }
+  .slots-title {
+    font-family: var(--font-body);
+    font-size: 0.95rem;
+    font-weight: 700;
+    letter-spacing: 0;
+    margin-bottom: 0.8rem;
+  }
+  .slots {
+    display: grid;
+    grid-template-columns: repeat(auto-fill, minmax(104px, 1fr));
+    gap: 0.5rem;
+    min-height: 52px;
+  }
+  .slots :global(button) {
+    min-height: 48px;
+    border-radius: 14px;
+    border: 1.5px solid var(--line);
+    background: var(--cream);
+    font: 650 0.95rem var(--font-body);
+    color: var(--cocoa);
+    cursor: pointer;
+    transition: all 0.2s;
+  }
+  .slots :global(button:hover) {
+    border-color: var(--clay);
+  }
+  .slots :global(button[aria-checked='true']) {
+    background: var(--cocoa);
+    border-color: var(--cocoa);
+    color: var(--white);
+  }
+  .slots :global(p) {
+    grid-column: 1 / -1;
+    color: var(--muted);
+    margin: 0;
+  }
+
+  .summary {
+    padding: 1rem 1.25rem;
+    border-radius: 18px;
+    background: var(--cream);
+    border: 1px dashed var(--line);
+    margin-bottom: 1.4rem;
+    font-weight: 600;
+  }
+  .summary :global(small) {
+    display: block;
+    font-weight: 500;
+    color: var(--muted);
+  }
+  .fields {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 1rem;
+  }
+  .full {
+    grid-column: 1 / -1;
+  }
+  .hp {
+    position: absolute;
+    left: -9999px;
+    width: 1px;
+    height: 1px;
+    overflow: hidden;
+  }
+  .consent {
+    display: flex;
+    gap: 0.7rem;
+    align-items: flex-start;
+    font-size: 0.9rem;
+    color: var(--cocoa-2);
+  }
+  .consent input {
+    width: 20px;
+    height: 20px;
+    margin-top: 0.15rem;
+    accent-color: var(--clay);
+    flex: none;
+  }
+  [data-error] {
+    margin-top: 1rem;
+  }
+  .help {
+    text-align: center;
+    margin-top: 1.5rem;
+    color: var(--muted);
+  }
+  .help a {
+    color: var(--clay);
+    font-weight: 700;
+  }
+  @media (max-width: 620px) {
+    .fields {
+      grid-template-columns: 1fr;
+    }
+    .progress li {
+      font-size: 0;
+      gap: 0;
+    }
+    .actions .btn {
+      flex: 1;
+    }
+  }
+</style>
+
+<script>
+  interface Data {
+    ft: string;
+    days: string[];
+    preselect: string;
+    services: { id: string; name: string; duration: string; price: string }[];
+  }
+  const data: Data = JSON.parse(document.getElementById('booking-data')!.textContent!);
+  const form = document.getElementById('booking') as HTMLFormElement;
+  const $ = <T extends HTMLElement>(sel: string) => form.querySelector<T>(sel)!;
+  const open = new Set(data.days);
+
+  const state = { step: 1, date: '', time: '', month: (data.days[0] ?? new Date().toISOString().slice(0, 10)).slice(0, 7) };
+  const firstMonth = state.month;
+  const lastMonth = (data.days[data.days.length - 1] ?? state.month).slice(0, 7);
+
+  const fmtMonth = new Intl.DateTimeFormat('es-CO', { month: 'long', year: 'numeric', timeZone: 'UTC' });
+  const fmtDay = new Intl.DateTimeFormat('es-CO', { weekday: 'long', day: 'numeric', month: 'long', timeZone: 'UTC' });
+  const pretty12 = (t: string) => {
+    const [h, m] = t.split(':').map(Number);
+    return `${((h + 11) % 12) + 1}:${String(m).padStart(2, '0')} ${h < 12 ? 'a. m.' : 'p. m.'}`;
+  };
+  const today = new Intl.DateTimeFormat('en-CA', { timeZone: 'America/Bogota' }).format(new Date());
+
+  function showError(msg: string) {
+    const el = $<HTMLElement>('[data-error]');
+    el.textContent = msg;
+    el.hidden = !msg;
+  }
+
+  function go(step: number) {
+    state.step = step;
+    form.querySelectorAll<HTMLElement>('[data-step]').forEach((f) => (f.hidden = Number(f.dataset.step) !== step));
+    form.querySelectorAll<HTMLElement>('[data-step-dot]').forEach((d) => d.classList.toggle('on', Number(d.dataset.stepDot) <= step));
+    showError('');
+    if (step === 2) renderCal();
+    if (step === 3) renderSummary();
+    form.scrollIntoView({ behavior: 'smooth', block: 'start' });
+  }
+
+  const serviceId = () => (new FormData(form).get('service_id') as string) || '';
+
+  function renderCal() {
+    const [y, m] = state.month.split('-').map(Number);
+    const mt = fmtMonth.format(new Date(Date.UTC(y, m - 1, 1)));
+    $('[data-cal-title]').textContent = mt.charAt(0).toUpperCase() + mt.slice(1);
+    $<HTMLButtonElement>('[data-cal-prev]').disabled = state.month <= firstMonth;
+    $<HTMLButtonElement>('[data-cal-next]').disabled = state.month >= lastMonth;
+    const grid = $('[data-cal-grid]');
+    grid.replaceChildren();
+    const offset = (new Date(Date.UTC(y, m - 1, 1)).getUTCDay() + 6) % 7; // lunes primero
+    for (let i = 0; i < offset; i++) grid.append(document.createElement('span'));
+    const count = new Date(Date.UTC(y, m, 0)).getUTCDate();
+    for (let d = 1; d <= count; d++) {
+      const iso = `${state.month}-${String(d).padStart(2, '0')}`;
+      const b = document.createElement('button');
+      b.type = 'button';
+      b.textContent = String(d);
+      b.disabled = !open.has(iso);
+      b.setAttribute('aria-pressed', String(iso === state.date));
+      b.setAttribute('aria-label', fmtDay.format(new Date(`${iso}T12:00:00Z`)));
+      if (iso === today) b.classList.add('today');
+      b.addEventListener('click', () => pickDate(iso));
+      grid.append(b);
+    }
+  }
+
+  let reqId = 0;
+  async function pickDate(iso: string) {
+    state.date = iso;
+    state.time = '';
+    renderCal();
+    const title = $('[data-slots-title]');
+    const box = $('[data-slots]');
+    title.textContent = `Horas libres · ${fmtDay.format(new Date(`${iso}T12:00:00Z`))}`;
+    box.replaceChildren(Object.assign(document.createElement('p'), { textContent: 'Buscando horarios…' }));
+    const mine = ++reqId;
+    try {
+      const res = await fetch(`/api/slots?date=${iso}&service=${serviceId()}`, { headers: { Accept: 'application/json' } });
+      const j = await res.json();
+      if (mine !== reqId) return;
+      if (!res.ok) throw new Error(j.error);
+      box.replaceChildren();
+      if (!j.slots.length) {
+        box.append(Object.assign(document.createElement('p'), { textContent: 'No quedan espacios este día. Prueba con otra fecha 🌿' }));
+        return;
+      }
+      for (const t of j.slots as string[]) {
+        const b = document.createElement('button');
+        b.type = 'button';
+        b.textContent = pretty12(t);
+        b.setAttribute('role', 'radio');
+        b.setAttribute('aria-checked', 'false');
+        b.addEventListener('click', () => {
+          state.time = t;
+          box.querySelectorAll('button').forEach((x) => x.setAttribute('aria-checked', String(x === b)));
+        });
+        box.append(b);
+      }
+    } catch (e) {
+      if (mine !== reqId) return;
+      box.replaceChildren(Object.assign(document.createElement('p'), { textContent: (e as Error).message || 'No pudimos cargar los horarios. Intenta de nuevo.' }));
+    }
+  }
+
+  function renderSummary() {
+    const sv = data.services.find((x) => x.id === serviceId());
+    const el = $('[data-summary]');
+    el.replaceChildren(
+      document.createTextNode(`${sv?.name ?? ''} · ${pretty12(state.time)}`),
+      Object.assign(document.createElement('small'), {
+        textContent: `${fmtDay.format(new Date(`${state.date}T12:00:00Z`))} · ${sv?.duration ?? ''} · ${sv?.price ?? ''}`,
+      }),
+    );
+  }
+
+  form.querySelectorAll('[data-next]').forEach((b) =>
+    b.addEventListener('click', () => {
+      if (state.step === 1) {
+        if (!serviceId()) return alertStep('Elige un servicio para continuar.');
+        state.date = '';
+        state.time = '';
+        $('[data-slots]').replaceChildren();
+        $('[data-slots-title]').textContent = 'Selecciona un día';
+        go(2);
+      } else if (state.step === 2) {
+        if (!state.date || !state.time) return alertStep('Elige un día y una hora.');
+        go(3);
+      }
+    }),
+  );
+  form.querySelectorAll('[data-prev]').forEach((b) => b.addEventListener('click', () => go(state.step - 1)));
+  $('[data-cal-prev]').addEventListener('click', () => shiftMonth(-1));
+  $('[data-cal-next]').addEventListener('click', () => shiftMonth(1));
+
+  function shiftMonth(delta: number) {
+    const [y, m] = state.month.split('-').map(Number);
+    state.month = new Date(Date.UTC(y, m - 1 + delta, 1)).toISOString().slice(0, 7);
+    renderCal();
+  }
+
+  function alertStep(msg: string) {
+    let el = form.querySelector<HTMLElement>(`[data-step="${state.step}"] .step-alert`);
+    if (!el) {
+      el = Object.assign(document.createElement('p'), { className: 'notice error step-alert' });
+      el.setAttribute('role', 'alert');
+      el.style.marginTop = '1rem';
+      form.querySelector(`[data-step="${state.step}"] .actions`)!.before(el);
+    }
+    el.textContent = msg;
+    setTimeout(() => el?.remove(), 4000);
+  }
+
+  form.addEventListener('submit', async (ev) => {
+    ev.preventDefault();
+    if (state.step !== 3) return;
+    if (!form.reportValidity()) return;
+    const fd = new FormData(form);
+    const btn = $<HTMLButtonElement>('[data-submit]');
+    btn.disabled = true;
+    showError('');
+    try {
+      const res = await fetch('/api/book', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', Accept: 'application/json' },
+        body: JSON.stringify({
+          service_id: fd.get('service_id'),
+          date: state.date,
+          time: state.time,
+          name: fd.get('name'),
+          phone: fd.get('phone'),
+          email: fd.get('email') || '',
+          notes: fd.get('notes') || '',
+          website: fd.get('website') || '',
+          consent: fd.get('consent') === 'on',
+          ft: data.ft,
+        }),
+      });
+      const j = await res.json();
+      if (!res.ok) {
+        showError(j.error || 'No pudimos guardar tu cita.');
+        if (res.status === 409) {
+          state.time = '';
+          setTimeout(() => {
+            go(2);
+            pickDate(state.date);
+          }, 1800);
+        }
+        return;
+      }
+      location.assign(`/reserva/${j.id}`);
+    } catch {
+      showError('Sin conexión. Revisa tu internet e intenta de nuevo.');
+    } finally {
+      btn.disabled = false;
+    }
+  });
+
+  if (data.preselect) go(2);
+</script>

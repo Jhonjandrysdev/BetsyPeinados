@@ -1,0 +1,35 @@
+---
+import Base from '../layouts/Base.astro';
+import Header from '../components/Header.astro';
+---
+
+<Base title="Página no encontrada · Betsy Peinados" description="Esta página no existe." noindex>
+  <Header minimal />
+  <main id="contenido" class="wrap nf">
+    <p class="big" aria-hidden="true">404</p>
+    <h1>Este mechón se nos <em>escapó</em></h1>
+    <p class="lead">La página que buscas no existe o cambió de lugar.</p>
+    <a class="btn btn-clay" href="/">Volver al inicio</a>
+  </main>
+</Base>
+
+<style>
+  .nf {
+    text-align: center;
+    padding: 4rem 0 6rem;
+  }
+  .big {
+    font-family: var(--font-display);
+    font-style: italic;
+    font-size: clamp(6rem, 20vw, 12rem);
+    line-height: 1;
+    color: var(--blush);
+    margin: 0;
+  }
+  h1 {
+    font-size: clamp(2rem, 5vw, 3.2rem);
+  }
+  .lead {
+    margin: 0 auto 2rem;
+  }
+</style>

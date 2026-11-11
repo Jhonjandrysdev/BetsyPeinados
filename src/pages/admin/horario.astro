@@ -1,0 +1,280 @@
+---
+import Admin from '../../layouts/Admin.astro';
+import Icon from '../../components/Icon.astro';
+import { addBlockedDate, getBlockedDates, getHours, getSettings, removeBlockedDate, saveHours, updateSettings } from '../../lib/db';
+import { WEEKDAYS } from '../../lib/defaults';
+import { back, bool, int, isUuid, str } from '../../lib/admin';
+import { isDate, isTime, localDate, minutesOf, prettyDate, fromLocal } from '../../lib/time';
+
+const HERE = '/admin/horario';
+if (Astro.request.method === 'POST') {
+  const fd = await Astro.request.formData();
+  const action = str(fd, 'action', 20);
+
+  if (action === 'hours') {
+    const rows = [];
+    for (let d = 0; d < 7; d++) {
+      const open = str(fd, `open_${d}`, 5);
+      const close = str(fd, `close_${d}`, 5);
+      if (!isTime(open) || !isTime(close) || minutesOf(close) <= minutesOf(open)) return back(HERE, 'error', `Revisa el horario del ${WEEKDAYS[d]}`);
+      rows.push({ weekday: d, enabled: bool(fd, `enabled_${d}`), open_time: open, close_time: close });
+    }
+    await saveHours(rows);
+    await updateSettings({
+      slot_step_min: int(fd, 'slot_step_min', 10, 120, 30),
+      min_notice_hours: int(fd, 'min_notice_hours', 0, 168, 12),
+      max_days_ahead: int(fd, 'max_days_ahead', 1, 365, 60),
+    });
+    return back(HERE, 'ok', 'Horario guardado');
+  }
+  if (action === 'block') {
+    const day = str(fd, 'day', 10);
+    if (!isDate(day)) return back(HERE, 'error', 'Fecha inválida');
+    await addBlockedDate(day, str(fd, 'reason', 120));
+    return back(HERE, 'ok', 'Día bloqueado');
+  }
+  if (action === 'unblock') {
+    const id = str(fd, 'id', 40);
+    if (!isUuid(id)) return back(HERE, 'error', 'Inválido');
+    await removeBlockedDate(id);
+    return back(HERE, 'ok', 'Día desbloqueado');
+  }
+  return back(HERE, 'error', 'Acción desconocida');
+}
+
+const [hours, blocked, s] = await Promise.all([getHours(), getBlockedDates(localDate()), getSettings()]);
+const order = [1, 2, 3, 4, 5, 6, 0];
+---
+
+<Admin title="Horario" subtitle="Define cuándo pueden reservar tus clientas. Los cambios se reflejan al instante en la página de reservas.">
+  <form method="post" class="panel">
+    <input type="hidden" name="action" value="hours" />
+    <div class="panel-head">
+      <h2>Horario semanal</h2>
+      <span class="muted">Activa los días que atiendes</span>
+    </div>
+    <div class="hours">
+      {
+        order.map((d) => {
+          const h = hours.find((x) => x.weekday === d)!;
+          return (
+            <div class="hrow">
+              <label class="check day-t">
+                <input type="checkbox" name={`enabled_${d}`} checked={h.enabled} /> <span>{WEEKDAYS[d]}</span>
+              </label>
+              <div class="times">
+                <input class="input" type="time" name={`open_${d}`} value={h.open_time.slice(0, 5)} aria-label={`Apertura ${WEEKDAYS[d]}`} />
+                <span class="sep">a</span>
+                <input class="input" type="time" name={`close_${d}`} value={h.close_time.slice(0, 5)} aria-label={`Cierre ${WEEKDAYS[d]}`} />
+              </div>
+              <span class="closed-t">Cerrado</span>
+            </div>
+          );
+        })
+      }
+    </div>
+    <h2 class="mt">Reglas de reserva</h2>
+    <div class="rules">
+      <div class="field">
+        <label for="step"><Icon name="clock" size={16} /> Intervalo entre horarios</label>
+        <div class="unit"><input id="step" name="slot_step_min" type="number" min="10" max="120" step="5" value={s.slot_step_min} /><span>min</span></div>
+      </div>
+      <div class="field">
+        <label for="notice"><Icon name="sparkle" size={16} /> Anticipación mínima</label>
+        <div class="unit"><input id="notice" name="min_notice_hours" type="number" min="0" max="168" value={s.min_notice_hours} /><span>horas</span></div>
+      </div>
+      <div class="field">
+        <label for="ahead"><Icon name="calendar" size={16} /> Reservar hasta</label>
+        <div class="unit"><input id="ahead" name="max_days_ahead" type="number" min="1" max="365" value={s.max_days_ahead} /><span>días</span></div>
+      </div>
+    </div>
+    <div class="save-row">
+      <button class="btn btn-clay"><Icon name="check" /> Guardar horario</button>
+    </div>
+  </form>
+
+  <section class="panel">
+    <div class="panel-head">
+      <h2>Días bloqueados</h2>
+    </div>
+    <p class="muted">Vacaciones, festivos o días con eventos grandes. Nadie podrá reservar esas fechas. Con Google Calendar conectado, tus eventos personales también bloquean horarios automáticamente.</p>
+    <form method="post" class="block-form">
+      <input type="hidden" name="action" value="block" />
+      <input class="input" type="date" name="day" min={localDate()} required aria-label="Fecha" />
+      <input class="input" name="reason" maxlength="120" placeholder="Motivo (opcional)" aria-label="Motivo" />
+      <button class="btn btn-cocoa btn-sm"><Icon name="ban" /> Bloquear día</button>
+    </form>
+    <ul class="blocked">
+      {
+        blocked.map((b) => (
+          <li>
+            <span class="b-ico"><Icon name="calendar" size={18} /></span>
+            <span class="b-txt">
+              <strong>{prettyDate(fromLocal(b.day, '12:00'))}</strong>
+              {b.reason && <span class="muted">{b.reason}</span>}
+            </span>
+            <form method="post" data-confirm="¿Desbloquear este día? Volverá a estar disponible para reservas.">
+              <input type="hidden" name="action" value="unblock" />
+              <input type="hidden" name="id" value={b.id} />
+              <button class="btn btn-soft btn-sm">Quitar</button>
+            </form>
+          </li>
+        ))
+      }
+      {
+        blocked.length === 0 && (
+          <li class="none">
+            <Icon name="sparkle" size={20} /> No hay días bloqueados.
+          </li>
+        )
+      }
+    </ul>
+  </section>
+</Admin>
+
+<style>
+  .hours {
+    display: grid;
+    gap: 0.5rem;
+  }
+  .hrow {
+    display: grid;
+    grid-template-columns: 180px 1fr;
+    gap: 1rem;
+    align-items: center;
+    padding: 0.55rem 0.75rem;
+    border-radius: 16px;
+    background: var(--cream);
+    transition: background 0.3s, opacity 0.3s;
+  }
+  .times {
+    display: flex;
+    align-items: center;
+    gap: 0.6rem;
+    max-width: 380px;
+  }
+  .times .input {
+    min-height: 44px;
+    padding: 0.5rem 0.8rem;
+  }
+  .sep {
+    color: var(--muted);
+    font-weight: 600;
+  }
+  .closed-t {
+    display: none;
+    color: var(--muted);
+    font-weight: 600;
+    font-size: 0.9rem;
+  }
+  .hrow:has(input[type='checkbox']:not(:checked)) {
+    background: transparent;
+    outline: 1.5px dashed var(--line);
+    outline-offset: -1.5px;
+  }
+  .hrow:has(input[type='checkbox']:not(:checked)) .times {
+    display: none;
+  }
+  .hrow:has(input[type='checkbox']:not(:checked)) .closed-t {
+    display: block;
+  }
+  .hrow:has(input[type='checkbox']:not(:checked)) .day-t span {
+    color: var(--muted);
+  }
+  .mt {
+    margin-top: 1.75rem !important;
+  }
+  .rules {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+    gap: 1rem;
+  }
+  .rules label {
+    display: flex;
+    align-items: center;
+    gap: 0.4rem;
+  }
+  .rules label svg {
+    color: var(--clay);
+  }
+  .unit {
+    position: relative;
+  }
+  .unit span {
+    position: absolute;
+    right: 1rem;
+    top: 50%;
+    transform: translateY(-50%);
+    color: var(--muted);
+    font-size: 0.85rem;
+    font-weight: 600;
+    pointer-events: none;
+  }
+  .unit input {
+    padding-right: 4rem !important;
+  }
+  .save-row {
+    display: flex;
+    justify-content: flex-end;
+    margin-top: 1.5rem;
+    padding-top: 1.25rem;
+    border-top: 1px solid var(--line);
+  }
+  .block-form {
+    display: grid;
+    grid-template-columns: 200px 1fr auto;
+    gap: 0.6rem;
+    margin-top: 1rem;
+  }
+  .btn-cocoa {
+    min-height: 50px !important;
+  }
+  .blocked {
+    list-style: none;
+    padding: 0;
+    margin: 1rem 0 0;
+    display: grid;
+    gap: 0.5rem;
+  }
+  .blocked li {
+    display: flex;
+    align-items: center;
+    gap: 0.8rem;
+    padding: 0.6rem 0.75rem;
+    border-radius: 16px;
+    background: var(--cream);
+    animation: a-rise 0.4s var(--ease) backwards;
+  }
+  .b-ico {
+    display: grid;
+    place-items: center;
+    width: 38px;
+    height: 38px;
+    border-radius: 12px;
+    background: #f9e3de;
+    color: #a83a26;
+    flex: none;
+  }
+  .b-txt {
+    display: grid;
+    flex: 1;
+    min-width: 0;
+  }
+  .blocked li.none {
+    justify-content: center;
+    padding: 1.25rem;
+    background: transparent;
+    border: 1.5px dashed var(--line);
+    color: var(--muted);
+    font-weight: 600;
+  }
+  @media (max-width: 640px) {
+    .hrow {
+      grid-template-columns: 1fr;
+      gap: 0.5rem;
+    }
+    .block-form {
+      grid-template-columns: 1fr;
+    }
+  }
+</style>

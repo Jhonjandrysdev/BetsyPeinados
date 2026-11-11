@@ -1,0 +1,131 @@
+---
+import Base from '../../layouts/Base.astro';
+import Header from '../../components/Header.astro';
+import Icon from '../../components/Icon.astro';
+import { getAppointment, getSettings } from '../../lib/db';
+import { prettyDate, prettyTime } from '../../lib/time';
+
+const { id = '' } = Astro.params;
+const appt = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(id) ? await getAppointment(id) : null;
+if (!appt) return Astro.redirect('/reservar', 303);
+const s = await getSettings();
+
+const stamp = (iso: string) => iso.replace(/[-:]/g, '').replace(/\.\d{3}/, '');
+const gcal = `https://calendar.google.com/calendar/render?${new URLSearchParams({
+  action: 'TEMPLATE',
+  text: `${appt.service_name} con ${s.business_name}`,
+  dates: `${stamp(appt.starts_at)}/${stamp(appt.ends_at)}`,
+  location: s.address,
+  details: `Cita en ${s.business_name}. WhatsApp: +${s.whatsapp}`,
+})}`;
+const wa = `https://wa.me/${s.whatsapp}?text=${encodeURIComponent(
+  `¡Hola Betsy! Soy ${appt.customer_name}. Acabo de agendar ${appt.service_name} para el ${prettyDate(appt.starts_at)} a las ${prettyTime(appt.starts_at)} ✨`,
+)}`;
+const cancelled = appt.status === 'cancelada';
+---
+
+<Base title={`Cita ${cancelled ? 'cancelada' : 'confirmada'} · ${s.business_name}`} description="Detalle de tu cita." noindex>
+  <Header minimal />
+  <main id="contenido" class="wrap ok">
+    <div class="card">
+      <div class:list={['seal', { off: cancelled }]} aria-hidden="true"><Icon name={cancelled ? 'close' : 'check'} size={34} /></div>
+      <h1>{cancelled ? 'Esta cita fue cancelada' : <>¡Tu cita está <em>confirmada</em>!</>}</h1>
+      <p class="lead">
+        {cancelled ? 'Si quieres reprogramar, agenda un nuevo horario.' : `Gracias, ${appt.customer_name.split(' ')[0]}. Te espero para dejarte espectacular.`}
+      </p>
+      <dl>
+        <div><dt>Servicio</dt><dd>{appt.service_name}</dd></div>
+        <div><dt>Fecha</dt><dd>{prettyDate(appt.starts_at)}</dd></div>
+        <div><dt>Hora</dt><dd>{prettyTime(appt.starts_at)}</dd></div>
+        <div><dt>Lugar</dt><dd>{s.address}</dd></div>
+      </dl>
+      {
+        !cancelled && (
+          <div class="cta">
+            <a class="btn btn-clay" href={wa} target="_blank" rel="noopener"><Icon name="whatsapp" /> Avisar por WhatsApp</a>
+            <a class="btn btn-ghost" href={gcal} target="_blank" rel="noopener"><Icon name="calendar" /> Añadir a mi calendario</a>
+          </div>
+        )
+      }
+      {cancelled && <div class="cta"><a class="btn btn-clay" href="/reservar">Agendar de nuevo</a></div>}
+      <p class="small">¿Necesitas cambiar o cancelar? Escríbeme por WhatsApp con al menos 24 horas de anticipación.</p>
+    </div>
+  </main>
+</Base>
+
+<style>
+  .ok {
+    max-width: 640px;
+    padding: 2rem 0 5rem;
+  }
+  .card {
+    text-align: center;
+    background: var(--white);
+    border: 1px solid var(--line);
+    border-radius: var(--radius-lg);
+    padding: clamp(1.75rem, 5vw, 3rem);
+    box-shadow: var(--shadow);
+  }
+  .seal {
+    display: grid;
+    place-items: center;
+    width: 76px;
+    height: 76px;
+    margin: 0 auto 1.4rem;
+    border-radius: 46% 54% 60% 40% / 45% 45% 55% 55%;
+    background: var(--sage);
+    color: var(--white);
+    animation: pop 0.7s var(--ease);
+  }
+  .seal.off {
+    background: var(--muted);
+  }
+  @keyframes pop {
+    from {
+      transform: scale(0.4) rotate(-20deg);
+      opacity: 0;
+    }
+  }
+  h1 {
+    font-size: clamp(2rem, 5vw, 3rem);
+  }
+  .lead {
+    margin-inline: auto;
+  }
+  dl {
+    text-align: left;
+    margin: 2rem 0;
+    padding: 0.5rem 1.25rem;
+    border-radius: 18px;
+    background: var(--cream);
+  }
+  dl div {
+    display: flex;
+    justify-content: space-between;
+    gap: 1rem;
+    padding: 0.8rem 0;
+    border-bottom: 1px dashed var(--line);
+  }
+  dl div:last-child {
+    border: 0;
+  }
+  dt {
+    color: var(--muted);
+  }
+  dd {
+    margin: 0;
+    font-weight: 700;
+    text-align: right;
+  }
+  .cta {
+    display: flex;
+    flex-wrap: wrap;
+    justify-content: center;
+    gap: 0.75rem;
+  }
+  .small {
+    margin: 1.5rem 0 0;
+    font-size: 0.88rem;
+    color: var(--muted);
+  }
+</style>

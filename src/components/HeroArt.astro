@@ -1,0 +1,320 @@
+---
+import Icon from './Icon.astro';
+interface Props {
+  photo?: string | null;
+  alt?: string;
+  photo2?: string | null;
+  alt2?: string;
+}
+const { photo, alt = '', photo2, alt2 = '' } = Astro.props;
+// Mechones: curvas suaves que evocan ondas de cabello (solo si aún no hay foto).
+const strands = Array.from({ length: 11 }, (_, i) => {
+  const x = 40 + i * 34;
+  const w = 26 + (i % 3) * 8;
+  return `M${x} -20 C ${x + w} 90, ${x - w} 180, ${x + w * 0.6} 280 S ${x - w} 450, ${x + w * 0.8} 560`;
+});
+---
+
+<div class="art">
+  <span class="halo" aria-hidden="true"></span>
+  <span class="ring" aria-hidden="true"></span>
+
+  <div class="frame">
+    {
+      photo ? (
+        <img src={photo} alt={alt} width="520" height="650" fetchpriority="high" decoding="async" />
+      ) : (
+        <svg viewBox="0 0 440 540" preserveAspectRatio="xMidYMid slice" aria-hidden="true">
+          <defs>
+            <linearGradient id="g1" x1="0" y1="0" x2="1" y2="1">
+              <stop offset="0" stop-color="#efc6b0" />
+              <stop offset=".55" stop-color="#c77554" />
+              <stop offset="1" stop-color="#5b3022" />
+            </linearGradient>
+            <radialGradient id="glow" cx=".3" cy=".25" r=".7">
+              <stop offset="0" stop-color="#fff6ea" stop-opacity=".75" />
+              <stop offset="1" stop-color="#fff6ea" stop-opacity="0" />
+            </radialGradient>
+          </defs>
+          <rect width="440" height="540" fill="url(#g1)" />
+          <g class="strands" fill="none" stroke-linecap="round">
+            {strands.map((d, i) => (
+              <path d={d} stroke={i % 2 ? '#fbe9dc' : '#f3c9b1'} stroke-opacity={0.35 + (i % 4) * 0.12} stroke-width={1.2 + (i % 3)} />
+            ))}
+          </g>
+          <rect width="440" height="540" fill="url(#glow)" />
+        </svg>
+      )
+    }
+  </div>
+
+  {
+    photo2 && (
+      <div class="mini">
+        <img src={photo2} alt={alt2} width="180" height="180" loading="lazy" decoding="async" />
+      </div>
+    )
+  }
+
+  <div class="badge">
+    <span class="dot"></span>
+    Agenda abierta
+  </div>
+
+  <a class="stamp" href="/reservar" aria-label="Reservar cita">
+    <svg viewBox="0 0 120 120" class="stamp-text" aria-hidden="true">
+      <defs>
+        <path id="stamp-circle" d="M60 60m-45 0a45 45 0 1 1 90 0a45 45 0 1 1-90 0" />
+      </defs>
+      <text>
+        <textPath href="#stamp-circle" textLength="278">RESERVA TU CITA • PEINADOS DE AUTOR •</textPath>
+      </text>
+    </svg>
+    <span class="stamp-arrow"><Icon name="arrow" size={22} /></span>
+  </a>
+
+  <svg class="spark s1" viewBox="0 0 120 120" aria-hidden="true">
+    <path d="M60 6c3 24 13 34 38 38-25 4-35 14-38 38-3-24-13-34-38-38 25-4 35-14 38-38Z" />
+  </svg>
+  <svg class="spark s2" viewBox="0 0 120 120" aria-hidden="true">
+    <path d="M60 6c3 24 13 34 38 38-25 4-35 14-38 38-3-24-13-34-38-38 25-4 35-14 38-38Z" />
+  </svg>
+</div>
+
+<style>
+  .art {
+    position: relative;
+    width: 100%;
+    max-width: 470px;
+    margin-inline: auto;
+    aspect-ratio: 4 / 5;
+  }
+  /* mancha orgánica de fondo */
+  .halo {
+    position: absolute;
+    inset: -9% -14% -7% -12%;
+    border-radius: 58% 42% 55% 45% / 47% 53% 47% 53%;
+    background: linear-gradient(150deg, color-mix(in oklab, var(--blush) 75%, var(--cream)), color-mix(in oklab, var(--sand) 70%, var(--cream)));
+    animation: blobby 14s ease-in-out infinite alternate;
+  }
+  @keyframes blobby {
+    to {
+      border-radius: 42% 58% 40% 60% / 58% 40% 60% 42%;
+      transform: rotate(6deg);
+    }
+  }
+  /* contorno de arco desplazado */
+  .ring {
+    position: absolute;
+    inset: 0;
+    border: 1.5px solid var(--clay);
+    border-radius: 999px 999px 34px 34px;
+    transform: translate(18px, 18px);
+    opacity: 0.55;
+  }
+  .frame {
+    position: absolute;
+    inset: 0;
+    overflow: hidden;
+    border-radius: 999px 999px 34px 34px;
+    background: linear-gradient(160deg, #efc6b0, #c77554 55%, #5b3022);
+    box-shadow: 0 40px 70px -30px rgb(91 48 34 / 0.55);
+  }
+  .frame img,
+  .frame svg {
+    width: 100%;
+    height: 100%;
+    object-fit: cover;
+    object-position: 50% 22%;
+    animation: settle 1.6s var(--ease) both;
+  }
+  @keyframes settle {
+    from {
+      transform: scale(1.12);
+    }
+    to {
+      transform: scale(1);
+    }
+  }
+  .frame::after {
+    content: '';
+    position: absolute;
+    inset: 0;
+    background: linear-gradient(180deg, transparent 55%, rgb(42 28 22 / 0.28));
+    pointer-events: none;
+  }
+  .strands path {
+    stroke-dasharray: 900;
+    stroke-dashoffset: 900;
+    animation: draw 3.2s var(--ease) forwards, sway 9s ease-in-out 3.2s infinite alternate;
+  }
+  .strands path:nth-child(odd) {
+    animation-delay: 0.25s, 3.4s;
+  }
+  .strands path:nth-child(3n) {
+    animation-delay: 0.5s, 3.7s;
+  }
+  @keyframes draw {
+    to {
+      stroke-dashoffset: 0;
+    }
+  }
+  @keyframes sway {
+    from {
+      transform: translateX(0);
+    }
+    to {
+      transform: translateX(14px);
+    }
+  }
+
+  /* segunda foto, en círculo */
+  .mini {
+    position: absolute;
+    left: -11%;
+    top: 9%;
+    width: 30%;
+    aspect-ratio: 1;
+    border-radius: 50%;
+    overflow: hidden;
+    border: 5px solid var(--cream);
+    box-shadow: var(--shadow);
+    animation: float 7s ease-in-out infinite;
+  }
+  .mini img {
+    width: 100%;
+    height: 100%;
+    object-fit: cover;
+    object-position: 50% 25%;
+  }
+
+  .badge {
+    position: absolute;
+    left: -9%;
+    bottom: 13%;
+    display: inline-flex;
+    align-items: center;
+    gap: 0.6rem;
+    padding: 0.8rem 1.15rem;
+    background: var(--white);
+    border-radius: 999px;
+    box-shadow: var(--shadow);
+    font-weight: 700;
+    font-size: 0.9rem;
+    animation: float 6s ease-in-out -2s infinite;
+  }
+  .dot {
+    width: 10px;
+    height: 10px;
+    border-radius: 50%;
+    background: #6c9a52;
+    box-shadow: 0 0 0 0 rgb(108 154 82 / 0.6);
+    animation: pulse 2s infinite;
+  }
+
+  /* sello giratorio que lleva a reservar */
+  .stamp {
+    position: absolute;
+    right: -9%;
+    bottom: -6%;
+    width: clamp(104px, 28%, 132px);
+    aspect-ratio: 1;
+    display: grid;
+    place-items: center;
+    border-radius: 50%;
+    background: var(--cocoa);
+    color: var(--cream);
+    text-decoration: none;
+    box-shadow: 0 18px 36px -16px rgb(42 28 22 / 0.7);
+    transition: transform 0.5s var(--ease), background-color 0.3s;
+  }
+  .stamp:hover {
+    transform: scale(1.06);
+    background: var(--clay);
+  }
+  .stamp-text {
+    position: absolute;
+    inset: 0;
+    width: 100%;
+    height: 100%;
+    animation: spin 22s linear infinite;
+  }
+  .stamp-text text {
+    fill: currentColor;
+    font-family: var(--font-body);
+    font-size: 10.5px;
+    font-weight: 700;
+    letter-spacing: 0.08em;
+  }
+  .stamp-arrow {
+    display: grid;
+    place-items: center;
+    width: 40%;
+    aspect-ratio: 1;
+    border-radius: 50%;
+    background: var(--clay);
+    transform: rotate(-45deg);
+    transition: transform 0.5s var(--ease), background-color 0.3s;
+  }
+  .stamp:hover .stamp-arrow {
+    transform: rotate(0deg);
+    background: var(--cocoa);
+  }
+
+  .spark {
+    position: absolute;
+    fill: var(--gold);
+    animation: twinkle 4s ease-in-out infinite;
+  }
+  .s1 {
+    right: -7%;
+    top: 5%;
+    width: 54px;
+  }
+  .s2 {
+    right: 7%;
+    top: -4%;
+    width: 24px;
+    animation-delay: -2s;
+  }
+  @keyframes twinkle {
+    50% {
+      transform: scale(0.72) rotate(35deg);
+      opacity: 0.6;
+    }
+  }
+  @keyframes float {
+    50% {
+      transform: translateY(-10px);
+    }
+  }
+  @keyframes pulse {
+    70% {
+      box-shadow: 0 0 0 10px rgb(108 154 82 / 0);
+    }
+    100% {
+      box-shadow: 0 0 0 0 rgb(108 154 82 / 0);
+    }
+  }
+  @keyframes spin {
+    to {
+      transform: rotate(360deg);
+    }
+  }
+  @media (max-width: 900px) {
+    .mini {
+      left: -7%;
+    }
+    .badge {
+      left: -5%;
+      font-size: 0.82rem;
+      padding: 0.65rem 0.95rem;
+    }
+    .stamp {
+      right: -5%;
+    }
+    .s1 {
+      right: -3%;
+    }
+  }
+</style>

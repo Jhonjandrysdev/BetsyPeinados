@@ -1,0 +1,74 @@
+---
+import '../styles/global.css';
+import playfairUrl from '@fontsource-variable/playfair-display/files/playfair-display-latin-wght-normal.woff2?url';
+import manropeUrl from '@fontsource-variable/manrope/files/manrope-latin-wght-normal.woff2?url';
+
+interface Props {
+  title: string;
+  description: string;
+  noindex?: boolean;
+  jsonLd?: Record<string, unknown> | Record<string, unknown>[];
+  image?: string;
+  bodyClass?: string;
+}
+
+const { title, description, noindex = false, jsonLd, image = '/apple-touch-icon.png', bodyClass } = Astro.props;
+const site = Astro.site ?? new URL(Astro.url.origin);
+const canonical = new URL(Astro.url.pathname.replace(/\/$/, '') || '/', site).href;
+const ogImage = new URL(image, site).href;
+const ld = jsonLd ? (Array.isArray(jsonLd) ? jsonLd : [jsonLd]) : [];
+---
+
+<!doctype html>
+<html lang="es-CO">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
+    <title>{title}</title>
+    <meta name="description" content={description} />
+    <link rel="canonical" href={canonical} />
+    <meta name="robots" content={noindex ? 'noindex, nofollow' : 'index, follow, max-image-preview:large'} />
+    <meta name="theme-color" content="#f7f0e7" />
+    <meta name="format-detection" content="telephone=no" />
+    <meta name="geo.region" content="CO-CES" />
+    <meta name="geo.placename" content="Valledupar" />
+
+    <link rel="preload" href={playfairUrl} as="font" type="font/woff2" crossorigin />
+    <link rel="preload" href={manropeUrl} as="font" type="font/woff2" crossorigin />
+    <link rel="icon" href="/favicon.png" type="image/png" sizes="48x48" />
+    <link rel="manifest" href="/site.webmanifest" />
+
+    <meta property="og:type" content="website" />
+    <meta property="og:locale" content="es_CO" />
+    <meta property="og:site_name" content="Betsy Peinados" />
+    <meta property="og:title" content={title} />
+    <meta property="og:description" content={description} />
+    <meta property="og:url" content={canonical} />
+    <meta property="og:image" content={ogImage} />
+    <meta name="twitter:card" content="summary_large_image" />
+    <meta name="twitter:title" content={title} />
+    <meta name="twitter:description" content={description} />
+    <meta name="twitter:image" content={ogImage} />
+
+
+    {ld.map((d) => <script type="application/ld+json" set:html={JSON.stringify(d).replace(/</g, '\\u003c')} />)}
+  </head>
+  <body class={bodyClass}>
+    <a class="skip" href="#contenido">Saltar al contenido</a>
+    <slot />
+    <script>
+      const io = new IntersectionObserver(
+        (entries) => {
+          for (const e of entries) {
+            if (e.isIntersecting) {
+              e.target.classList.add('in');
+              io.unobserve(e.target);
+            }
+          }
+        },
+        { rootMargin: '0px 0px -4% 0px', threshold: 0 },
+      );
+      document.querySelectorAll('.reveal').forEach((el) => io.observe(el));
+    </script>
+  </body>
+</html>

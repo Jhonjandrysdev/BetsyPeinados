@@ -1,0 +1,1319 @@
+---
+import Admin from '../../layouts/Admin.astro';
+import Icon from '../../components/Icon.astro';
+import { getAppointment, getAppointments, getBlockedDates, getHours, getServices, updateAppointment } from '../../lib/db';
+import { book, BookingError, bookingSchema } from '../../lib/booking';
+import { cancelCalendarEvent } from '../../lib/google';
+import { addDays, formatCOP, fromLocal, isDate, localDate, localTime, minutesOf, prettyDate, prettyTime, weekdayOf } from '../../lib/time';
+import { isUuid, str } from '../../lib/admin';
+import type { Appointment, AppointmentStatus } from '../../lib/types';
+
+/** Lunes de la semana que contiene la fecha. */
+const mondayOf = (d: string) => addDays(d, -((weekdayOf(d) + 6) % 7));
+
+if (Astro.request.method === 'POST') {
+  const fd = await Astro.request.formData();
+  const action = str(fd, 'action', 20);
+  const desde = str(fd, 'desde', 10);
+  const go = (kind: 'ok' | 'error', msg: string) =>
+    new Response(null, {
+      status: 303,
+      headers: { Location: `/admin?${isDate(desde) ? `desde=${desde}&` : ''}${kind}=${encodeURIComponent(msg)}` },
+    });
+
+  if (action === 'status') {
+    const id = str(fd, 'id', 40);
+    const status = str(fd, 'status', 20) as AppointmentStatus;
+    if (!isUuid(id) || !['confirmada', 'cancelada', 'completada'].includes(status)) return go('error', 'Acción inválida');
+    const appt = await getAppointment(id);
+    if (!appt) return go('error', 'La cita no existe');
+    await updateAppointment(id, { status });
+    if (status === 'cancelada' && appt.google_event_id) {
+      try {
+        await cancelCalendarEvent(appt.google_event_id, Boolean(appt.customer_email));
+        await updateAppointment(id, { google_event_id: null });
+      } catch (e) {
+        console.error(e);
+        return go('error', 'Cita cancelada, pero no se pudo borrar de Google Calendar.');
+      }
+    }
+    return go('ok', status === 'cancelada' ? 'Cita cancelada' : status === 'completada' ? 'Cita marcada como realizada' : 'Cita confirmada');
+  }
+
+  if (action === 'create') {
+    const parsed = bookingSchema.safeParse({
+      service_id: str(fd, 'service_id', 40),
+      date: str(fd, 'date', 10),
+      time: str(fd, 'time', 5),
+      name: str(fd, 'name', 80),
+      phone: str(fd, 'phone', 20),
+      email: str(fd, 'email', 120),
+      notes: str(fd, 'notes', 500),
+    });
+    if (!parsed.success) return go('error', parsed.error.issues[0]?.message ?? 'Revisa los datos');
+    try {
+      await book(parsed.data, 'admin');
+      return go('ok', 'Cita creada y enviada a Google Calendar');
+    } catch (e) {
+      return go('error', e instanceof BookingError ? e.message : 'No se pudo crear la cita');
+    }
+  }
+  return go('error', 'Acción desconocida');
+}
+
+// ───────── Datos de la semana ─────────
+const now = new Date();
+const today = localDate(now);
+const qDesde = Astro.url.searchParams.get('desde');
+const start = mondayOf(isDate(qDesde) ? qDesde : today);
+const end = addDays(start, 7);
+const weekDays = Array.from({ length: 7 }, (_, i) => addDays(start, i));
+
+const [appts, services, hours, blocked, upcoming] = await Promise.all([
+  getAppointments({ from: fromLocal(start, '00:00'), to: fromLocal(end, '00:00') }),
+  getServices(false),
+  getHours(),
+  getBlockedDates(start),
+  getAppointments({ from: now, to: new Date(now.getTime() + 90 * 864e5), activeOnly: true }),
+]);
+
+const isActive = (a: Appointment) => a.status === 'confirmada' || a.status === 'pendiente';
+const byDay = new Map<string, Appointment[]>(weekDays.map((d) => [d, []]));
+for (const a of appts) byDay.get(localDate(new Date(a.starts_at)))?.push(a);
+
+const blockedMap = new Map(blocked.map((b) => [b.day, b.reason || 'Día bloqueado']));
+const hourOf = (d: string) => hours.find((h) => h.weekday === weekdayOf(d));
+
+// Rango visible del calendario: horario de atención + citas fuera de él.
+const enabled = hours.filter((h) => h.enabled);
+let minM = enabled.length ? Math.min(...enabled.map((h) => minutesOf(h.open_time))) : 8 * 60;
+let maxM = enabled.length ? Math.max(...enabled.map((h) => minutesOf(h.close_time))) : 18 * 60;
+for (const a of appts) {
+  minM = Math.min(minM, minutesOf(localTime(new Date(a.starts_at))));
+  const e = localTime(new Date(a.ends_at));
+  maxM = Math.max(maxM, e === '00:00' ? 24 * 60 : minutesOf(e));
+}
+const dayStart = Math.floor(minM / 60) * 60;
+const dayEnd = Math.min(24 * 60, Math.ceil(maxM / 60) * 60);
+const hourMarks = Array.from({ length: (dayEnd - dayStart) / 60 }, (_, i) => dayStart + i * 60);
+const offsetOf = (iso: string) => minutesOf(localTime(new Date(iso))) - dayStart;
+const durOf = (a: Appointment) => Math.max(20, (new Date(a.ends_at).getTime() - new Date(a.starts_at).getTime()) / 60000);
+
+// Indicadores
+const priceOf = new Map(services.map((s) => [s.id, s.price_from ?? 0]));
+const weekActive = appts.filter(isActive);
+const todayCount = (byDay.get(today) ?? []).filter((a) => a.status !== 'cancelada').length;
+const income = appts.filter((a) => a.status !== 'cancelada').reduce((t, a) => t + (a.service_id ? (priceOf.get(a.service_id) ?? 0) : 0), 0);
+const next = upcoming.find((a) => new Date(a.starts_at) > now);
+
+// Formatos
+const fmtDayShort = new Intl.DateTimeFormat('es-CO', { weekday: 'short', timeZone: 'UTC' });
+const fmtMonth = new Intl.DateTimeFormat('es-CO', { month: 'long', timeZone: 'UTC' });
+const fmtNum = (d: string) => Number(d.slice(8, 10));
+const dayShort = (d: string) => fmtDayShort.format(new Date(`${d}T12:00:00Z`)).replace('.', '');
+const monthOf = (d: string) => fmtMonth.format(new Date(`${d}T12:00:00Z`));
+const last = weekDays[6];
+const weekTitle =
+  monthOf(start) === monthOf(last) ? `${fmtNum(start)} – ${fmtNum(last)} de ${monthOf(start)}` : `${fmtNum(start)} de ${monthOf(start)} – ${fmtNum(last)} de ${monthOf(last)}`;
+const hourLabel = (m: number) => {
+  const h = Math.floor(m / 60);
+  return `${h % 12 || 12} ${h < 12 ? 'a. m.' : 'p. m.'}`;
+};
+const relDay = (iso: string) => {
+  const d = localDate(new Date(iso));
+  if (d === today) return 'Hoy';
+  if (d === addDays(today, 1)) return 'Mañana';
+  return prettyDate(iso);
+};
+const firstName = (n: string) => n.split(' ')[0];
+const waLink = (a: Appointment) =>
+  `https://wa.me/${a.customer_phone}?text=${encodeURIComponent(
+    `Hola ${firstName(a.customer_name)} 👋 Te escribe Betsy Peinados para recordarte tu cita del ${prettyDate(a.starts_at)} a las ${prettyTime(a.starts_at)}. ¡Te espero! ✨`,
+  )}`;
+const initials = (n: string) =>
+  n
+    .split(/\s+/)
+    .filter(Boolean)
+    .slice(0, 2)
+    .map((w) => w[0]!.toUpperCase())
+    .join('');
+const prettyPhone = (p: string) => {
+  const m = p.match(/^57(3\d{2})(\d{3})(\d{4})$/);
+  return m ? `+57 ${m[1]} ${m[2]} ${m[3]}` : `+${p}`;
+};
+const durLabel = (a: Appointment) => {
+  const m = Math.round(durOf(a));
+  const h = Math.floor(m / 60);
+  const r = m % 60;
+  return h ? `${h} h${r ? ` ${r} min` : ''}` : `${r} min`;
+};
+const selectedDay = weekDays.includes(today) ? today : start;
+---
+
+<Admin title="Agenda" subtitle={`Semana del ${weekTitle}`}>
+  <button slot="actions" type="button" class="btn btn-clay" data-open-new>
+    <Icon name="plus" /> Nueva cita
+  </button>
+
+  <!-- Indicadores -->
+  <div class="stats">
+    <div class="stat s-today">
+      <span class="s-ico"><Icon name="sparkle" /></span>
+      <div><strong>{todayCount}</strong><span>{todayCount === 1 ? 'cita hoy' : 'citas hoy'}</span></div>
+    </div>
+    <div class="stat">
+      <span class="s-ico"><Icon name="calendar" /></span>
+      <div><strong>{weekActive.length}</strong><span>activas esta semana</span></div>
+    </div>
+    <div class="stat">
+      <span class="s-ico"><Icon name="money" /></span>
+      <div><strong class="s-money">{formatCOP(income)}</strong><span>estimado de la semana</span></div>
+    </div>
+    <div class="stat s-next">
+      <span class="s-ico"><Icon name="clock" /></span>
+      {
+        next ? (
+          <button type="button" class="s-next-btn" data-open={`ap-${next.id}`}>
+            <small>Próxima cita</small>
+            <b>{firstName(next.customer_name)} · {next.service_name}</b>
+            <span>
+              {relDay(next.starts_at)}, {prettyTime(next.starts_at)}
+            </span>
+          </button>
+        ) : (
+          <div>
+            <small>Próxima cita</small>
+            <b>Sin citas próximas</b>
+          </div>
+        )
+      }
+    </div>
+  </div>
+
+  <!-- Calendario -->
+  <section class="cal panel" aria-label="Calendario semanal">
+    <div class="cal-top">
+      <div class="cal-nav">
+        <a class="btn btn-soft btn-sm btn-icon" href={`/admin?desde=${addDays(start, -7)}`} aria-label="Semana anterior"><span class="flip"><Icon name="chevron" /></span></a>
+        <a class="btn btn-soft btn-sm" href="/admin" aria-current={weekDays.includes(today) ? 'true' : undefined}>Hoy</a>
+        <a class="btn btn-soft btn-sm btn-icon" href={`/admin?desde=${addDays(start, 7)}`} aria-label="Semana siguiente"><Icon name="chevron" /></a>
+      </div>
+      <h2 class="cal-title">{weekTitle.charAt(0).toUpperCase() + weekTitle.slice(1)}</h2>
+      <ul class="legend" aria-label="Leyenda">
+        <li><i class="lg confirmada"></i> Confirmada</li>
+        <li><i class="lg pendiente"></i> Pendiente</li>
+        <li><i class="lg completada"></i> Realizada</li>
+      </ul>
+    </div>
+
+    <!-- Tira de días (móvil) -->
+    <div class="strip" role="tablist" aria-label="Días de la semana">
+      {
+        weekDays.map((d) => {
+          const n = (byDay.get(d) ?? []).filter((a) => a.status !== 'cancelada').length;
+          return (
+            <button
+              type="button"
+              role="tab"
+              class:list={['chip', { today: d === today, off: blockedMap.has(d) || !hourOf(d)?.enabled }]}
+              aria-selected={d === selectedDay ? 'true' : 'false'}
+              data-day={d}
+            >
+              <small>{dayShort(d)}</small>
+              <b>{fmtNum(d)}</b>
+              <i class="dots">{Array.from({ length: Math.min(n, 3) }, () => <span />)}</i>
+            </button>
+          );
+        })
+      }
+    </div>
+
+    <!-- Vista semanal (escritorio) -->
+    <div class="week" data-week data-start={dayStart} data-today={today}>
+      <div class="w-head">
+        <span></span>
+        {
+          weekDays.map((d) => (
+            <div class:list={['w-day', { today: d === today }]}>
+              <small>{dayShort(d)}</small>
+              <b>{fmtNum(d)}</b>
+            </div>
+          ))
+        }
+      </div>
+      <div class="w-body">
+        <div class="w-axis">{hourMarks.map((m) => <span>{hourLabel(m)}</span>)}</div>
+        {
+          weekDays.map((d) => {
+            const h = hourOf(d);
+            const off = blockedMap.get(d) ?? (!h?.enabled ? 'Cerrado' : null);
+            const list = (byDay.get(d) ?? []).filter((a) => a.status !== 'cancelada');
+            return (
+              <div class:list={['w-col', { today: d === today, closed: off }]} data-col={d}>
+                {h?.enabled && !off && (
+                  <div class="open-band" data-s={minutesOf(h.open_time) - dayStart} data-d={minutesOf(h.close_time) - minutesOf(h.open_time)} />
+                )}
+                {off && <span class="closed-label">{off}</span>}
+                {list.map((a) => (
+                  <button type="button" class:list={['ev', a.status]} data-open={`ap-${a.id}`} data-s={offsetOf(a.starts_at)} data-d={durOf(a)}>
+                    <b>{a.customer_name}</b>
+                    <span>{prettyTime(a.starts_at)} · {a.service_name}</span>
+                  </button>
+                ))}
+                {d === today && <div class="now" data-now hidden />}
+              </div>
+            );
+          })
+        }
+      </div>
+    </div>
+
+    <!-- Vista lista (móvil) -->
+    <div class="days">
+      {
+        weekDays.map((d) => {
+          const list = byDay.get(d) ?? [];
+          const off = blockedMap.get(d) ?? (!hourOf(d)?.enabled ? 'Cerrado' : null);
+          return (
+            <section class="day" data-daylist={d} hidden={d !== selectedDay}>
+              <h3>
+                {prettyDate(fromLocal(d, '12:00'))} {d === today && <span class="tag plain">Hoy</span>}
+              </h3>
+              {list.length === 0 ? (
+                <div class="empty">
+                  <Icon name="sparkle" size={22} />
+                  <p>{off ? `${off}. ` : ''}Sin citas este día.</p>
+                  {!off && (
+                    <button type="button" class="btn btn-soft btn-sm" data-open-new data-date={d}>
+                      <Icon name="plus" /> Agendar
+                    </button>
+                  )}
+                </div>
+              ) : (
+                <ul class="cards">
+                  {list.map((a) => (
+                    <li class:list={['card', a.status]}>
+                      <button type="button" class="card-main" data-open={`ap-${a.id}`}>
+                        <span class="c-time">
+                          <b>{prettyTime(a.starts_at)}</b>
+                          <small>{prettyTime(a.ends_at)}</small>
+                        </span>
+                        <span class="c-info">
+                          <b>{a.customer_name}</b>
+                          <small>{a.service_name}</small>
+                          <span class={`tag ${a.status}`}>{a.status}</span>
+                        </span>
+                      </button>
+                      <a class="btn btn-wa btn-sm btn-icon" href={waLink(a)} target="_blank" rel="noopener" aria-label={`WhatsApp a ${a.customer_name}`}>
+                        <Icon name="whatsapp" />
+                      </a>
+                    </li>
+                  ))}
+                </ul>
+              )}
+            </section>
+          );
+        })
+      }
+    </div>
+  </section>
+
+  <!-- Detalle de cada cita -->
+  {
+    appts.concat(next && !appts.some((a) => a.id === next.id) ? [next] : []).map((a) => (
+      <dialog class:list={['ap', a.status]} id={`ap-${a.id}`} aria-labelledby={`apt-${a.id}`}>
+        <header class="ap-top">
+          <form method="dialog" class="ap-x">
+            <button class="ap-close" aria-label="Cerrar">
+              <Icon name="close" size={18} />
+            </button>
+          </form>
+          <div class="ap-who">
+            <span class="ap-av" aria-hidden="true">{initials(a.customer_name)}</span>
+            <div>
+              <h2 id={`apt-${a.id}`} tabindex="-1" autofocus>{a.customer_name}</h2>
+              <p class="ap-svc">
+                <Icon name="scissors" size={15} /> {a.service_name}
+              </p>
+            </div>
+          </div>
+          <div class="ap-tags">
+            <span class={`tag ${a.status}`}>{a.status}</span>
+            {a.google_event_id && (
+              <span class="tag plain g">
+                <Icon name="google" size={13} /> Google Calendar
+              </span>
+            )}
+            <span class="tag plain">{a.source === 'web' ? 'Reservó en la web' : 'Agendada en el panel'}</span>
+          </div>
+        </header>
+        <div class="ap-in">
+          <div class="ap-when">
+            <div class="ap-day">
+              <span>{relDay(a.starts_at) === prettyDate(a.starts_at) ? 'Fecha' : relDay(a.starts_at)}</span>
+              <strong>{prettyDate(a.starts_at)}</strong>
+            </div>
+            <div class="ap-hour">
+              <span>Hora</span>
+              <strong>
+                {prettyTime(a.starts_at)} – {prettyTime(a.ends_at)}
+              </strong>
+              <small>{durLabel(a)}</small>
+            </div>
+          </div>
+          <dl class="ap-info">
+            <div>
+              <dt><Icon name="phone" size={16} /> WhatsApp</dt>
+              <dd><a href={`tel:+${a.customer_phone}`}>{prettyPhone(a.customer_phone)}</a></dd>
+            </div>
+            {a.customer_email && (
+              <div>
+                <dt><Icon name="mail" size={16} /> Correo</dt>
+                <dd><a href={`mailto:${a.customer_email}`}>{a.customer_email}</a></dd>
+              </div>
+            )}
+            {a.service_id && (priceOf.get(a.service_id) ?? 0) > 0 && (
+              <div>
+                <dt><Icon name="money" size={16} /> Valor desde</dt>
+                <dd>{formatCOP(priceOf.get(a.service_id) ?? 0)}</dd>
+              </div>
+            )}
+          </dl>
+          {a.notes && (
+            <blockquote class="ap-notes">
+              <span>Nota de la clienta</span>
+              {a.notes}
+            </blockquote>
+          )}
+          <div class="ap-acts">
+            <a class="btn btn-wa" href={waLink(a)} target="_blank" rel="noopener">
+              <Icon name="whatsapp" /> Recordar por WhatsApp
+            </a>
+            {isActive(a) && (
+              <form method="post">
+                <input type="hidden" name="action" value="status" />
+                <input type="hidden" name="id" value={a.id} />
+                <input type="hidden" name="desde" value={start} />
+                <input type="hidden" name="status" value="completada" />
+                <button class="btn btn-clay">
+                  <Icon name="check" /> Marcar realizada
+                </button>
+              </form>
+            )}
+          </div>
+          {isActive(a) && (
+            <form method="post" class="ap-cancel" data-confirm="¿Cancelar esta cita? Se liberará el horario y se borrará de Google Calendar.">
+              <input type="hidden" name="action" value="status" />
+              <input type="hidden" name="id" value={a.id} />
+              <input type="hidden" name="desde" value={start} />
+              <input type="hidden" name="status" value="cancelada" />
+              <button class="ap-cancel-btn">
+                <Icon name="ban" size={16} /> Cancelar esta cita
+              </button>
+            </form>
+          )}
+        </div>
+      </dialog>
+    ))
+  }
+
+  <!-- Nueva cita -->
+  <dialog class="new" id="new-appt" aria-labelledby="new-t">
+    <form method="post" class="new-in">
+      <div class="ap-head">
+        <h2 id="new-t">Nueva cita</h2>
+        <button type="button" class="btn btn-soft btn-sm btn-icon ap-x" aria-label="Cerrar" data-close><Icon name="close" /></button>
+      </div>
+      <p class="muted">Para citas que llegan por WhatsApp, llamada o en persona. Se bloquea el horario y se envía a Google Calendar.</p>
+      <input type="hidden" name="action" value="create" />
+      <input type="hidden" name="desde" value={start} />
+      <div class="grid-2">
+        <div class="field full">
+          <label for="m-service">Servicio</label>
+          <select id="m-service" name="service_id" required>
+            {
+              services.map((s) => (
+                <option value={s.id}>
+                  {s.name}
+                  {!s.active && ' (oculto)'}
+                </option>
+              ))
+            }
+          </select>
+        </div>
+        <div class="field">
+          <label for="m-date">Fecha</label>
+          <input id="m-date" name="date" type="date" min={today} value={today} required />
+        </div>
+        <div class="field">
+          <label for="m-time">Hora</label>
+          <input id="m-time" name="time" type="time" step="300" required />
+        </div>
+        <div class="field">
+          <label for="m-name">Nombre de la clienta</label>
+          <input id="m-name" name="name" maxlength="80" autocomplete="off" required />
+        </div>
+        <div class="field">
+          <label for="m-phone">WhatsApp</label>
+          <input id="m-phone" name="phone" type="tel" maxlength="20" placeholder="300 123 4567" required />
+        </div>
+        <div class="field full">
+          <label for="m-email">Correo <span class="hint">(opcional)</span></label>
+          <input id="m-email" name="email" type="email" maxlength="120" />
+        </div>
+        <div class="field full">
+          <label for="m-notes">Notas <span class="hint">(opcional)</span></label>
+          <textarea id="m-notes" name="notes" maxlength="500" placeholder="Ocasión, largo del cabello, si es a domicilio…"></textarea>
+        </div>
+      </div>
+      <div class="new-acts">
+        <button type="button" class="btn btn-ghost" data-close>Cancelar</button>
+        <button class="btn btn-clay"><Icon name="check" /> Guardar cita</button>
+      </div>
+    </form>
+  </dialog>
+</Admin>
+
+<style>
+  /* Indicadores */
+  .stats {
+    display: grid;
+    grid-template-columns: repeat(4, 1fr);
+    gap: 1rem;
+    margin-bottom: 1.25rem;
+  }
+  .stat {
+    display: flex;
+    align-items: center;
+    gap: 0.9rem;
+    padding: 1.1rem 1.2rem;
+    border-radius: 22px;
+    background: var(--white);
+    border: 1px solid var(--line);
+    transition: transform 0.4s var(--ease), box-shadow 0.4s var(--ease);
+  }
+  .stat:hover {
+    transform: translateY(-3px);
+    box-shadow: 0 18px 36px -24px rgb(42 28 22 / 0.45);
+  }
+  .stat > div,
+  .s-next-btn {
+    display: grid;
+    gap: 0.1rem;
+    min-width: 0;
+  }
+  .stat strong {
+    font-family: var(--font-display);
+    font-size: 2.2rem;
+    font-weight: 400;
+    line-height: 1;
+    color: var(--cocoa);
+  }
+  .stat .s-money {
+    font-size: 1.45rem;
+    padding-block: 0.3rem;
+  }
+  .stat span:not(.s-ico),
+  .stat small {
+    color: var(--muted);
+    font-size: 0.82rem;
+    font-weight: 600;
+  }
+  .s-ico {
+    flex: none;
+    display: grid;
+    place-items: center;
+    width: 44px;
+    height: 44px;
+    border-radius: 14px;
+    background: var(--cream-2);
+    color: var(--clay);
+  }
+  .s-today {
+    background: linear-gradient(140deg, var(--clay), var(--clay-deep));
+    border-color: transparent;
+    color: var(--white);
+  }
+  .s-today strong,
+  .s-today span:not(.s-ico) {
+    color: var(--white) !important;
+  }
+  .s-today .s-ico {
+    background: rgb(255 250 244 / 0.16);
+    color: var(--white);
+  }
+  .s-next b {
+    font-size: 0.95rem;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+  .s-next-btn {
+    padding: 0;
+    border: 0;
+    background: none;
+    text-align: left;
+    font: inherit;
+    color: inherit;
+    cursor: pointer;
+  }
+  .s-next-btn:hover b {
+    color: var(--clay);
+  }
+
+  /* Calendario */
+  .cal {
+    padding: clamp(1rem, 2.5vw, 1.5rem);
+  }
+  .cal-top {
+    display: flex;
+    align-items: center;
+    gap: 1rem;
+    flex-wrap: wrap;
+    margin-bottom: 1.1rem;
+  }
+  .cal-nav {
+    display: flex;
+    gap: 0.35rem;
+  }
+  .cal-nav [aria-current] {
+    --b-bg: var(--cocoa);
+    --b-fg: var(--white);
+  }
+  .flip {
+    display: inline-flex;
+    transform: rotate(180deg);
+  }
+  .cal-title {
+    margin: 0 !important;
+    font-size: 1.3rem !important;
+  }
+  .legend {
+    display: flex;
+    gap: 1rem;
+    margin: 0 0 0 auto;
+    padding: 0;
+    list-style: none;
+    font-size: 0.8rem;
+    font-weight: 600;
+    color: var(--muted);
+  }
+  .legend li {
+    display: flex;
+    align-items: center;
+    gap: 0.4rem;
+  }
+  .lg {
+    width: 10px;
+    height: 10px;
+    border-radius: 4px;
+    background: var(--ev);
+  }
+  .confirmada {
+    --ev: var(--sage);
+    --ev-bg: #e6eadb;
+  }
+  .pendiente {
+    --ev: #c99a2e;
+    --ev-bg: #f7ecd0;
+  }
+  .completada {
+    --ev: #a3958a;
+    --ev-bg: #efe9e2;
+  }
+  .cancelada {
+    --ev: #c4533c;
+    --ev-bg: #f8e1dc;
+  }
+
+  /* Semana */
+  .week {
+    --ppm: 1.15px;
+    --axis: 58px;
+    border: 1px solid var(--line);
+    border-radius: 18px;
+    overflow: hidden;
+    background: var(--white);
+  }
+  .w-head,
+  .w-body {
+    display: grid;
+    grid-template-columns: var(--axis) repeat(7, 1fr);
+  }
+  .w-head {
+    border-bottom: 1px solid var(--line);
+    background: var(--cream);
+  }
+  .w-day {
+    display: grid;
+    justify-items: center;
+    gap: 0.1rem;
+    padding: 0.6rem 0 0.7rem;
+    border-left: 1px solid var(--line);
+  }
+  .w-day small {
+    font-size: 0.72rem;
+    font-weight: 700;
+    letter-spacing: 0.08em;
+    text-transform: uppercase;
+    color: var(--muted);
+  }
+  .w-day b {
+    display: grid;
+    place-items: center;
+    width: 36px;
+    height: 36px;
+    border-radius: 50%;
+    font-family: var(--font-display);
+    font-size: 1.25rem;
+    font-weight: 450;
+  }
+  .w-day.today small {
+    color: var(--clay);
+  }
+  .w-day.today b {
+    background: var(--clay);
+    color: var(--white);
+  }
+  .w-body {
+    max-height: 640px;
+    overflow-y: auto;
+    position: relative;
+    scroll-behavior: smooth;
+  }
+  .w-axis {
+    display: grid;
+    grid-auto-rows: calc(60 * var(--ppm));
+  }
+  .w-axis span {
+    font-size: 0.68rem;
+    font-weight: 600;
+    color: var(--muted);
+    text-align: right;
+    padding-right: 0.5rem;
+    transform: translateY(-0.45em);
+  }
+  .w-axis span:first-child {
+    transform: none;
+  }
+  .w-col {
+    position: relative;
+    border-left: 1px solid var(--line);
+    min-height: calc(var(--hours, 11) * 60 * var(--ppm));
+    background-color: #f6f0e8;
+    background-image: linear-gradient(var(--line) 1px, transparent 1px);
+    background-size: 100% calc(60 * var(--ppm));
+    cursor: copy;
+  }
+  .w-col.closed {
+    cursor: default;
+    background-image: linear-gradient(var(--line) 1px, transparent 1px),
+      repeating-linear-gradient(-45deg, transparent 0 8px, rgb(42 28 22 / 0.035) 8px 16px);
+    background-size: 100% calc(60 * var(--ppm)), auto;
+  }
+  .open-band {
+    position: absolute;
+    left: 0;
+    right: 0;
+    top: calc(var(--s, 0) * var(--ppm));
+    height: calc(var(--d, 0) * var(--ppm));
+    background: var(--white);
+    background-image: linear-gradient(var(--line) 1px, transparent 1px);
+    background-size: 100% calc(60 * var(--ppm));
+    background-position: 0 calc(var(--s, 0) * var(--ppm) * -1);
+  }
+  .w-col.today .open-band {
+    background-color: #fffdf9;
+  }
+  .closed-label {
+    position: sticky;
+    top: 0.75rem;
+    display: block;
+    margin: 0.75rem auto 0;
+    width: max-content;
+    max-width: 90%;
+    padding: 0.25rem 0.6rem;
+    border-radius: 999px;
+    background: var(--cream-2);
+    font-size: 0.72rem;
+    font-weight: 700;
+    color: var(--muted);
+    text-align: center;
+  }
+  .ev {
+    position: absolute;
+    left: 4px;
+    right: 4px;
+    top: calc(var(--s, 0) * var(--ppm) + 1px);
+    height: calc(var(--d, 60) * var(--ppm) - 2px);
+    display: grid;
+    align-content: start;
+    gap: 0.1rem;
+    padding: 0.35rem 0.5rem;
+    overflow: hidden;
+    border: 0;
+    border-left: 3px solid var(--ev);
+    border-radius: 10px;
+    background: var(--ev-bg);
+    color: var(--cocoa);
+    font: inherit;
+    text-align: left;
+    cursor: pointer;
+    transition: transform 0.3s var(--ease), box-shadow 0.3s var(--ease);
+    animation: ev-in 0.5s var(--ease) backwards;
+  }
+  .ev:hover,
+  .ev:focus-visible {
+    z-index: 2;
+    transform: translateY(-1px) scale(1.02);
+    box-shadow: 0 12px 24px -12px rgb(42 28 22 / 0.45);
+  }
+  .ev b {
+    font-size: 0.8rem;
+    line-height: 1.2;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+  .ev span {
+    font-size: 0.7rem;
+    color: var(--cocoa-2);
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+  .ev.completada b {
+    text-decoration: line-through;
+    text-decoration-color: rgb(42 28 22 / 0.35);
+  }
+  @keyframes ev-in {
+    from {
+      opacity: 0;
+      transform: scale(0.94);
+    }
+  }
+  .now {
+    position: absolute;
+    z-index: 3;
+    left: -1px;
+    right: 0;
+    top: calc(var(--s, 0) * var(--ppm));
+    height: 2px;
+    background: var(--clay);
+    pointer-events: none;
+  }
+  .now::before {
+    content: '';
+    position: absolute;
+    left: -5px;
+    top: -4px;
+    width: 10px;
+    height: 10px;
+    border-radius: 50%;
+    background: var(--clay);
+    box-shadow: 0 0 0 4px rgb(184 96 63 / 0.2);
+  }
+
+  /* Tira de días + lista (móvil) */
+  .strip,
+  .days {
+    display: none;
+  }
+  .chip {
+    display: grid;
+    justify-items: center;
+    gap: 0.15rem;
+    padding: 0.55rem 0;
+    border: 1.5px solid transparent;
+    border-radius: 16px;
+    background: var(--cream);
+    color: var(--cocoa);
+    font: inherit;
+    cursor: pointer;
+    transition: background 0.25s, transform 0.3s var(--ease), border-color 0.25s;
+  }
+  .chip small {
+    font-size: 0.68rem;
+    font-weight: 700;
+    text-transform: uppercase;
+    letter-spacing: 0.06em;
+    color: var(--muted);
+  }
+  .chip b {
+    font-family: var(--font-display);
+    font-size: 1.3rem;
+    font-weight: 450;
+    line-height: 1.1;
+  }
+  .chip.today {
+    border-color: var(--clay);
+  }
+  .chip.off {
+    opacity: 0.55;
+  }
+  .chip[aria-selected='true'] {
+    background: var(--cocoa);
+    color: var(--white);
+    transform: translateY(-2px);
+  }
+  .chip[aria-selected='true'] small {
+    color: var(--blush);
+  }
+  .dots {
+    display: flex;
+    gap: 3px;
+    height: 5px;
+  }
+  .dots span {
+    width: 5px;
+    height: 5px;
+    border-radius: 50%;
+    background: var(--clay);
+  }
+  .chip[aria-selected='true'] .dots span {
+    background: var(--blush);
+  }
+  .day h3 {
+    display: flex;
+    align-items: center;
+    gap: 0.5rem;
+    margin: 1.1rem 0 0.75rem;
+    font-size: 1.15rem;
+  }
+  .day:not([hidden]) {
+    animation: a-rise 0.4s var(--ease) backwards;
+  }
+  .empty {
+    display: grid;
+    justify-items: center;
+    gap: 0.5rem;
+    padding: 1.75rem 1rem;
+    border: 1.5px dashed var(--line);
+    border-radius: 18px;
+    color: var(--muted);
+    text-align: center;
+  }
+  .empty p {
+    margin: 0;
+    font-weight: 600;
+  }
+  .cards {
+    list-style: none;
+    margin: 0;
+    padding: 0;
+    display: grid;
+    gap: 0.6rem;
+  }
+  .card {
+    display: flex;
+    align-items: center;
+    gap: 0.5rem;
+    padding: 0.4rem 0.6rem 0.4rem 0.4rem;
+    border-radius: 18px;
+    background: var(--ev-bg);
+    border-left: 4px solid var(--ev);
+  }
+  .card.cancelada {
+    opacity: 0.6;
+  }
+  .card-main {
+    flex: 1;
+    min-width: 0;
+    display: flex;
+    align-items: center;
+    gap: 0.8rem;
+    padding: 0.5rem;
+    border: 0;
+    background: none;
+    color: inherit;
+    font: inherit;
+    text-align: left;
+    cursor: pointer;
+  }
+  .c-time,
+  .c-info {
+    display: grid;
+    min-width: 0;
+  }
+  .c-time {
+    flex: none;
+    white-space: nowrap;
+    padding-right: 0.75rem;
+    border-right: 1px solid var(--line);
+  }
+  .c-info .tag {
+    justify-self: start;
+    margin-top: 0.3rem;
+  }
+  .c-time small,
+  .c-info small {
+    color: var(--muted);
+    font-size: 0.8rem;
+  }
+  .c-info {
+    flex: 1;
+  }
+  .c-info b {
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+
+  @media (max-width: 1100px) {
+    .stats {
+      grid-template-columns: repeat(2, 1fr);
+    }
+  }
+  @media (max-width: 760px) {
+    .week,
+    .legend {
+      display: none;
+    }
+    .strip {
+      display: grid;
+      grid-template-columns: repeat(7, 1fr);
+      gap: 0.35rem;
+    }
+    .days {
+      display: block;
+    }
+    .stats {
+      gap: 0.6rem;
+    }
+    .stat {
+      padding: 0.85rem;
+      gap: 0.6rem;
+    }
+    .s-ico {
+      width: 36px;
+      height: 36px;
+      border-radius: 12px;
+    }
+    .stat strong {
+      font-size: 1.8rem;
+    }
+    .stat .s-money {
+      font-size: 1.05rem;
+    }
+    .s-next,
+    .stat:nth-child(3) {
+      grid-column: 1 / -1;
+    }
+    .cal-title {
+      order: -1;
+      width: 100%;
+      font-size: 1.15rem !important;
+    }
+  }
+
+  /* Diálogos */
+  dialog.ap {
+    width: min(540px, calc(100% - 1.5rem));
+  }
+  .ap-top {
+    position: relative;
+    padding: 1.5rem 1.6rem 1.2rem;
+    background:
+      radial-gradient(120% 140% at 0% 0%, color-mix(in oklab, var(--ev) 26%, transparent), transparent 60%),
+      var(--ev-bg);
+    border-bottom: 1px solid color-mix(in oklab, var(--ev) 25%, transparent);
+  }
+  .ap-head {
+    display: flex;
+    align-items: center;
+    gap: 0.5rem;
+  }
+  .ap-head h2 {
+    margin: 0 !important;
+  }
+  .new .ap-x {
+    margin-left: auto;
+  }
+  .ap-top .ap-x {
+    position: absolute;
+    top: 0.9rem;
+    right: 0.9rem;
+  }
+  .ap-close {
+    display: grid;
+    place-items: center;
+    width: 36px;
+    height: 36px;
+    border: 0;
+    border-radius: 50%;
+    background: rgb(255 255 255 / 0.65);
+    color: var(--cocoa);
+    cursor: pointer;
+    transition: background 0.2s, transform 0.2s var(--ease);
+  }
+  .ap-close:hover {
+    background: var(--white);
+    transform: rotate(90deg);
+  }
+  .ap-close:focus-visible {
+    outline: 2px solid var(--clay);
+    outline-offset: 2px;
+  }
+  .ap-who {
+    display: flex;
+    align-items: center;
+    gap: 0.9rem;
+    padding-right: 2.5rem;
+  }
+  .ap-av {
+    flex: none;
+    display: grid;
+    place-items: center;
+    width: 56px;
+    height: 56px;
+    border-radius: 50%;
+    background: var(--ev);
+    color: #fff;
+    font: 600 1.25rem/1 var(--font-display);
+    letter-spacing: 0.02em;
+    box-shadow: 0 6px 18px -6px color-mix(in oklab, var(--ev) 70%, transparent);
+  }
+  .ap h2 {
+    margin: 0;
+    font-size: clamp(1.4rem, 4.6vw, 1.75rem);
+    line-height: 1.1;
+    outline: none;
+  }
+  .ap-svc {
+    display: flex;
+    align-items: center;
+    gap: 0.35rem;
+    margin: 0.3rem 0 0;
+    color: var(--clay-deep);
+    font-weight: 700;
+    font-size: 0.95rem;
+  }
+  .ap-tags {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 0.4rem;
+    margin-top: 1rem;
+  }
+  .ap-tags .tag.plain {
+    background: rgb(255 255 255 / 0.7);
+  }
+  .ap-tags .tag.g {
+    background: #e8eef9;
+    color: #2a4d8f;
+  }
+  .ap-in,
+  .new-in {
+    padding: 1.3rem 1.6rem 1.5rem;
+  }
+  .ap-when {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 0.6rem;
+  }
+  .ap-when > div {
+    display: grid;
+    gap: 0.15rem;
+    padding: 0.85rem 1rem;
+    border-radius: 16px;
+    background: var(--cream);
+  }
+  .ap-when span,
+  .ap-info dt,
+  .ap-notes span {
+    font-size: 0.72rem;
+    font-weight: 700;
+    letter-spacing: 0.08em;
+    text-transform: uppercase;
+    color: var(--muted);
+  }
+  .ap-when strong {
+    font-size: 1rem;
+    line-height: 1.25;
+  }
+  .ap-when strong::first-letter {
+    text-transform: uppercase;
+  }
+  .ap-when small {
+    color: var(--muted);
+    font-size: 0.82rem;
+  }
+  .ap-info {
+    margin: 1rem 0 0;
+    display: grid;
+    gap: 0;
+  }
+  .ap-info > div {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 1rem;
+    padding: 0.7rem 0;
+    border-bottom: 1px dashed var(--line);
+  }
+  .ap-info dt {
+    display: flex;
+    align-items: center;
+    gap: 0.45rem;
+    flex: none;
+  }
+  .ap-info dd {
+    margin: 0;
+    font-weight: 600;
+    text-align: right;
+    min-width: 0;
+    overflow-wrap: anywhere;
+  }
+  .ap-info a {
+    color: inherit;
+    text-decoration: none;
+    border-bottom: 1px solid color-mix(in oklab, var(--clay) 40%, transparent);
+  }
+  .ap-info a:hover {
+    color: var(--clay);
+  }
+  .ap-notes {
+    display: grid;
+    gap: 0.3rem;
+    margin: 1rem 0 0;
+    padding: 0.85rem 1rem;
+    border-radius: 14px;
+    background: var(--cream);
+    border-left: 3px solid var(--ev);
+    color: var(--cocoa-2);
+  }
+  .ap-acts {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(170px, 1fr));
+    gap: 0.55rem;
+    margin-top: 1.3rem;
+  }
+  .ap-acts form,
+  .ap-acts .btn,
+  .ap-acts button {
+    width: 100%;
+    justify-content: center;
+    white-space: nowrap;
+  }
+  .ap-cancel {
+    display: flex;
+    justify-content: center;
+    margin-top: 0.8rem;
+  }
+  .ap-cancel-btn {
+    display: inline-flex;
+    align-items: center;
+    gap: 0.4rem;
+    padding: 0.45rem 0.8rem;
+    border: 0;
+    border-radius: 999px;
+    background: none;
+    color: #a63f2b;
+    font: 600 0.88rem var(--font-body);
+    cursor: pointer;
+    transition: background 0.2s;
+  }
+  .ap-cancel-btn:hover {
+    background: #f8e1dc;
+  }
+  @media (max-width: 480px) {
+    .ap-top,
+    .ap-in {
+      padding-left: 1.2rem;
+      padding-right: 1.2rem;
+    }
+    .ap-av {
+      width: 48px;
+      height: 48px;
+      font-size: 1.05rem;
+    }
+  }
+  dialog.new {
+    width: min(620px, calc(100% - 1.5rem));
+  }
+  .new-in .muted {
+    margin: 0.4rem 0 1.2rem;
+  }
+  .new-acts {
+    display: flex;
+    justify-content: flex-end;
+    gap: 0.6rem;
+    margin-top: 1.4rem;
+  }
+</style>
+
+<script>
+  // Coloca citas, franjas de horario y la línea de "ahora" según sus minutos.
+  const week = document.querySelector<HTMLElement>('[data-week]');
+  if (week) {
+    const startMin = Number(week.dataset.start);
+    week.querySelectorAll<HTMLElement>('[data-s]').forEach((el) => {
+      el.style.setProperty('--s', el.dataset.s!);
+      el.style.setProperty('--d', el.dataset.d!);
+    });
+    const axis = week.querySelectorAll('.w-axis span').length;
+    week.style.setProperty('--hours', String(axis));
+
+    const nowEl = week.querySelector<HTMLElement>('[data-now]');
+    const body = week.querySelector<HTMLElement>('.w-body');
+    const placeNow = () => {
+      const parts = new Intl.DateTimeFormat('en-GB', { hour: '2-digit', minute: '2-digit', hour12: false, timeZone: 'America/Bogota' }).format(new Date());
+      const [h, m] = parts.split(':').map(Number);
+      const off = h * 60 + m - startMin;
+      if (!nowEl) return off;
+      nowEl.hidden = off < 0 || off > axis * 60;
+      nowEl.style.setProperty('--s', String(off));
+      return off;
+    };
+    const off = placeNow();
+    setInterval(placeNow, 60_000);
+    // Desplaza para mostrar la hora actual (o la primera cita).
+    const first = week.querySelector<HTMLElement>('.ev');
+    const target = nowEl && !nowEl.hidden ? off - 60 : first ? Number(first.dataset.s) - 30 : 0;
+    if (body && target > 0) body.scrollTop = target * 1.15;
+
+    // Clic en un espacio vacío: nueva cita en ese día y hora.
+    week.querySelectorAll<HTMLElement>('.w-col:not(.closed)').forEach((col) =>
+      col.addEventListener('click', (e) => {
+        if ((e.target as HTMLElement).closest('.ev')) return;
+        const y = e.clientY - col.getBoundingClientRect().top;
+        const mins = Math.round((y / 1.15 + startMin) / 30) * 30;
+        const t = `${String(Math.floor(mins / 60)).padStart(2, '0')}:${String(mins % 60).padStart(2, '0')}`;
+        openNew(col.dataset.col!, t);
+      }),
+    );
+  }
+
+  // Diálogos de detalle.
+  document.querySelectorAll<HTMLElement>('[data-open]').forEach((b) =>
+    b.addEventListener('click', () => (document.getElementById(b.dataset.open!) as HTMLDialogElement | null)?.showModal()),
+  );
+  // Cerrar diálogos al tocar fuera.
+  document.querySelectorAll<HTMLDialogElement>('dialog').forEach((d) =>
+    d.addEventListener('click', (e) => {
+      if (e.target === d) d.close();
+    }),
+  );
+
+  // Nueva cita.
+  const dlgNew = document.getElementById('new-appt') as HTMLDialogElement | null;
+  function openNew(date?: string, time?: string) {
+    if (!dlgNew) return;
+    const dateEl = dlgNew.querySelector<HTMLInputElement>('#m-date');
+    const timeEl = dlgNew.querySelector<HTMLInputElement>('#m-time');
+    if (date && dateEl && date >= dateEl.min) dateEl.value = date;
+    if (time && timeEl) timeEl.value = time;
+    dlgNew.showModal();
+    dlgNew.querySelector<HTMLInputElement>('#m-name')?.focus();
+  }
+  document.querySelectorAll<HTMLElement>('[data-open-new]').forEach((b) => b.addEventListener('click', () => openNew(b.dataset.date)));
+  dlgNew?.querySelectorAll('[data-close]').forEach((b) => b.addEventListener('click', () => dlgNew.close()));
+
+  // Tira de días (móvil).
+  const chips = document.querySelectorAll<HTMLButtonElement>('.chip');
+  chips.forEach((c) =>
+    c.addEventListener('click', () => {
+      chips.forEach((x) => x.setAttribute('aria-selected', String(x === c)));
+      document.querySelectorAll<HTMLElement>('[data-daylist]').forEach((s) => (s.hidden = s.dataset.daylist !== c.dataset.day));
+    }),
+  );
+</script>

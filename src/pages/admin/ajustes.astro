@@ -1,0 +1,352 @@
+---
+import Admin from '../../layouts/Admin.astro';
+import Icon from '../../components/Icon.astro';
+import { addGalleryImage, getGallery, getGoogleConnection, getSettings, removeGalleryImage, updateSettings } from '../../lib/db';
+import { googleConfigured } from '../../lib/google';
+import { back, bool, isUuid, str } from '../../lib/admin';
+
+const HERE = '/admin/ajustes';
+if (Astro.request.method === 'POST') {
+  const fd = await Astro.request.formData();
+  const action = str(fd, 'action', 20);
+
+  if (action === 'settings') {
+    const whatsapp = str(fd, 'whatsapp', 20).replace(/\D/g, '');
+    if (whatsapp.length < 10) return back(HERE, 'error', 'El WhatsApp debe incluir el indicativo, por ejemplo 573001234567');
+    const instagram = str(fd, 'instagram', 40).replace(/^@/, '').replace(/[^a-zA-Z0-9._]/g, '');
+    await updateSettings({
+      business_name: str(fd, 'business_name', 80) || 'Betsy Peinados',
+      tagline: str(fd, 'tagline', 120),
+      hero_title: str(fd, 'hero_title', 80) || 'Tu cabello, tu mejor accesorio',
+      hero_subtitle: str(fd, 'hero_subtitle', 300),
+      about: str(fd, 'about', 1200),
+      whatsapp,
+      phone: str(fd, 'phone', 30),
+      email: str(fd, 'email', 120),
+      address: str(fd, 'address', 160),
+      city: str(fd, 'city', 60),
+      region: str(fd, 'region', 60),
+      instagram,
+      maps_query: str(fd, 'maps_query', 200),
+      home_service: bool(fd, 'home_service'),
+    });
+    return back(HERE, 'ok', 'Datos guardados. El sitio se actualiza en unos minutos.');
+  }
+
+  if (action === 'upload') {
+    const files = fd.getAll('photos').filter((f): f is File => f instanceof File && f.size > 0);
+    if (!files.length) return back(HERE, 'error', 'Selecciona al menos una foto');
+    if (files.length > 10) return back(HERE, 'error', 'Máximo 10 fotos por vez');
+    for (const f of files) {
+      if (f.size > 5 * 1024 * 1024) return back(HERE, 'error', `${f.name} pesa más de 5 MB`);
+      if (!['image/jpeg', 'image/png', 'image/webp', 'image/avif'].includes(f.type)) return back(HERE, 'error', `${f.name} no es una imagen válida`);
+    }
+    try {
+      const alt = str(fd, 'alt', 160) || 'Peinado realizado por Betsy Peinados en Valledupar';
+      for (const f of files) await addGalleryImage(f, alt);
+    } catch (e) {
+      return back(HERE, 'error', (e as Error).message || 'No se pudieron subir las fotos');
+    }
+    return back(HERE, 'ok', 'Fotos subidas');
+  }
+
+  if (action === 'delete-photo') {
+    const id = str(fd, 'id', 40);
+    if (!isUuid(id)) return back(HERE, 'error', 'Foto inválida');
+    await removeGalleryImage(id);
+    return back(HERE, 'ok', 'Foto eliminada');
+  }
+  return back(HERE, 'error', 'Acción desconocida');
+}
+
+const [s, gallery, google] = await Promise.all([getSettings(), getGallery(), getGoogleConnection()]);
+const gReady = googleConfigured();
+---
+
+<Admin title="Ajustes" subtitle="Conexión con Google, datos del negocio, textos y fotos de la web.">
+  <section class:list={['panel', 'gcal', { on: google }]}>
+    <span class="g-logo"><Icon name="google" size={28} /></span>
+    <div class="g-txt">
+      <h2>
+        Google Calendar {google ? <span class="tag">Conectado</span> : <span class="tag pendiente">Sin conectar</span>}
+      </h2>
+      {
+        google ? (
+          <p class="muted">
+            Conectado{google.google_email && <> con <strong>{google.google_email}</strong></>}. Cada cita nueva llega a tu calendario y tus eventos personales bloquean esos horarios en la web.
+          </p>
+        ) : gReady ? (
+          <p class="muted">Conecta tu cuenta para que cada cita llegue automáticamente a tu calendario.</p>
+        ) : (
+          <p class="muted">Faltan las credenciales de Google en el servidor (GOOGLE_CLIENT_ID, GOOGLE_CLIENT_SECRET y TOKEN_ENCRYPTION_KEY).</p>
+        )
+      }
+    </div>
+    <div class="g-act">
+      {
+        google ? (
+          <form method="post" action="/api/google/disconnect" data-confirm="¿Desconectar Google Calendar? Las citas nuevas dejarán de llegar a tu calendario.">
+            <button class="btn btn-danger btn-sm">Desconectar</button>
+          </form>
+        ) : (
+          gReady && (
+            <a class="btn btn-clay" href="/api/google/connect">
+              <Icon name="google" /> Conectar Google Calendar
+            </a>
+          )
+        )
+      }
+    </div>
+  </section>
+
+  <form method="post" class="panel">
+    <input type="hidden" name="action" value="settings" />
+    <h2>Datos del negocio</h2>
+    <div class="grid-2">
+      <div class="field"><label for="bn">Nombre</label><input id="bn" name="business_name" value={s.business_name} maxlength="80" /></div>
+      <div class="field"><label for="tg">Frase corta</label><input id="tg" name="tagline" value={s.tagline} maxlength="120" /></div>
+      <div class="field"><label for="wa">WhatsApp (con indicativo, solo números)</label><input id="wa" name="whatsapp" value={s.whatsapp} inputmode="numeric" maxlength="20" required /></div>
+      <div class="field"><label for="ph">Teléfono visible</label><input id="ph" name="phone" value={s.phone} maxlength="30" /></div>
+      <div class="field"><label for="em">Correo</label><input id="em" name="email" type="email" value={s.email} maxlength="120" /></div>
+      <div class="field"><label for="ig">Instagram (sin @)</label><input id="ig" name="instagram" value={s.instagram} maxlength="40" /></div>
+      <div class="field"><label for="ad">Dirección</label><input id="ad" name="address" value={s.address} maxlength="160" /></div>
+      <div class="field"><label for="mq">Búsqueda para el mapa</label><input id="mq" name="maps_query" value={s.maps_query} maxlength="200" /></div>
+      <div class="field"><label for="ci">Ciudad</label><input id="ci" name="city" value={s.city} maxlength="60" /></div>
+      <div class="field"><label for="rg">Departamento</label><input id="rg" name="region" value={s.region} maxlength="60" /></div>
+      <label class="check full home"><input type="checkbox" name="home_service" checked={s.home_service} /> <span><b>Ofrezco servicio a domicilio</b><small class="muted">Muestra la sección "A domicilio" en la página principal</small></span></label>
+    </div>
+    <h2 class="mt">Textos de la página</h2>
+    <div class="grid-2">
+      <div class="field full"><label for="ht">Título principal (la última palabra sale resaltada)</label><input id="ht" name="hero_title" value={s.hero_title} maxlength="80" /></div>
+      <div class="field full"><label for="hs">Subtítulo</label><textarea id="hs" name="hero_subtitle" maxlength="300">{s.hero_subtitle}</textarea></div>
+      <div class="field full"><label for="ab">Sobre mí</label><textarea id="ab" name="about" maxlength="1200">{s.about}</textarea></div>
+    </div>
+    <div class="save-row">
+      <button class="btn btn-clay"><Icon name="check" /> Guardar cambios</button>
+    </div>
+  </form>
+
+  <section class="panel">
+    <div class="panel-head">
+      <h2>Galería de fotos</h2>
+      <span class="muted">{gallery.length} {gallery.length === 1 ? 'foto' : 'fotos'}</span>
+    </div>
+    <form method="post" enctype="multipart/form-data" class="upload">
+      <input type="hidden" name="action" value="upload" />
+      <label class="drop" data-drop>
+        <input type="file" name="photos" accept="image/jpeg,image/png,image/webp,image/avif" multiple required data-files />
+        <span class="d-ico"><Icon name="upload" size={24} /></span>
+        <b data-drop-label>Toca para elegir fotos o arrástralas aquí</b>
+        <small class="muted">JPG, PNG o WebP · máximo 5 MB · hasta 10 a la vez. La primera foto aparece en la portada.</small>
+      </label>
+      <div class="up-row">
+        <input class="input" name="alt" maxlength="160" placeholder="Descripción (ej. Ondas para grado)" aria-label="Descripción" />
+        <button class="btn btn-clay"><Icon name="upload" /> Subir fotos</button>
+      </div>
+    </form>
+    <ul class="photos">
+      {
+        gallery.map((g, i) => (
+          <li>
+            <img src={g.url} alt={g.alt} loading="lazy" width="160" height="200" />
+            {i === 0 && <span class="cover">Portada</span>}
+            <form method="post" data-confirm="¿Eliminar esta foto de la galería?">
+              <input type="hidden" name="action" value="delete-photo" />
+              <input type="hidden" name="id" value={g.id} />
+              <button class="btn btn-sm btn-icon del" aria-label="Eliminar foto">
+                <Icon name="trash" />
+              </button>
+            </form>
+          </li>
+        ))
+      }
+    </ul>
+  </section>
+</Admin>
+
+<style>
+  .mt {
+    margin-top: 1.75rem !important;
+  }
+  .gcal {
+    display: flex;
+    align-items: center;
+    gap: 1.1rem;
+    flex-wrap: wrap;
+    border: 1.5px solid #f0d9a8;
+    background: linear-gradient(120deg, #fff8ea, var(--white));
+  }
+  .gcal.on {
+    border-color: #cfd8bf;
+    background: linear-gradient(120deg, #f1f4ea, var(--white));
+  }
+  .g-logo {
+    flex: none;
+    display: grid;
+    place-items: center;
+    width: 56px;
+    height: 56px;
+    border-radius: 18px;
+    background: var(--white);
+    color: #4285f4;
+    box-shadow: var(--shadow);
+  }
+  .g-txt {
+    flex: 1 1 260px;
+  }
+  .g-txt h2 {
+    display: flex;
+    align-items: center;
+    gap: 0.6rem;
+    flex-wrap: wrap;
+    margin: 0 0 0.25rem !important;
+  }
+  .g-txt p {
+    margin: 0;
+  }
+  .home {
+    padding: 0.85rem 1rem;
+    border-radius: 16px;
+    background: var(--cream);
+  }
+  .home span {
+    display: grid;
+  }
+  .save-row {
+    display: flex;
+    justify-content: flex-end;
+    margin-top: 1.5rem;
+    padding-top: 1.25rem;
+    border-top: 1px solid var(--line);
+  }
+  .upload {
+    display: grid;
+    gap: 0.75rem;
+  }
+  .drop {
+    position: relative;
+    display: grid;
+    justify-items: center;
+    gap: 0.35rem;
+    padding: 1.75rem 1rem;
+    border: 2px dashed var(--sand);
+    border-radius: 20px;
+    background: var(--cream);
+    text-align: center;
+    cursor: pointer;
+    transition: border-color 0.25s, background 0.25s, transform 0.3s var(--ease);
+  }
+  .drop:hover,
+  .drop.over {
+    border-color: var(--clay);
+    background: #fbefe6;
+  }
+  .drop.over {
+    transform: scale(1.01);
+  }
+  .drop.has b {
+    color: var(--clay);
+  }
+  .drop input {
+    position: absolute;
+    inset: 0;
+    opacity: 0;
+    cursor: pointer;
+  }
+  .d-ico {
+    display: grid;
+    place-items: center;
+    width: 52px;
+    height: 52px;
+    border-radius: 50%;
+    background: var(--white);
+    color: var(--clay);
+    box-shadow: var(--shadow);
+  }
+  .up-row {
+    display: grid;
+    grid-template-columns: 1fr auto;
+    gap: 0.6rem;
+  }
+  .photos {
+    list-style: none;
+    padding: 0;
+    margin: 1.25rem 0 0;
+    display: grid;
+    grid-template-columns: repeat(auto-fill, minmax(150px, 1fr));
+    gap: 0.75rem;
+  }
+  .photos li {
+    position: relative;
+    border-radius: 16px;
+    overflow: hidden;
+    animation: a-rise 0.5s var(--ease) backwards;
+  }
+  .photos img {
+    display: block;
+    width: 100%;
+    aspect-ratio: 4 / 5;
+    object-fit: cover;
+    transition: transform 0.6s var(--ease);
+  }
+  .photos li:hover img {
+    transform: scale(1.05);
+  }
+  .cover {
+    position: absolute;
+    left: 0.5rem;
+    top: 0.5rem;
+    padding: 0.2rem 0.6rem;
+    border-radius: 999px;
+    background: var(--cocoa);
+    color: var(--white);
+    font-size: 0.72rem;
+    font-weight: 700;
+  }
+  .photos form {
+    position: absolute;
+    right: 0.5rem;
+    top: 0.5rem;
+  }
+  .del {
+    --b-bg: rgb(255 250 244 / 0.92);
+    --b-fg: #a83a26;
+    border-color: transparent;
+    opacity: 0;
+    transform: scale(0.85);
+    transition: opacity 0.25s, transform 0.3s var(--ease), background 0.2s;
+  }
+  .photos li:hover .del,
+  .del:focus-visible {
+    opacity: 1;
+    transform: none;
+  }
+  @media (hover: none) {
+    .del {
+      opacity: 1;
+      transform: none;
+    }
+  }
+  @media (max-width: 560px) {
+    .up-row {
+      grid-template-columns: 1fr;
+    }
+  }
+</style>
+
+<script>
+  const drop = document.querySelector<HTMLElement>('[data-drop]');
+  const input = document.querySelector<HTMLInputElement>('[data-files]');
+  const label = document.querySelector('[data-drop-label]');
+  if (drop && input && label) {
+    const sync = () => {
+      const n = input.files?.length ?? 0;
+      drop.classList.toggle('has', n > 0);
+      label.textContent = n ? `${n} ${n === 1 ? 'foto lista' : 'fotos listas'} para subir` : 'Toca para elegir fotos o arrástralas aquí';
+    };
+    input.addEventListener('change', sync);
+    ['dragenter', 'dragover'].forEach((ev) => drop.addEventListener(ev, () => drop.classList.add('over')));
+    ['dragleave', 'drop'].forEach((ev) => drop.addEventListener(ev, () => drop.classList.remove('over')));
+    input.addEventListener('drop', () => setTimeout(sync, 0));
+  }
+</script>

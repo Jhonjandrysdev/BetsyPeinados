@@ -1,0 +1,32 @@
+---
+import Icon from './Icon.astro';
+interface Props {
+  number: string;
+}
+const { number } = Astro.props;
+---
+
+<a class="fab" href={`https://wa.me/${number}?text=${encodeURIComponent('¡Hola Betsy! Quiero agendar un peinado ✨')}`} target="_blank" rel="noopener" aria-label="Escribir por WhatsApp">
+  <Icon name="whatsapp" size={28} />
+</a>
+
+<style>
+  .fab {
+    position: fixed;
+    right: max(1rem, env(safe-area-inset-right));
+    bottom: max(1rem, env(safe-area-inset-bottom));
+    z-index: 60;
+    display: grid;
+    place-items: center;
+    width: 58px;
+    height: 58px;
+    border-radius: 50%;
+    background: #1faa59;
+    color: #fff;
+    box-shadow: 0 14px 30px -10px rgb(31 170 89 / 0.7);
+    transition: transform 0.35s var(--ease);
+  }
+  .fab:hover {
+    transform: scale(1.08) rotate(-6deg);
+  }
+</style>

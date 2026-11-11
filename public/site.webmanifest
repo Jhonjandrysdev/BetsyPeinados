@@ -1,0 +1,13 @@
+{
+  "name": "Betsy Peinados",
+  "short_name": "Betsy",
+  "description": "Peinados profesionales en Valledupar. Agenda tu cita online.",
+  "start_url": "/",
+  "display": "standalone",
+  "background_color": "#f7f0e7",
+  "theme_color": "#f7f0e7",
+  "lang": "es-CO",
+  "icons": [
+    { "src": "/apple-touch-icon.png", "sizes": "180x180", "type": "image/png" }
+  ]
+}

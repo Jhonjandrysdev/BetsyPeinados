@@ -1,0 +1,224 @@
+---
+import Admin from '../../layouts/Admin.astro';
+import Icon from '../../components/Icon.astro';
+import { deleteService, getServices, upsertService } from '../../lib/db';
+import { back, bool, int, isUuid, slugify, str } from '../../lib/admin';
+import { formatCOP, formatDuration } from '../../lib/time';
+
+const HERE = '/admin/servicios';
+if (Astro.request.method === 'POST') {
+  const fd = await Astro.request.formData();
+  const action = str(fd, 'action', 20);
+  const id = str(fd, 'id', 40);
+
+  if (action === 'delete') {
+    if (!isUuid(id)) return back(HERE, 'error', 'Servicio inválido');
+    await deleteService(id);
+    return back(HERE, 'ok', 'Servicio eliminado');
+  }
+
+  if (action === 'save') {
+    const name = str(fd, 'name', 80);
+    if (name.length < 2) return back(HERE, 'error', 'El nombre es muy corto');
+    const priceRaw = str(fd, 'price_from', 12).replace(/\D/g, '');
+    try {
+      await upsertService({
+        id: isUuid(id) ? id : undefined,
+        slug: slugify(str(fd, 'slug', 60) || name),
+        name,
+        description: str(fd, 'description', 500),
+        category: str(fd, 'category', 40) || 'Peinados',
+        duration_min: int(fd, 'duration_min', 15, 480, 60),
+        price_from: priceRaw ? Math.min(Number(priceRaw), 100_000_000) : null,
+        active: bool(fd, 'active'),
+        featured: bool(fd, 'featured'),
+        sort: int(fd, 'sort', 0, 999, 0),
+      });
+    } catch (e) {
+      const msg = (e as { code?: string }).code === '23505' ? 'Ya existe un servicio con ese enlace (slug)' : 'No se pudo guardar';
+      return back(HERE, 'error', msg);
+    }
+    return back(HERE, 'ok', 'Servicio guardado');
+  }
+  return back(HERE, 'error', 'Acción desconocida');
+}
+
+const services = await getServices(false);
+const blank = { id: '', slug: '', name: '', description: '', category: 'Peinados', duration_min: 60, price_from: null as number | null, active: true, featured: false, sort: services.length + 1 };
+---
+
+<Admin title="Servicios" subtitle="Lo que edites aquí se muestra en la página principal y en el formulario de reservas. La duración define cuánto tiempo bloquea cada cita.">
+  <a slot="actions" href="#nuevo" class="btn btn-clay" data-open-new><Icon name="plus" /> Nuevo servicio</a>
+  <div class="svc-list">
+    {
+      [blank, ...services].map((s) => (
+        <details class:list={['panel', 'svc', { 'is-off': s.id && !s.active, isnew: !s.id }]} id={s.id ? `s-${s.id}` : 'nuevo'}>
+          <summary>
+            <span class="svc-ico">{s.id ? <Icon name="scissors" /> : <Icon name="plus" />}</span>
+            {s.id ? (
+              <span class="svc-sum">
+                <b>
+                  {s.name} {s.featured && <span class="star" title="Destacado">★</span>}
+                </b>
+                <span class="chips">
+                  <span class="chip-i"><Icon name="clock" size={14} /> {formatDuration(s.duration_min)}</span>
+                  <span class="chip-i"><Icon name="money" size={14} /> {formatCOP(s.price_from)}</span>
+                  {!s.active && <span class="tag cancelada">Oculto</span>}
+                </span>
+              </span>
+            ) : (
+              <span class="svc-sum">
+                <b>Nuevo servicio</b>
+                <span class="muted">Agrega un peinado al catálogo</span>
+              </span>
+            )}
+          </summary>
+          <form method="post" class="grid-2">
+            <input type="hidden" name="action" value="save" />
+            <input type="hidden" name="id" value={s.id} />
+            <div class="field">
+              <label>Nombre</label>
+              <input name="name" value={s.name} maxlength="80" required />
+            </div>
+            <div class="field">
+              <label>Categoría</label>
+              <input name="category" value={s.category} maxlength="40" />
+            </div>
+            <div class="field">
+              <label>Duración (minutos)</label>
+              <input name="duration_min" type="number" min="15" max="480" step="5" value={s.duration_min} required />
+            </div>
+            <div class="field">
+              <label>Precio desde (COP) <span class="hint">vacío = a convenir</span></label>
+              <input name="price_from" inputmode="numeric" value={s.price_from ?? ''} />
+            </div>
+            <div class="field full">
+              <label>Descripción</label>
+              <textarea name="description" maxlength="500">{s.description}</textarea>
+            </div>
+            <div class="field">
+              <label>Orden</label>
+              <input name="sort" type="number" min="0" max="999" value={s.sort} />
+            </div>
+            <div class="field">
+              <label>Enlace (slug)</label>
+              <input name="slug" value={s.slug} maxlength="60" placeholder="se genera solo" />
+            </div>
+            <div class="row full toggles">
+              <label class="check"><input type="checkbox" name="active" checked={s.active} /> Visible en la web</label>
+              <label class="check"><input type="checkbox" name="featured" checked={s.featured} /> Destacado</label>
+            </div>
+            <div class="row full acts">
+              {s.id && (
+                <button class="btn btn-danger btn-sm" form={`del-${s.id}`}>
+                  <Icon name="trash" /> Eliminar
+                </button>
+              )}
+              <button class="btn btn-clay btn-sm"><Icon name="check" /> {s.id ? 'Guardar cambios' : 'Crear servicio'}</button>
+            </div>
+          </form>
+          {s.id && (
+            <form method="post" id={`del-${s.id}`} data-confirm="¿Eliminar este servicio? Las citas existentes se conservan.">
+              <input type="hidden" name="action" value="delete" />
+              <input type="hidden" name="id" value={s.id} />
+            </form>
+          )}
+        </details>
+      ))
+    }
+  </div>
+</Admin>
+
+<style>
+  .svc-list {
+    display: grid;
+    gap: 0.75rem;
+  }
+  .svc {
+    margin: 0;
+    padding: 1rem 1.25rem;
+    transition: box-shadow 0.35s var(--ease), transform 0.35s var(--ease);
+  }
+  .svc:not([open]):hover {
+    transform: translateY(-2px);
+    box-shadow: 0 20px 40px -26px rgb(42 28 22 / 0.5);
+  }
+  .svc.isnew {
+    border-style: dashed;
+    background: transparent;
+    box-shadow: none;
+  }
+  .svc.isnew[open] {
+    background: var(--white);
+    border-style: solid;
+  }
+  .svc.is-off .svc-sum b {
+    color: var(--muted);
+  }
+  .svc-ico {
+    flex: none;
+    display: grid;
+    place-items: center;
+    width: 44px;
+    height: 44px;
+    border-radius: 14px;
+    background: var(--cream-2);
+    color: var(--clay);
+  }
+  .isnew .svc-ico {
+    background: var(--clay);
+    color: var(--white);
+  }
+  .svc-sum {
+    display: grid;
+    gap: 0.3rem;
+    min-width: 0;
+  }
+  .svc-sum b {
+    font-size: 1.05rem;
+  }
+  .star {
+    color: var(--gold);
+  }
+  .chips {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 0.4rem;
+    font-weight: 600;
+  }
+  .chip-i {
+    display: inline-flex;
+    align-items: center;
+    gap: 0.3rem;
+    padding: 0.2rem 0.6rem;
+    border-radius: 999px;
+    background: var(--cream);
+    font-size: 0.78rem;
+    color: var(--cocoa-2);
+  }
+  .toggles {
+    gap: 1.5rem;
+    padding: 0.4rem 0;
+  }
+  .acts {
+    justify-content: flex-end;
+    padding-top: 1rem;
+    border-top: 1px solid var(--line);
+  }
+  .acts .btn-danger {
+    margin-right: auto;
+  }
+</style>
+
+<script>
+  document.querySelectorAll<HTMLElement>('[data-open-new]').forEach((b) =>
+    b.addEventListener('click', (e) => {
+      e.preventDefault();
+      const d = document.getElementById('nuevo') as HTMLDetailsElement | null;
+      if (!d) return;
+      d.open = true;
+      d.scrollIntoView({ behavior: 'smooth', block: 'start' });
+      setTimeout(() => d.querySelector<HTMLInputElement>('input[name=name]')?.focus({ preventScroll: true }), 400);
+    }),
+  );
+</script>

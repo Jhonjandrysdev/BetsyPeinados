@@ -1,0 +1,109 @@
+---
+import Icon from './Icon.astro';
+import type { SiteSettings } from '../lib/types';
+interface Props {
+  s: SiteSettings;
+}
+const { s } = Astro.props;
+const year = new Date().getFullYear();
+---
+
+<footer class="footer">
+  <div class="wrap grid">
+    <div>
+      <a href="/" class="logo"><img src="/logo.webp" alt="" width="44" height="44" class="flogo" /> Betsy <span>peinados</span></a>
+      <p class="tag">{s.tagline}. Peinados profesionales en {s.city}, {s.region}.</p>
+    </div>
+    <div>
+      <h2 class="h">Visítame</h2>
+      <p><Icon name="pin" size={16} /> {s.address}</p>
+    </div>
+    <div>
+      <h2 class="h">Escríbeme</h2>
+      <p><a href={`https://wa.me/${s.whatsapp}`} rel="noopener" target="_blank"><Icon name="whatsapp" size={16} /> {s.phone}</a></p>
+      <p><a href={`https://www.instagram.com/${s.instagram}`} rel="noopener" target="_blank"><Icon name="instagram" size={16} /> @{s.instagram}</a></p>
+    </div>
+  </div>
+  <div class="wrap legal">
+    <span>© {year} {s.business_name}. Hecho con cariño en Valledupar.</span>
+    <a href="/privacidad">Política de privacidad</a>
+  </div>
+</footer>
+
+<style>
+  .flogo {
+    width: 44px;
+    height: 44px;
+    border-radius: 50%;
+    vertical-align: middle;
+    margin-right: 0.5rem;
+  }
+  .footer {
+    background: var(--cocoa);
+    color: color-mix(in oklab, var(--cream) 82%, transparent);
+    padding: 4.5rem 0 2rem;
+  }
+  .grid {
+    display: grid;
+    grid-template-columns: 1.4fr 1fr 1fr;
+    gap: 2.5rem;
+  }
+  .logo {
+    font-family: var(--font-display);
+    font-style: italic;
+    font-size: 2.4rem;
+    color: var(--cream);
+    text-decoration: none;
+  }
+  .logo span {
+    font-family: var(--font-body);
+    font-style: normal;
+    font-size: 0.75rem;
+    letter-spacing: 0.32em;
+    text-transform: uppercase;
+    color: var(--blush);
+  }
+  .tag {
+    max-width: 32ch;
+    margin-top: 0.8rem;
+  }
+  .h {
+    font-family: var(--font-body);
+    font-size: 0.78rem;
+    font-weight: 700;
+    letter-spacing: 0.18em;
+    text-transform: uppercase;
+    color: var(--blush);
+    margin-bottom: 1rem;
+  }
+  p {
+    display: flex;
+    align-items: center;
+    gap: 0.55rem;
+    margin-bottom: 0.6rem;
+  }
+  p a {
+    display: inline-flex;
+    align-items: center;
+    gap: 0.55rem;
+    text-decoration: none;
+  }
+  p a:hover {
+    color: var(--cream);
+  }
+  .legal {
+    display: flex;
+    justify-content: space-between;
+    gap: 1rem;
+    flex-wrap: wrap;
+    margin-top: 3.5rem;
+    padding-top: 1.5rem;
+    border-top: 1px solid rgb(255 255 255 / 0.1);
+    font-size: 0.85rem;
+  }
+  @media (max-width: 760px) {
+    .grid {
+      grid-template-columns: 1fr;
+    }
+  }
+</style>
