@@ -4,9 +4,14 @@ import Icon from '../components/Icon.astro';
 import { demoMode } from '../lib/db';
 interface Props {
   title: string;
+  /** Subtítulo en escritorio (en móvil se oculta para ganar altura). */
   subtitle?: string;
+  /** Subtítulo solo para móvil (p. ej., la fecha de hoy en la Agenda). */
+  mobileSub?: string;
+  /** Saludo «Buenos días, Betsy» (solo en la Agenda). */
+  greet?: boolean;
 }
-const { title, subtitle } = Astro.props;
+const { title, subtitle, mobileSub, greet: showGreet = false } = Astro.props;
 const ok = Astro.url.searchParams.get('ok');
 const error = Astro.url.searchParams.get('error');
 const path = Astro.url.pathname.replace(/\/$/, '') || '/admin';
@@ -29,7 +34,7 @@ const greet = hour < 12 ? 'Buenos días' : hour < 19 ? 'Buenas tardes' : 'Buenas
         <img src="/logo.webp" alt="" width="44" height="44" />
         <span>Betsy <small>panel</small></span>
       </a>
-      <nav class="a-nav">
+      <nav class="a-nav" aria-label="Secciones">
         {
           nav.map((n) => (
             <a href={n.href} aria-current={path === n.href ? 'page' : undefined}>
@@ -40,30 +45,40 @@ const greet = hour < 12 ? 'Buenos días' : hour < 19 ? 'Buenas tardes' : 'Buenas
         }
       </nav>
       <div class="a-side-foot">
-        <a href="/" target="_blank" rel="noopener" class="a-side-link"><Icon name="external" size={18} /> <span>Ver sitio</span></a>
+        <a href="/" target="_blank" rel="noopener" class="a-side-link" aria-label="Ver mi página (se abre en otra pestaña)">
+          <Icon name="external" size={18} /> <span>Ver mi página</span>
+        </a>
         <form method="post" action="/api/admin/logout">
-          <button type="submit" class="a-side-link"><Icon name="logout" size={18} /> <span>Salir</span></button>
+          <button type="submit" class="a-side-link" aria-label="Cerrar sesión"><Icon name="logout" size={18} /> <span>Salir</span></button>
         </form>
       </div>
     </aside>
 
-    <div class="a-body">
+    <div class="a-body" id="contenido" tabindex="-1">
       <header class="a-head">
         <div class="a-head-text">
-          <p class="a-greet">{greet}, Betsy</p>
+          {showGreet && <p class="a-greet">{greet}, Betsy</p>}
           <h1>{lead && <span class="a-lead">{lead} </span>}<em>{lead ? title.toLowerCase() : title}</em></h1>
           {subtitle && <p class="a-sub">{subtitle}</p>}
+          {mobileSub && <p class="a-sub-m">{mobileSub}</p>}
         </div>
         <div class="a-head-actions"><slot name="actions" /></div>
       </header>
-      <main id="contenido" class="a-main">
-        {demoMode && <p class="notice error">Modo demo: Supabase aún no está conectado, los cambios no se guardan de forma permanente.</p>}
+      <main class="a-main">
+        {
+          demoMode && (
+            <p class="a-demo">
+              <i aria-hidden="true" />
+              Modo de prueba: lo que hagas aquí no se guarda.
+            </p>
+          )
+        }
         <slot />
       </main>
     </div>
   </div>
 
-  <nav class="a-tabs" aria-label="Panel">
+  <nav class="a-tabs" aria-label="Secciones">
     {
       nav.map((n) => (
         <a href={n.href} aria-current={path === n.href ? 'page' : undefined}>
@@ -74,33 +89,37 @@ const greet = hour < 12 ? 'Buenos días' : hour < 19 ? 'Buenas tardes' : 'Buenas
     }
   </nav>
 
-  <div class="toasts" aria-live="polite">
-    {
-      ok && (
-        <div class="toast ok" role="status" data-toast>
+  <!-- Los avisos se insertan desde <template> después de cargar para que los lectores de pantalla los anuncien. -->
+  <div class="toasts" aria-live="polite"></div>
+  {
+    ok && (
+      <template data-toast-tpl data-kind="ok" data-msg={ok}>
+        <div class="toast ok" role="status">
           <span class="t-ico"><Icon name="check" size={18} /></span>
-          <span>{ok}</span>
-          <button type="button" class="t-x" aria-label="Cerrar" data-toast-close><Icon name="close" size={16} /></button>
+          <span class="t-txt">{ok}</span>
+          <button type="button" class="t-x" aria-label="Cerrar aviso" data-toast-close><Icon name="close" size={16} /></button>
         </div>
-      )
-    }
-    {
-      error && (
-        <div class="toast err" role="alert" data-toast>
-          <span class="t-ico">!</span>
-          <span>{error}</span>
-          <button type="button" class="t-x" aria-label="Cerrar" data-toast-close><Icon name="close" size={16} /></button>
+      </template>
+    )
+  }
+  {
+    error && (
+      <template data-toast-tpl data-kind="err" data-msg={error}>
+        <div class="toast err" role="alert">
+          <span class="t-ico" aria-hidden="true">!</span>
+          <span class="t-txt">{error}</span>
+          <button type="button" class="t-x" aria-label="Cerrar aviso" data-toast-close><Icon name="close" size={16} /></button>
         </div>
-      )
-    }
-  </div>
+      </template>
+    )
+  }
 
-  <dialog class="a-confirm" id="a-confirm">
+  <dialog class="a-confirm" id="a-confirm" role="alertdialog" aria-labelledby="c-msg">
     <form method="dialog">
       <p class="c-ico"><Icon name="ban" size={26} /></p>
-      <p class="c-msg" data-confirm-msg></p>
+      <p class="c-msg" id="c-msg" data-confirm-msg></p>
       <div class="c-acts">
-        <button value="cancel" class="btn btn-ghost btn-sm">Volver</button>
+        <button value="cancel" class="btn btn-ghost btn-sm">No, volver</button>
         <button value="ok" class="btn btn-danger-solid btn-sm" data-confirm-ok>Sí, continuar</button>
       </div>
     </form>
@@ -111,10 +130,64 @@ const greet = hour < 12 ? 'Buenos días' : hour < 19 ? 'Buenas tardes' : 'Buenas
   body.admin {
     --side-w: 248px;
     --a-bg: #f3ebe1;
+    /* Texto: 6 tamaños, mínimo 12 px */
+    --t-xs: 0.75rem;
+    --t-sm: 0.875rem;
+    --t-md: 1rem;
+    --t-lg: 1.25rem;
+    --t-xl: 1.75rem;
+    --t-2xl: clamp(1.9rem, 2.6vw, 2.5rem);
+    /* Espaciado */
+    --s-1: 4px;
+    --s-2: 8px;
+    --s-3: 12px;
+    --s-4: 16px;
+    --s-5: 24px;
+    --s-6: 32px;
+    --s-7: 48px;
+    /* Radios */
+    --r-lg: 24px;
+    --r-md: 16px;
+    --r-sm: 12px;
+    --r-xs: 8px;
+    /* Color: texto pequeño acentuado y gris con contraste AA sobre los fondos tintados */
+    --accent-text: var(--clay-deep);
+    --clay-ink: #a4512f;
+    --muted: #6b584e;
+    --field-line: color-mix(in oklab, var(--cocoa) 50%, transparent);
+    --tab-h: 64px;
     background: var(--a-bg);
     font-size: 1rem;
     /* Cifras alineadas (Playfair usa números antiguos por defecto) */
     font-variant-numeric: lining-nums;
+  }
+  body.admin ::placeholder {
+    color: var(--muted);
+    opacity: 1;
+  }
+  body.admin .field input,
+  body.admin .field select,
+  body.admin .field textarea,
+  body.admin .input {
+    border-color: var(--field-line);
+    border-radius: var(--r-sm);
+  }
+  body.admin .field input:focus,
+  body.admin .field select:focus,
+  body.admin .field textarea:focus,
+  body.admin .input:focus {
+    border-color: var(--clay);
+  }
+  body.admin .field label {
+    font-size: var(--t-sm);
+  }
+  body.admin .field .hint {
+    font-size: var(--t-xs);
+    color: var(--muted);
+  }
+  body.admin .field input[aria-invalid='true'],
+  body.admin .input[aria-invalid='true'] {
+    border-color: #b3261e;
   }
 
   /* ───────── Estructura ───────── */
@@ -126,6 +199,7 @@ const greet = hour < 12 ? 'Buenos días' : hour < 19 ? 'Buenas tardes' : 'Buenas
   .a-side {
     position: sticky;
     top: 0;
+    align-self: start;
     height: 100dvh;
     display: flex;
     flex-direction: column;
@@ -160,7 +234,7 @@ const greet = hour < 12 ? 'Buenos días' : hour < 19 ? 'Buenas tardes' : 'Buenas
   .a-brand small {
     display: block;
     margin-top: 0.25rem;
-    font: 700 0.62rem var(--font-body);
+    font: 700 var(--t-xs) var(--font-body);
     font-style: normal;
     letter-spacing: 0.28em;
     text-transform: uppercase;
@@ -216,12 +290,13 @@ const greet = hour < 12 ? 'Buenos días' : hour < 19 ? 'Buenas tardes' : 'Buenas
     align-items: center;
     gap: 0.7rem;
     width: 100%;
+    min-height: 44px;
     padding: 0.65rem 0.95rem;
-    border-radius: 12px;
+    border-radius: var(--r-sm);
     background: none;
     border: 0;
-    color: rgb(255 250 244 / 0.65);
-    font: 600 0.9rem var(--font-body);
+    color: rgb(255 250 244 / 0.72);
+    font: 600 var(--t-sm) var(--font-body);
     text-decoration: none;
     cursor: pointer;
     transition: background 0.2s, color 0.2s;
@@ -238,13 +313,16 @@ const greet = hour < 12 ? 'Buenos días' : hour < 19 ? 'Buenas tardes' : 'Buenas
     min-width: 0;
     padding: clamp(1.25rem, 3vw, 2.5rem) clamp(1rem, 3vw, 2.75rem) 4rem;
   }
+  .a-body:focus {
+    outline: none;
+  }
   .a-head {
     display: flex;
-    align-items: flex-end;
+    align-items: center;
     justify-content: space-between;
     gap: 1rem;
     flex-wrap: wrap;
-    margin-bottom: 1.75rem;
+    margin-bottom: var(--s-5);
     max-width: 1180px;
   }
   .a-greet {
@@ -252,11 +330,11 @@ const greet = hour < 12 ? 'Buenos días' : hour < 19 ? 'Buenas tardes' : 'Buenas
     align-items: center;
     gap: 0.6rem;
     margin: 0;
-    font-size: 0.74rem;
+    font-size: var(--t-xs);
     font-weight: 700;
     letter-spacing: 0.18em;
     text-transform: uppercase;
-    color: var(--clay);
+    color: var(--accent-text);
   }
   .a-greet::before {
     content: '';
@@ -266,20 +344,28 @@ const greet = hour < 12 ? 'Buenos días' : hour < 19 ? 'Buenas tardes' : 'Buenas
     background: currentColor;
   }
   .a-head h1 {
-    margin: 0.35rem 0 0;
-    font-size: clamp(2.3rem, 4.6vw, 3.4rem);
+    margin: var(--s-1) 0 0;
+    font-size: var(--t-2xl);
     font-weight: 420;
-    line-height: 1.02;
+    line-height: 1.05;
     letter-spacing: -0.015em;
   }
   .a-head h1 em {
     font-style: italic;
     color: var(--clay);
   }
-  .a-sub {
-    margin: 0.4rem 0 0;
+  .a-sub,
+  .a-sub-m {
+    margin: var(--s-1) 0 0;
     color: var(--muted);
-    max-width: 60ch;
+    font-size: var(--t-sm);
+    max-width: 52ch;
+  }
+  .a-sub-m {
+    display: none;
+  }
+  .a-sub-m::first-letter {
+    text-transform: uppercase;
   }
   .a-head-actions {
     display: flex;
@@ -290,11 +376,30 @@ const greet = hour < 12 ? 'Buenos días' : hour < 19 ? 'Buenas tardes' : 'Buenas
     max-width: 1180px;
   }
   .a-main h2 {
-    font-size: 1.35rem;
+    font-size: var(--t-lg);
     margin: 0 0 1rem;
   }
-  .a-main .notice {
-    margin-bottom: 1rem;
+
+  /* Aviso de modo de prueba: una sola línea, sin rojo de error */
+  .a-demo {
+    display: inline-flex;
+    align-items: center;
+    gap: var(--s-2);
+    margin: 0 0 var(--s-4);
+    padding: 6px 12px;
+    border-radius: 999px;
+    background: var(--cream-2);
+    color: var(--cocoa-2);
+    font-size: var(--t-xs);
+    font-weight: 600;
+    line-height: 1.4;
+  }
+  .a-demo i {
+    flex: none;
+    width: 6px;
+    height: 6px;
+    border-radius: 50%;
+    background: #c99a2e;
   }
 
   /* Entrada escalonada */
@@ -316,21 +421,41 @@ const greet = hour < 12 ? 'Buenos días' : hour < 19 ? 'Buenas tardes' : 'Buenas
     }
   }
 
-  /* Barra inferior móvil */
+  /* Resaltado del elemento recién guardado */
+  .just-saved {
+    outline: 2.5px solid var(--sage) !important;
+    outline-offset: 4px;
+    transition: outline-color 0.6s;
+  }
+
+  /* Barra inferior móvil: anclada abajo, no flotante */
   .a-tabs {
     display: none;
   }
   @media (max-width: 860px) {
+    html:has(body.admin) {
+      /* Lo enfocado o desplazado con scrollIntoView no queda debajo de la barra inferior. */
+      scroll-padding-bottom: calc(64px + 2.5rem + env(safe-area-inset-bottom));
+      scroll-padding-top: 1rem;
+    }
     .a-shell {
       grid-template-columns: 1fr;
+      grid-template-rows: auto 1fr;
     }
     .a-side {
       position: static;
       height: auto;
       flex-direction: row;
       align-items: center;
-      padding: 0.75rem 1rem;
+      padding: 10px 16px;
       gap: 1rem;
+    }
+    .a-brand img {
+      width: 36px;
+      height: 36px;
+    }
+    .a-brand span {
+      font-size: 1.2rem;
     }
     .a-side .a-nav {
       display: none;
@@ -341,49 +466,83 @@ const greet = hour < 12 ? 'Buenos días' : hour < 19 ? 'Buenas tardes' : 'Buenas
       border: 0;
       display: flex;
     }
+    /* Solo oculto a la vista: los lectores de pantalla lo siguen leyendo. */
     .a-side-link span {
-      display: none;
+      position: absolute;
+      width: 1px;
+      height: 1px;
+      overflow: hidden;
+      clip: rect(0 0 0 0);
+      white-space: nowrap;
     }
     .a-side-link {
       width: auto;
-      padding: 0.6rem;
+      min-width: 44px;
+      min-height: 44px;
+      justify-content: center;
+      padding: 12px;
     }
     .a-side-foot form {
       display: flex;
     }
     .a-body {
-      padding-bottom: 6.5rem;
+      padding: var(--s-4) var(--s-4) calc(var(--tab-h) + var(--s-6) + env(safe-area-inset-bottom));
+    }
+    body.admin:has(.fab) .a-body {
+      padding-bottom: calc(var(--tab-h) + var(--s-6) + 64px + env(safe-area-inset-bottom));
+    }
+    .a-head {
+      margin-bottom: var(--s-4);
+    }
+    .a-head h1 {
+      font-size: 1.75rem;
+    }
+    .a-sub {
+      display: none;
+    }
+    .a-sub-m {
+      display: block;
     }
     .a-tabs {
       position: fixed;
       z-index: 40;
-      left: 0.75rem;
-      right: 0.75rem;
-      bottom: calc(0.75rem + env(safe-area-inset-bottom));
+      left: 0;
+      right: 0;
+      bottom: 0;
       display: grid;
       grid-template-columns: repeat(4, 1fr);
-      padding: 0.4rem;
-      border-radius: 22px;
-      background: color-mix(in oklab, var(--cocoa) 92%, transparent);
-      -webkit-backdrop-filter: blur(14px);
-      backdrop-filter: blur(14px);
-      box-shadow: 0 18px 40px -16px rgb(42 28 22 / 0.6);
+      height: calc(var(--tab-h) + env(safe-area-inset-bottom));
+      padding: 6px 8px env(safe-area-inset-bottom);
+      border-radius: 20px 20px 0 0;
+      background: var(--cocoa);
+      box-shadow: 0 -8px 24px -12px rgb(42 28 22 / 0.35);
     }
     .a-tabs a {
+      position: relative;
       display: grid;
       justify-items: center;
-      gap: 0.2rem;
-      padding: 0.55rem 0.25rem;
-      border-radius: 16px;
-      color: rgb(255 250 244 / 0.62);
-      font-size: 0.7rem;
+      align-content: center;
+      gap: 2px;
+      min-height: 52px;
+      border-radius: var(--r-md);
+      color: rgb(255 250 244 / 0.7);
+      font-size: var(--t-xs);
       font-weight: 700;
       text-decoration: none;
       transition: background 0.25s, color 0.25s;
     }
     .a-tabs a[aria-current='page'] {
-      background: var(--cream);
-      color: var(--clay);
+      background: rgb(255 250 244 / 0.1);
+      color: var(--cream);
+    }
+    .a-tabs a[aria-current='page']::before {
+      content: '';
+      position: absolute;
+      top: 4px;
+      width: 20px;
+      height: 3px;
+      border-radius: 3px;
+      background: var(--blush);
     }
   }
 
@@ -391,7 +550,7 @@ const greet = hour < 12 ? 'Buenos días' : hour < 19 ? 'Buenas tardes' : 'Buenas
   .panel {
     background: var(--white);
     border: 1px solid var(--line);
-    border-radius: 24px;
+    border-radius: var(--r-lg);
     padding: clamp(1.1rem, 3vw, 1.75rem);
     margin-bottom: 1.25rem;
     box-shadow: 0 1px 2px rgb(42 28 22 / 0.04), 0 18px 40px -30px rgb(42 28 22 / 0.35);
@@ -423,7 +582,7 @@ const greet = hour < 12 ? 'Buenos días' : hour < 19 ? 'Buenas tardes' : 'Buenas
   }
   .muted {
     color: var(--muted);
-    font-size: 0.9rem;
+    font-size: var(--t-sm);
   }
 
   /* Botones del panel */
@@ -431,7 +590,13 @@ const greet = hour < 12 ? 'Buenos días' : hour < 19 ? 'Buenas tardes' : 'Buenas
     position: relative;
     min-height: 46px;
     padding: 0.7rem 1.25rem;
-    font-size: 0.93rem;
+    font-size: var(--t-md);
+  }
+  body.admin .btn-clay {
+    --b-bg: var(--clay-ink);
+  }
+  body.admin .btn-clay:hover {
+    --b-bg: var(--clay-deep);
   }
   body.admin .btn:hover {
     transform: translateY(-1px);
@@ -442,9 +607,9 @@ const greet = hour < 12 ? 'Buenos días' : hour < 19 ? 'Buenas tardes' : 'Buenas
     transition-duration: 0.1s;
   }
   body.admin .btn-sm {
-    min-height: 38px;
+    min-height: 44px;
     padding: 0.45rem 0.95rem;
-    font-size: 0.85rem;
+    font-size: var(--t-sm);
     gap: 0.4rem;
   }
   body.admin .btn-sm svg {
@@ -483,8 +648,8 @@ const greet = hour < 12 ? 'Buenos días' : hour < 19 ? 'Buenas tardes' : 'Buenas
     --b-bg: #8b2c1b;
   }
   .btn-icon {
-    min-height: 40px !important;
-    width: 40px;
+    min-height: 44px !important;
+    width: 44px;
     padding: 0 !important;
   }
   .btn.loading {
@@ -516,16 +681,13 @@ const greet = hour < 12 ? 'Buenos días' : hour < 19 ? 'Buenas tardes' : 'Buenas
     gap: 0.3rem;
     padding: 0.22rem 0.65rem;
     border-radius: 999px;
-    font-size: 0.72rem;
+    font-size: var(--t-xs);
     font-weight: 700;
     letter-spacing: 0.02em;
     font-family: var(--font-body);
     white-space: nowrap;
     background: var(--sage-soft);
     color: #3f4a2f;
-  }
-  .tag::first-letter {
-    text-transform: uppercase;
   }
   .tag::before {
     content: '';
@@ -543,11 +705,11 @@ const greet = hour < 12 ? 'Buenos días' : hour < 19 ? 'Buenas tardes' : 'Buenas
   }
   .tag.completada {
     background: #ebe4da;
-    color: var(--muted);
+    color: #5c4a40;
   }
   .tag.pendiente {
     background: #f6e7c1;
-    color: #7a5a12;
+    color: #6b4f10;
   }
 
   /* Interruptores (en lugar de checkbox) */
@@ -555,6 +717,7 @@ const greet = hour < 12 ? 'Buenos días' : hour < 19 ? 'Buenas tardes' : 'Buenas
     display: inline-flex;
     align-items: center;
     gap: 0.65rem;
+    min-height: 44px;
     font-weight: 600;
     cursor: pointer;
     user-select: none;
@@ -571,7 +734,7 @@ const greet = hour < 12 ? 'Buenos días' : hour < 19 ? 'Buenas tardes' : 'Buenas
     padding: 0;
     border: 0;
     border-radius: 999px;
-    background: #d8cbbd;
+    background: #8f7a6c;
     cursor: pointer;
     transition: background 0.3s var(--ease);
   }
@@ -635,26 +798,33 @@ const greet = hour < 12 ? 'Buenos días' : hour < 19 ? 'Buenas tardes' : 'Buenas
     bottom: 1.25rem;
     display: grid;
     gap: 0.6rem;
-    width: min(380px, calc(100% - 2rem));
+    width: min(400px, calc(100% - 2rem));
   }
   @media (max-width: 860px) {
     .toasts {
       right: 1rem;
-      bottom: calc(6.25rem + env(safe-area-inset-bottom));
+      bottom: calc(var(--tab-h) + var(--s-4) + env(safe-area-inset-bottom));
+    }
+    body.admin:has(.fab) .toasts {
+      bottom: calc(var(--tab-h) + var(--s-4) + 64px + env(safe-area-inset-bottom));
     }
   }
   .toast {
     display: flex;
     align-items: center;
     gap: 0.75rem;
-    padding: 0.85rem 0.9rem;
-    border-radius: 18px;
+    padding: 0.6rem 0.6rem 0.6rem 0.9rem;
+    border-radius: var(--r-md);
     background: var(--cocoa);
     color: var(--cream);
     font-weight: 600;
-    font-size: 0.93rem;
+    font-size: var(--t-sm);
+    line-height: 1.4;
     box-shadow: 0 20px 44px -18px rgb(42 28 22 / 0.65);
     animation: toast-in 0.5s var(--ease) both;
+  }
+  .toast.err {
+    background: #5e1d12;
   }
   .toast.hide {
     animation: toast-out 0.35s var(--ease) both;
@@ -672,18 +842,21 @@ const greet = hour < 12 ? 'Buenos días' : hour < 19 ? 'Buenas tardes' : 'Buenas
   .toast.err .t-ico {
     background: #c4533c;
   }
+  .t-txt {
+    flex: 1;
+    min-width: 0;
+  }
   .t-x {
-    margin-left: auto;
     flex: none;
     display: grid;
     place-items: center;
-    width: 30px;
-    height: 30px;
+    width: 44px;
+    height: 44px;
     border: 0;
     border-radius: 50%;
     background: transparent;
     color: inherit;
-    opacity: 0.6;
+    opacity: 0.75;
     cursor: pointer;
   }
   .t-x:hover {
@@ -707,7 +880,7 @@ const greet = hour < 12 ? 'Buenos días' : hour < 19 ? 'Buenas tardes' : 'Buenas
   body.admin dialog {
     border: 0;
     padding: 0;
-    border-radius: 26px;
+    border-radius: var(--r-lg);
     background: var(--white);
     color: var(--cocoa);
     box-shadow: var(--shadow-lg);
@@ -751,12 +924,13 @@ const greet = hour < 12 ? 'Buenos días' : hour < 19 ? 'Buenas tardes' : 'Buenas
   .c-msg {
     margin: 0 0 1.5rem;
     font-weight: 600;
-    font-size: 1.05rem;
+    font-size: var(--t-md);
   }
   .c-acts {
     display: flex;
     gap: 0.6rem;
     justify-content: center;
+    flex-wrap: wrap;
   }
   @media (prefers-reduced-motion: reduce) {
     body.admin *,
@@ -787,26 +961,148 @@ const greet = hour < 12 ? 'Buenos días' : hour < 19 ? 'Buenas tardes' : 'Buenas
     document.addEventListener('visibilitychange', () => document.visibilityState === 'visible' && check());
   }
 
-  // Avisos: se cierran solos y limpian ?ok=/?error= de la URL.
-  const toasts = document.querySelectorAll<HTMLElement>('[data-toast]');
-  const hide = (t: HTMLElement) => {
-    t.classList.add('hide');
-    t.addEventListener('animationend', () => t.remove(), { once: true });
+  // sessionStorage puede fallar (modo privado o bloqueado): nunca rompe la página.
+  const store = {
+    get: (k: string) => {
+      try {
+        return sessionStorage.getItem(k);
+      } catch {
+        return null;
+      }
+    },
+    set: (k: string, v: string) => {
+      try {
+        sessionStorage.setItem(k, v);
+      } catch {
+        /* sin almacenamiento: se sigue sin borrador */
+      }
+    },
+    del: (k: string) => {
+      try {
+        sessionStorage.removeItem(k);
+      } catch {
+        /* nada */
+      }
+    },
+    keys: () => {
+      try {
+        return Object.keys(sessionStorage);
+      } catch {
+        return [] as string[];
+      }
+    },
   };
-  toasts.forEach((t) => {
-    t.querySelector('[data-toast-close]')?.addEventListener('click', () => hide(t));
-    setTimeout(() => hide(t), t.classList.contains('err') ? 7000 : 4200);
-  });
-  if (toasts.length) {
-    const u = new URL(location.href);
-    u.searchParams.delete('ok');
-    u.searchParams.delete('error');
-    history.replaceState(null, '', u.pathname + u.search + u.hash);
+  const PATH = location.pathname.replace(/\/$/, '') || '/admin';
+  const tplOk = document.querySelector<HTMLTemplateElement>('template[data-toast-tpl][data-kind="ok"]');
+  const tplErr = document.querySelector<HTMLTemplateElement>('template[data-toast-tpl][data-kind="err"]');
+
+  // Avisos: se insertan tras cargar (así se anuncian). El de éxito se cierra solo (pausa al pasar el
+  // mouse o enfocar); el de error se queda hasta que se cierre con la ✕.
+  {
+    const box = document.querySelector<HTMLElement>('.toasts');
+    const hide = (t: HTMLElement) => {
+      t.classList.add('hide');
+      t.addEventListener('animationend', () => t.remove(), { once: true });
+    };
+    const wire = (t: HTMLElement) => {
+      t.querySelector('[data-toast-close]')?.addEventListener('click', () => hide(t));
+      if (!t.classList.contains('ok')) return;
+      let timer = 0;
+      // Más tiempo para leer los mensajes largos.
+      const ms = 4500 + (t.textContent?.length ?? 0) * 45;
+      const start = () => (timer = window.setTimeout(() => hide(t), ms));
+      const stop = () => clearTimeout(timer);
+      t.addEventListener('mouseenter', stop);
+      t.addEventListener('focusin', stop);
+      t.addEventListener('mouseleave', start);
+      t.addEventListener('focusout', start);
+      start();
+    };
+    [tplErr, tplOk].forEach((tp) => {
+      if (!tp || !box) return;
+      setTimeout(() => {
+        const t = tp.content.firstElementChild?.cloneNode(true) as HTMLElement | undefined;
+        if (!t) return;
+        box.append(t);
+        wire(t);
+      }, 150);
+    });
+    if (tplOk || tplErr) {
+      const u = new URL(location.href);
+      u.searchParams.delete('ok');
+      u.searchParams.delete('error');
+      history.replaceState(null, '', u.pathname + u.search + u.hash);
+    }
   }
+
+  // Borrador y posición: al enviar un formulario se recuerda lo escrito (formularios con
+  // data-draft) y dónde estaba Betsy. Tras la recarga: si hubo error se rellena de nuevo; si
+  // salió bien se borra el borrador y se vuelve al mismo sitio.
+  const draftKey = (form: HTMLFormElement) => `bp-draft:${PATH}:${form.dataset.draft}`;
+  const remember = (form: HTMLFormElement) => {
+    if (form.dataset.draft) {
+      const data: [string, string][] = [];
+      new FormData(form).forEach((v, k) => {
+        if (typeof v === 'string') data.push([k, v]);
+      });
+      store.set(draftKey(form), JSON.stringify(data));
+    }
+    const keep = form.closest<HTMLElement>('[data-keep]');
+    const chip = document.querySelector<HTMLElement>('.chip[aria-pressed="true"]');
+    store.set('bp-pos', JSON.stringify({ path: PATH, y: scrollY, keep: keep?.id ?? null, day: form.dataset.posDay ?? chip?.dataset.day ?? null }));
+  };
+  const restore = () => {
+    if (tplOk) store.keys().forEach((k) => k.startsWith(`bp-draft:${PATH}:`) && store.del(k));
+    if (tplErr) {
+      document.querySelectorAll<HTMLFormElement>('form[data-draft]').forEach((form) => {
+        const raw = store.get(draftKey(form));
+        if (!raw) return;
+        store.del(draftKey(form));
+        let data: [string, string][] = [];
+        try {
+          data = JSON.parse(raw);
+        } catch {
+          return;
+        }
+        const vals = new Map<string, string>();
+        data.forEach(([k, v]) => vals.set(k, v));
+        for (const el of Array.from(form.elements) as HTMLInputElement[]) {
+          if (!el.name || el.type === 'hidden' || el.type === 'file' || el.type === 'submit') continue;
+          if (el.type === 'checkbox' || el.type === 'radio') el.checked = vals.has(el.name) && (el.type === 'checkbox' || vals.get(el.name) === el.value);
+          else if (vals.has(el.name)) el.value = vals.get(el.name)!;
+        }
+        form.dispatchEvent(new CustomEvent('bp:restored', { detail: { message: tplErr.dataset.msg ?? '' } }));
+      });
+    }
+    const raw = store.get('bp-pos');
+    store.del('bp-pos');
+    if (!raw || !(tplOk || tplErr)) return;
+    let pos: { path: string; y: number; keep: string | null; day: string | null };
+    try {
+      pos = JSON.parse(raw);
+    } catch {
+      return;
+    }
+    if (pos.path !== PATH) return;
+    if (pos.day) document.querySelector<HTMLElement>(`.chip[data-day="${pos.day}"]`)?.click();
+    const el = pos.keep ? document.getElementById(pos.keep) : null;
+    if (el) {
+      if (el instanceof HTMLDetailsElement) el.open = true;
+      el.scrollIntoView({ block: 'center', behavior: 'instant' });
+      if (tplOk) {
+        el.classList.add('just-saved');
+        setTimeout(() => el.classList.remove('just-saved'), 1800);
+      }
+    } else if (!pos.day) window.scrollTo({ top: pos.y, behavior: 'instant' });
+  };
+  // Después de que cada página haya conectado sus propios scripts.
+  if (document.readyState === 'loading') document.addEventListener('DOMContentLoaded', restore);
+  else setTimeout(restore, 0);
 
   // Confirmación con diálogo propio + estado "cargando" en los botones.
   const dlg = document.getElementById('a-confirm') as HTMLDialogElement | null;
   const msg = dlg?.querySelector('[data-confirm-msg]');
+  const okBtn = dlg?.querySelector<HTMLButtonElement>('[data-confirm-ok]');
   document.addEventListener(
     'submit',
     (e) => {
@@ -816,6 +1112,7 @@ const greet = hour < 12 ? 'Buenos días' : hour < 19 ? 'Buenas tardes' : 'Buenas
       if (form.dataset.confirm && form.dataset.confirmed !== '1' && dlg && msg) {
         e.preventDefault();
         msg.textContent = form.dataset.confirm;
+        if (okBtn) okBtn.textContent = form.dataset.confirmYes ?? 'Sí, continuar';
         dlg.returnValue = '';
         dlg.showModal();
         dlg.addEventListener(
@@ -830,10 +1127,20 @@ const greet = hour < 12 ? 'Buenos días' : hour < 19 ? 'Buenas tardes' : 'Buenas
         );
         return;
       }
-      if (btn) setTimeout(() => btn.classList.add('loading'), 0);
+      setTimeout(() => {
+        if (e.defaultPrevented) return;
+        remember(form);
+        btn?.classList.add('loading');
+      }, 0);
     },
     true,
   );
+  // Enlaces que tardan (semana anterior/siguiente, conectar Google): señal de carga.
+  document.addEventListener('click', (e) => {
+    const a = (e.target as HTMLElement).closest<HTMLAnchorElement>('a.btn[href]');
+    if (!a || a.target || a.getAttribute('href')!.startsWith('#') || e.metaKey || e.ctrlKey || e.shiftKey) return;
+    a.classList.add('loading');
+  });
   // Al volver con el botón atrás, quitar estados de carga.
   window.addEventListener('pageshow', () => document.querySelectorAll('.btn.loading').forEach((b) => b.classList.remove('loading')));
 </script>
