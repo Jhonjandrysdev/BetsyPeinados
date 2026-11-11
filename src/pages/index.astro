@@ -484,8 +484,11 @@ const description = `Peinados profesionales en ${s.city}: ondas, recogidos, rizo
       b.addEventListener('click', () => {
         show(i);
         lb.showModal();
+        // Bloquea el scroll de la página de fondo mientras el visor está abierto.
+        document.documentElement.classList.add('no-scroll');
       }),
     );
+    lb.addEventListener('close', () => document.documentElement.classList.remove('no-scroll'));
     lb.querySelector('[data-lb-close]')?.addEventListener('click', () => lb.close());
     lb.querySelector('[data-lb-prev]')?.addEventListener('click', () => show(idx - 1));
     lb.querySelector('[data-lb-next]')?.addEventListener('click', () => show(idx + 1));
@@ -1124,9 +1127,13 @@ const description = `Peinados profesionales en ${s.city}: ondas, recogidos, rizo
     border: 0;
     background: transparent;
     overflow: hidden;
+    overscroll-behavior: contain;
+    touch-action: pan-y pinch-zoom;
   }
   .lb[open] {
     display: grid;
+    /* Fila y columna con tamaño definido: así max-height:100% de la foto sí se aplica y no se sale de la pantalla */
+    grid-template: minmax(0, 1fr) / minmax(0, 1fr);
     place-items: center;
     animation: lb-in 0.35s var(--ease);
   }
@@ -1145,6 +1152,9 @@ const description = `Peinados profesionales en ${s.city}: ondas, recogidos, rizo
     max-height: 100%;
     width: auto;
     height: auto;
+    min-width: 0;
+    min-height: 0;
+    object-fit: contain;
     border-radius: 24px;
     box-shadow: 0 40px 90px -30px rgb(0 0 0 / 0.8);
     opacity: 0;
