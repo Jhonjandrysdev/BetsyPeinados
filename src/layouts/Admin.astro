@@ -14,6 +14,8 @@ interface Props {
 const { title, subtitle, mobileSub, greet: showGreet = false } = Astro.props;
 const ok = Astro.url.searchParams.get('ok');
 const error = Astro.url.searchParams.get('error');
+// Aviso que pide hacer algo (no es un error del formulario): no se cierra solo.
+const warn = Astro.url.searchParams.get('warn');
 const path = Astro.url.pathname.replace(/\/$/, '') || '/admin';
 const nav = [
   { href: '/admin', label: 'Agenda', icon: 'calendar' },
@@ -94,7 +96,7 @@ const greet = hour < 12 ? 'Buenos días' : hour < 19 ? 'Buenas tardes' : 'Buenas
   {
     ok && (
       <template data-toast-tpl data-kind="ok" data-msg={ok}>
-        <div class="toast ok" role="status">
+        <div class="toast ok">
           <span class="t-ico"><Icon name="check" size={18} /></span>
           <span class="t-txt">{ok}</span>
           <button type="button" class="t-x" aria-label="Cerrar aviso" data-toast-close><Icon name="close" size={16} /></button>
@@ -103,9 +105,20 @@ const greet = hour < 12 ? 'Buenos días' : hour < 19 ? 'Buenas tardes' : 'Buenas
     )
   }
   {
+    warn && (
+      <template data-toast-tpl data-kind="warn" data-msg={warn}>
+        <div class="toast warn">
+          <span class="t-ico" aria-hidden="true">!</span>
+          <span class="t-txt">{warn}</span>
+          <button type="button" class="t-x" aria-label="Cerrar aviso" data-toast-close><Icon name="close" size={16} /></button>
+        </div>
+      </template>
+    )
+  }
+  {
     error && (
       <template data-toast-tpl data-kind="err" data-msg={error}>
-        <div class="toast err" role="alert">
+        <div class="toast err">
           <span class="t-ico" aria-hidden="true">!</span>
           <span class="t-txt">{error}</span>
           <button type="button" class="t-x" aria-label="Cerrar aviso" data-toast-close><Icon name="close" size={16} /></button>
@@ -161,6 +174,11 @@ const greet = hour < 12 ? 'Buenos días' : hour < 19 ? 'Buenas tardes' : 'Buenas
     /* Cifras alineadas (Playfair usa números antiguos por defecto) */
     font-variant-numeric: lining-nums;
   }
+  @media (min-width: 861px) {
+    html:has(form[data-sticky-save]) {
+      scroll-padding-bottom: 110px;
+    }
+  }
   body.admin ::placeholder {
     color: var(--muted);
     opacity: 1;
@@ -180,6 +198,16 @@ const greet = hour < 12 ? 'Buenos días' : hour < 19 ? 'Buenas tardes' : 'Buenas
   }
   body.admin .field label {
     font-size: var(--t-sm);
+  }
+  /* Misma altura para todos los campos de una línea (fecha y hora incluidas) */
+  body.admin .field > input:not([type='checkbox']):not([type='file']),
+  body.admin .field > select {
+    height: 52px;
+    min-height: 52px;
+    padding-block: 0;
+  }
+  body.admin input::-webkit-datetime-edit {
+    padding: 0;
   }
   body.admin .field .hint {
     font-size: var(--t-xs);
@@ -428,6 +456,13 @@ const greet = hour < 12 ? 'Buenos días' : hour < 19 ? 'Buenas tardes' : 'Buenas
     transition: outline-color 0.6s;
   }
 
+  /* Escritorio estrecho: un poco más de ancho para el calendario */
+  @media (min-width: 861px) and (max-width: 1200px) {
+    body.admin {
+      --side-w: 208px;
+    }
+  }
+
   /* Barra inferior móvil: anclada abajo, no flotante */
   .a-tabs {
     display: none;
@@ -437,6 +472,10 @@ const greet = hour < 12 ? 'Buenos días' : hour < 19 ? 'Buenas tardes' : 'Buenas
       /* Lo enfocado o desplazado con scrollIntoView no queda debajo de la barra inferior. */
       scroll-padding-bottom: calc(64px + 2.5rem + env(safe-area-inset-bottom));
       scroll-padding-top: 1rem;
+    }
+    /* Con la barra fija de guardar encima de la de pestañas, lo enfocado no queda tapado. */
+    html:has(form.dirty[data-sticky-save]) {
+      scroll-padding-bottom: calc(64px + 110px + env(safe-area-inset-bottom));
     }
     .a-shell {
       grid-template-columns: 1fr;
@@ -587,6 +626,7 @@ const greet = hour < 12 ? 'Buenos días' : hour < 19 ? 'Buenas tardes' : 'Buenas
 
   /* Botones del panel */
   body.admin .btn {
+    white-space: nowrap;
     position: relative;
     min-height: 46px;
     padding: 0.7rem 1.25rem;
@@ -842,6 +882,10 @@ const greet = hour < 12 ? 'Buenos días' : hour < 19 ? 'Buenas tardes' : 'Buenas
   .toast.err .t-ico {
     background: #c4533c;
   }
+  .toast.warn .t-ico {
+    background: #c99a2e;
+    color: var(--cocoa);
+  }
   .t-txt {
     flex: 1;
     min-width: 0;
@@ -943,24 +987,6 @@ const greet = hour < 12 ? 'Buenos días' : hour < 19 ? 'Buenas tardes' : 'Buenas
 </style>
 
 <script>
-  // Seguridad: cierra la sesión tras 30 min sin actividad (por si el equipo queda desatendido).
-  {
-    const IDLE_MS = 30 * 60 * 1000;
-    let last = Date.now();
-    const bump = () => (last = Date.now());
-    for (const ev of ['pointerdown', 'keydown', 'scroll', 'touchstart']) addEventListener(ev, bump, { passive: true });
-    const logout = () => {
-      const f = Object.assign(document.createElement('form'), { method: 'post', action: '/api/admin/logout?motivo=inactividad' });
-      document.body.append(f);
-      f.submit();
-    };
-    const check = () => {
-      if (Date.now() - last >= IDLE_MS) logout();
-    };
-    setInterval(check, 30_000);
-    document.addEventListener('visibilitychange', () => document.visibilityState === 'visible' && check());
-  }
-
   // sessionStorage puede fallar (modo privado o bloqueado): nunca rompe la página.
   const store = {
     get: (k: string) => {
@@ -992,78 +1018,119 @@ const greet = hour < 12 ? 'Buenos días' : hour < 19 ? 'Buenas tardes' : 'Buenas
       }
     },
   };
-  const PATH = location.pathname.replace(/\/$/, '') || '/admin';
-  const tplOk = document.querySelector<HTMLTemplateElement>('template[data-toast-tpl][data-kind="ok"]');
-  const tplErr = document.querySelector<HTMLTemplateElement>('template[data-toast-tpl][data-kind="err"]');
+  /** Borra todo lo que el panel guardó en esta pestaña (borradores con datos de clientas, posición). */
+  const forget = () => store.keys().forEach((k) => k.startsWith('bp-') && store.del(k));
 
-  // Avisos: se insertan tras cargar (así se anuncian). El de éxito se cierra solo (pausa al pasar el
-  // mouse o enfocar); el de error se queda hasta que se cierre con la ✕.
+  // Seguridad: cierra la sesión tras 30 min sin actividad (por si el equipo queda desatendido).
   {
-    const box = document.querySelector<HTMLElement>('.toasts');
-    const hide = (t: HTMLElement) => {
-      t.classList.add('hide');
-      t.addEventListener('animationend', () => t.remove(), { once: true });
+    const IDLE_MS = 30 * 60 * 1000;
+    let last = Date.now();
+    const bump = () => (last = Date.now());
+    for (const ev of ['pointerdown', 'keydown', 'scroll', 'touchstart']) addEventListener(ev, bump, { passive: true });
+    const logout = () => {
+      forget();
+      const f = Object.assign(document.createElement('form'), { method: 'post', action: '/api/admin/logout?motivo=inactividad' });
+      document.body.append(f);
+      f.submit();
     };
-    const wire = (t: HTMLElement) => {
-      t.querySelector('[data-toast-close]')?.addEventListener('click', () => hide(t));
-      if (!t.classList.contains('ok')) return;
-      let timer = 0;
-      // Más tiempo para leer los mensajes largos.
-      const ms = 4500 + (t.textContent?.length ?? 0) * 45;
-      const start = () => (timer = window.setTimeout(() => hide(t), ms));
-      const stop = () => clearTimeout(timer);
-      t.addEventListener('mouseenter', stop);
-      t.addEventListener('focusin', stop);
-      t.addEventListener('mouseleave', start);
-      t.addEventListener('focusout', start);
-      start();
+    const check = () => {
+      if (Date.now() - last >= IDLE_MS) logout();
     };
-    [tplErr, tplOk].forEach((tp) => {
-      if (!tp || !box) return;
-      setTimeout(() => {
-        const t = tp.content.firstElementChild?.cloneNode(true) as HTMLElement | undefined;
-        if (!t) return;
-        box.append(t);
-        wire(t);
-      }, 150);
-    });
-    if (tplOk || tplErr) {
-      const u = new URL(location.href);
-      u.searchParams.delete('ok');
-      u.searchParams.delete('error');
-      history.replaceState(null, '', u.pathname + u.search + u.hash);
-    }
+    setInterval(check, 30_000);
+    document.addEventListener('visibilitychange', () => document.visibilityState === 'visible' && check());
   }
 
-  // Borrador y posición: al enviar un formulario se recuerda lo escrito (formularios con
-  // data-draft) y dónde estaba Betsy. Tras la recarga: si hubo error se rellena de nuevo; si
-  // salió bien se borra el borrador y se vuelve al mismo sitio.
+  const PATH = location.pathname.replace(/\/$/, '') || '/admin';
+  const tplOk = document.querySelector<HTMLTemplateElement>('template[data-toast-tpl][data-kind="ok"]');
+  const tplWarn = document.querySelector<HTMLTemplateElement>('template[data-toast-tpl][data-kind="warn"]');
+  const tplErr = document.querySelector<HTMLTemplateElement>('template[data-toast-tpl][data-kind="err"]');
+  const saved = tplOk || tplWarn;
+  const MAX_AGE = 2 * 60 * 1000;
+
+  // Avisos: se insertan tras cargar (así se anuncian). El de éxito se cierra solo (pausa al pasar el
+  // mouse o enfocar); el de error y el de "haz esto" se quedan hasta que se cierren con la ✕.
+  const box = document.querySelector<HTMLElement>('.toasts');
+  const hide = (t: HTMLElement) => {
+    t.classList.add('hide');
+    t.addEventListener('animationend', () => t.remove(), { once: true });
+  };
+  const wire = (t: HTMLElement) => {
+    t.querySelector('[data-toast-close]')?.addEventListener('click', () => hide(t));
+    if (!t.classList.contains('ok')) return;
+    let timer = 0;
+    // Más tiempo para leer los mensajes largos.
+    const ms = 4500 + (t.textContent?.length ?? 0) * 45;
+    const stop = () => clearTimeout(timer);
+    const start = () => {
+      stop();
+      timer = window.setTimeout(() => hide(t), ms);
+    };
+    t.addEventListener('mouseenter', stop);
+    t.addEventListener('focusin', stop);
+    t.addEventListener('mouseleave', start);
+    t.addEventListener('focusout', start);
+    start();
+  };
+  const showToasts = (skipErr: boolean) => {
+    if (!box) return;
+    const list = [skipErr ? null : tplErr, tplWarn, tplOk].filter(Boolean) as HTMLTemplateElement[];
+    if (list.some((tp) => tp !== tplOk)) box.setAttribute('aria-live', 'assertive');
+    setTimeout(() => {
+      for (const tp of list) {
+        const t = tp.content.firstElementChild?.cloneNode(true) as HTMLElement | undefined;
+        if (!t) continue;
+        box.append(t);
+        wire(t);
+      }
+    }, 150);
+  };
+  if (tplOk || tplErr || tplWarn) {
+    const u = new URL(location.href);
+    ['ok', 'error', 'warn'].forEach((k) => u.searchParams.delete(k));
+    history.replaceState(null, '', u.pathname + u.search + u.hash);
+  }
+
+  // Borrador y posición: al enviar se recuerda SOLO el formulario enviado (con la hora) y dónde
+  // estaba Betsy. En la carga siguiente: si volvió con error en menos de 2 min se rellena ese
+  // formulario; en cualquier otro caso los borradores se borran (nada de borradores huérfanos).
+  type Last = { path: string; t: number; key: string | null; y: number; keep: string | null; day: string | null };
   const draftKey = (form: HTMLFormElement) => `bp-draft:${PATH}:${form.dataset.draft}`;
   const remember = (form: HTMLFormElement) => {
+    forget();
+    let key: string | null = null;
     if (form.dataset.draft) {
       const data: [string, string][] = [];
       new FormData(form).forEach((v, k) => {
         if (typeof v === 'string') data.push([k, v]);
       });
-      store.set(draftKey(form), JSON.stringify(data));
+      key = draftKey(form);
+      store.set(key, JSON.stringify(data));
     }
     const keep = form.closest<HTMLElement>('[data-keep]');
     const chip = document.querySelector<HTMLElement>('.chip[aria-pressed="true"]');
-    store.set('bp-pos', JSON.stringify({ path: PATH, y: scrollY, keep: keep?.id ?? null, day: form.dataset.posDay ?? chip?.dataset.day ?? null }));
+    const last: Last = { path: PATH, t: Date.now(), key, y: scrollY, keep: keep?.id ?? null, day: form.dataset.posDay ?? chip?.dataset.day ?? null };
+    store.set('bp-last', JSON.stringify(last));
   };
   const restore = () => {
-    if (tplOk) store.keys().forEach((k) => k.startsWith(`bp-draft:${PATH}:`) && store.del(k));
-    if (tplErr) {
-      document.querySelectorAll<HTMLFormElement>('form[data-draft]').forEach((form) => {
-        const raw = store.get(draftKey(form));
-        if (!raw) return;
-        store.del(draftKey(form));
-        let data: [string, string][] = [];
-        try {
-          data = JSON.parse(raw);
-        } catch {
-          return;
-        }
+    let last: Last | null = null;
+    try {
+      last = JSON.parse(store.get('bp-last') ?? 'null');
+    } catch {
+      last = null;
+    }
+    const raw = last?.key ? store.get(last.key) : null;
+    forget();
+    const fresh = Boolean(last && last.path === PATH && Date.now() - last.t < MAX_AGE && (saved || tplErr));
+    let handledErr = false;
+    if (fresh && tplErr && last?.key && raw) {
+      const form = [...document.querySelectorAll<HTMLFormElement>('form[data-draft]')].find((f) => draftKey(f) === last!.key);
+      let data: [string, string][] = [];
+      try {
+        data = JSON.parse(raw);
+      } catch {
+        data = [];
+      }
+      if (form && data.length) {
         const vals = new Map<string, string>();
         data.forEach(([k, v]) => vals.set(k, v));
         for (const el of Array.from(form.elements) as HTMLInputElement[]) {
@@ -1071,29 +1138,23 @@ const greet = hour < 12 ? 'Buenos días' : hour < 19 ? 'Buenas tardes' : 'Buenas
           if (el.type === 'checkbox' || el.type === 'radio') el.checked = vals.has(el.name) && (el.type === 'checkbox' || vals.get(el.name) === el.value);
           else if (vals.has(el.name)) el.value = vals.get(el.name)!;
         }
-        form.dispatchEvent(new CustomEvent('bp:restored', { detail: { message: tplErr.dataset.msg ?? '' } }));
-      });
+        // Si la página muestra el error dentro del formulario (preventDefault), no se repite en el aviso.
+        const ev = new CustomEvent('bp:restored', { cancelable: true, detail: { message: tplErr.dataset.msg ?? '' } });
+        handledErr = !form.dispatchEvent(ev);
+      }
     }
-    const raw = store.get('bp-pos');
-    store.del('bp-pos');
-    if (!raw || !(tplOk || tplErr)) return;
-    let pos: { path: string; y: number; keep: string | null; day: string | null };
-    try {
-      pos = JSON.parse(raw);
-    } catch {
-      return;
-    }
-    if (pos.path !== PATH) return;
-    if (pos.day) document.querySelector<HTMLElement>(`.chip[data-day="${pos.day}"]`)?.click();
-    const el = pos.keep ? document.getElementById(pos.keep) : null;
+    showToasts(handledErr);
+    if (!fresh || !last) return;
+    if (last.day) document.querySelector<HTMLElement>(`.chip[data-day="${last.day}"]`)?.click();
+    const el = last.keep ? document.getElementById(last.keep) : null;
     if (el) {
       if (el instanceof HTMLDetailsElement) el.open = true;
       el.scrollIntoView({ block: 'center', behavior: 'instant' });
-      if (tplOk) {
+      if (saved) {
         el.classList.add('just-saved');
         setTimeout(() => el.classList.remove('just-saved'), 1800);
       }
-    } else if (!pos.day) window.scrollTo({ top: pos.y, behavior: 'instant' });
+    } else if (!last.day) window.scrollTo({ top: last.y, behavior: 'instant' });
   };
   // Después de que cada página haya conectado sus propios scripts.
   if (document.readyState === 'loading') document.addEventListener('DOMContentLoaded', restore);
@@ -1127,9 +1188,13 @@ const greet = hour < 12 ? 'Buenos días' : hour < 19 ? 'Buenas tardes' : 'Buenas
         );
         return;
       }
+      // Cerrar sesión: no dejar datos de clientas en la pestaña (de inmediato, antes de salir).
+      // getAttribute: los formularios tienen un campo name="action" que tapa form.action.
+      const isLogout = (form.getAttribute('action') ?? '').includes('/api/admin/logout');
+      if (isLogout) forget();
       setTimeout(() => {
         if (e.defaultPrevented) return;
-        remember(form);
+        if (!isLogout) remember(form);
         btn?.classList.add('loading');
       }, 0);
     },
@@ -1141,6 +1206,9 @@ const greet = hour < 12 ? 'Buenos días' : hour < 19 ? 'Buenas tardes' : 'Buenas
     if (!a || a.target || a.getAttribute('href')!.startsWith('#') || e.metaKey || e.ctrlKey || e.shiftKey) return;
     a.classList.add('loading');
   });
-  // Al volver con el botón atrás, quitar estados de carga.
-  window.addEventListener('pageshow', () => document.querySelectorAll('.btn.loading').forEach((b) => b.classList.remove('loading')));
+  // Al volver con el botón atrás: quitar estados de carga y confirmaciones ya usadas.
+  window.addEventListener('pageshow', () => {
+    document.querySelectorAll('.btn.loading').forEach((b) => b.classList.remove('loading'));
+    document.querySelectorAll<HTMLFormElement>('form[data-confirmed]').forEach((f) => delete f.dataset.confirmed);
+  });
 </script>
