@@ -6,20 +6,21 @@ import { back, bool, int, isUuid, slugify, str } from '../../lib/admin';
 import { formatCOP, formatDuration } from '../../lib/time';
 
 const HERE = '/admin/servicios';
+const OOPS = 'Algo salió mal. Recarga la página e intenta de nuevo.';
 if (Astro.request.method === 'POST') {
   const fd = await Astro.request.formData();
   const action = str(fd, 'action', 20);
   const id = str(fd, 'id', 40);
 
   if (action === 'delete') {
-    if (!isUuid(id)) return back(HERE, 'error', 'Servicio inválido');
+    if (!isUuid(id)) return back(HERE, 'error', OOPS);
     await deleteService(id);
     return back(HERE, 'ok', 'Servicio eliminado');
   }
 
   if (action === 'save') {
     const name = str(fd, 'name', 80);
-    if (name.length < 2) return back(HERE, 'error', 'El nombre es muy corto');
+    if (name.length < 2) return back(HERE, 'error', 'Escribe un nombre de al menos 2 letras.');
     const priceRaw = str(fd, 'price_from', 12).replace(/\D/g, '');
     try {
       await upsertService({
@@ -35,190 +36,430 @@ if (Astro.request.method === 'POST') {
         sort: int(fd, 'sort', 0, 999, 0),
       });
     } catch (e) {
-      const msg = (e as { code?: string }).code === '23505' ? 'Ya existe un servicio con ese enlace (slug)' : 'No se pudo guardar';
+      const msg = (e as { code?: string }).code === '23505' ? 'Ya tienes un servicio con ese nombre. Cámbialo un poco.' : 'No se pudo guardar el servicio. Intenta de nuevo.';
       return back(HERE, 'error', msg);
     }
-    return back(HERE, 'ok', 'Servicio guardado');
+    // La portada pública se guarda en caché unos minutos.
+    return back(HERE, 'ok', 'Servicio guardado. En tu página se ve en unos minutos.');
   }
-  return back(HERE, 'error', 'Acción desconocida');
+  return back(HERE, 'error', OOPS);
 }
 
 const services = await getServices(false);
 const blank = { id: '', slug: '', name: '', description: '', category: 'Peinados', duration_min: 60, price_from: null as number | null, active: true, featured: false, sort: services.length + 1 };
+const DURS = [30, 45, 60, 90, 120, 180];
 ---
 
-<Admin title="Servicios" subtitle="Lo que edites aquí se muestra en la página principal y en el formulario de reservas. La duración define cuánto tiempo bloquea cada cita.">
+<Admin title="Servicios" subtitle="Lo que cambies aquí aparece en tu página y en las reservas. La duración es el tiempo que cada cita te ocupa en la agenda.">
   <a slot="actions" href="#nuevo" class="btn btn-clay" data-open-new><Icon name="plus" /> Nuevo servicio</a>
-  <div class="svc-list">
+  <div class="panel menu">
     {
-      [blank, ...services].map((s) => (
-        <details class:list={['panel', 'svc', { 'is-off': s.id && !s.active, isnew: !s.id }]} id={s.id ? `s-${s.id}` : 'nuevo'}>
-          <summary>
-            <span class="svc-ico">{s.id ? <Icon name="scissors" /> : <Icon name="plus" />}</span>
-            {s.id ? (
-              <span class="svc-sum">
-                <b>
-                  {s.name} {s.featured && <span class="star" title="Destacado">★</span>}
-                </b>
-                <span class="chips">
-                  <span class="chip-i"><Icon name="clock" size={14} /> {formatDuration(s.duration_min)}</span>
-                  <span class="chip-i"><Icon name="money" size={14} /> {formatCOP(s.price_from)}</span>
-                  {!s.active && <span class="tag cancelada">Oculto</span>}
+      [...services, blank].map((s) => {
+        const k = s.id || 'new';
+        return (
+          <details class:list={['svc', { 'is-off': s.id && !s.active, isnew: !s.id }]} id={s.id ? `s-${s.id}` : 'nuevo'} data-keep>
+            <summary>
+              {s.id ? (
+                <>
+                  <span class="svc-name">
+                    <span class="nm">
+                      {s.name}
+                      {s.featured && (
+                        <span class="star" title="Destacado en la página">
+                          {'\u00a0'}★<span class="sr-only"> destacado</span>
+                        </span>
+                      )}
+                    </span>
+                    {!s.active && <span class="tag cancelada">Oculto en la web</span>}
+                  </span>
+                  <span class="svc-dur">{formatDuration(s.duration_min)}</span>
+                  <span class="svc-price">{formatCOP(s.price_from)}</span>
+                </>
+              ) : (
+                <span class="svc-add">
+                  <span class="add-ico" aria-hidden="true">
+                    <Icon name="plus" size={16} />
+                  </span>
+                  Agregar un servicio
                 </span>
-              </span>
-            ) : (
-              <span class="svc-sum">
-                <b>Nuevo servicio</b>
-                <span class="muted">Agrega un peinado al catálogo</span>
-              </span>
-            )}
-          </summary>
-          <form method="post" class="grid-2">
-            <input type="hidden" name="action" value="save" />
-            <input type="hidden" name="id" value={s.id} />
-            <div class="field">
-              <label>Nombre</label>
-              <input name="name" value={s.name} maxlength="80" required />
-            </div>
-            <div class="field">
-              <label>Categoría</label>
-              <input name="category" value={s.category} maxlength="40" />
-            </div>
-            <div class="field">
-              <label>Duración (minutos)</label>
-              <input name="duration_min" type="number" min="15" max="480" step="5" value={s.duration_min} required />
-            </div>
-            <div class="field">
-              <label>Precio desde (COP) <span class="hint">vacío = a convenir</span></label>
-              <input name="price_from" inputmode="numeric" value={s.price_from ?? ''} />
-            </div>
-            <div class="field full">
-              <label>Descripción</label>
-              <textarea name="description" maxlength="500">{s.description}</textarea>
-            </div>
-            <div class="field">
-              <label>Orden</label>
-              <input name="sort" type="number" min="0" max="999" value={s.sort} />
-            </div>
-            <div class="field">
-              <label>Enlace (slug)</label>
-              <input name="slug" value={s.slug} maxlength="60" placeholder="se genera solo" />
-            </div>
-            <div class="row full toggles">
-              <label class="check"><input type="checkbox" name="active" checked={s.active} /> Visible en la web</label>
-              <label class="check"><input type="checkbox" name="featured" checked={s.featured} /> Destacado</label>
-            </div>
-            <div class="row full acts">
-              {s.id && (
-                <button class="btn btn-danger btn-sm" form={`del-${s.id}`}>
-                  <Icon name="trash" /> Eliminar
-                </button>
               )}
-              <button class="btn btn-clay btn-sm"><Icon name="check" /> {s.id ? 'Guardar cambios' : 'Crear servicio'}</button>
-            </div>
-          </form>
-          {s.id && (
-            <form method="post" id={`del-${s.id}`} data-confirm="¿Eliminar este servicio? Las citas existentes se conservan.">
-              <input type="hidden" name="action" value="delete" />
+            </summary>
+            <form method="post" class="svc-form" data-draft={k}>
+              <input type="hidden" name="action" value="save" />
               <input type="hidden" name="id" value={s.id} />
+              <div class="grid-2">
+                <div class="field">
+                  <label for={`price-${k}`}>Precio desde</label>
+                  <input id={`price-${k}`} name="price_from" inputmode="numeric" value={s.price_from ?? ''} placeholder="Ej.: 70000" aria-describedby={`price-h-${k}`} data-price />
+                  <small class="hint" id={`price-h-${k}`} data-price-out>
+                    Déjalo vacío si es a convenir
+                  </small>
+                </div>
+                <div class="field">
+                  <label for={`dur-${k}`}>Duración en minutos</label>
+                  <input id={`dur-${k}`} name="duration_min" type="number" min="15" max="480" step="5" value={s.duration_min} required aria-describedby={`dur-h-${k}`} data-dur />
+                  <div class="dur-chips" role="group" aria-label="Duraciones frecuentes">
+                    {DURS.map((m) => (
+                      <button type="button" class="dchip" data-set-dur={m}>
+                        {formatDuration(m)}
+                      </button>
+                    ))}
+                  </div>
+                  <small class="hint" id={`dur-h-${k}`} data-dur-out>
+                    = {formatDuration(s.duration_min)}
+                  </small>
+                </div>
+                <div class="field full">
+                  <label for={`name-${k}`}>Nombre</label>
+                  <input id={`name-${k}`} name="name" value={s.name} maxlength="80" minlength="2" required />
+                </div>
+                <div class="row full toggles">
+                  <label class="check">
+                    <input type="checkbox" name="active" checked={s.active} /> Visible en la web
+                  </label>
+                  <label class="check">
+                    <input type="checkbox" name="featured" checked={s.featured} /> Destacar en la página
+                  </label>
+                </div>
+                <details class="opts full">
+                  <summary>Más opciones</summary>
+                  <div class="grid-2">
+                    <div class="field">
+                      <label for={`cat-${k}`}>Categoría</label>
+                      <input id={`cat-${k}`} name="category" value={s.category} maxlength="40" placeholder="Ej.: Peinados, Novias, Niñas" />
+                    </div>
+                    <div class="field">
+                      <label for={`sort-${k}`}>Orden en la lista</label>
+                      <input id={`sort-${k}`} name="sort" type="number" min="0" max="999" value={s.sort} aria-describedby={`sort-h-${k}`} />
+                      <small class="hint" id={`sort-h-${k}`}>
+                        El 1 sale primero
+                      </small>
+                    </div>
+                    <div class="field full">
+                      <label for={`desc-${k}`}>Descripción</label>
+                      <textarea id={`desc-${k}`} name="description" maxlength="500">{s.description}</textarea>
+                    </div>
+                    <div class="field full">
+                      <label for={`slug-${k}`}>Dirección en la web (opcional)</label>
+                      <input id={`slug-${k}`} name="slug" value={s.slug} maxlength="60" placeholder="Se crea sola con el nombre" />
+                    </div>
+                  </div>
+                </details>
+              </div>
+              <div class="acts">
+                <button class="btn btn-clay">
+                  <Icon name="check" /> {s.id ? 'Guardar cambios' : 'Crear servicio'}
+                </button>
+              </div>
             </form>
-          )}
-        </details>
-      ))
+            {s.id && (
+              <form
+                method="post"
+                class="del-form"
+                data-confirm={`¿Eliminar «${s.name}»? Tus citas ya agendadas no se borran. Si solo quieres esconderlo, apaga «Visible en la web».`}
+                data-confirm-yes="Sí, eliminar"
+              >
+                <input type="hidden" name="action" value="delete" />
+                <input type="hidden" name="id" value={s.id} />
+                <button class="del-btn">
+                  <Icon name="trash" size={16} /> Eliminar este servicio
+                </button>
+              </form>
+            )}
+          </details>
+        );
+      })
     }
   </div>
 </Admin>
 
 <style>
-  .svc-list {
-    display: grid;
-    gap: 0.75rem;
+  /* La carta del salón: filas con duración y precio alineados */
+  .menu {
+    max-width: 820px;
+    padding: var(--s-2) var(--s-5);
+  }
+  .svc-form .grid-2 {
+    align-items: start;
   }
   .svc {
     margin: 0;
-    padding: 1rem 1.25rem;
-    transition: box-shadow 0.35s var(--ease), transform 0.35s var(--ease);
+    padding: var(--s-4) 0;
+    border-top: 1px dashed var(--line);
   }
-  .svc:not([open]):hover {
-    transform: translateY(-2px);
-    box-shadow: 0 20px 40px -26px rgb(42 28 22 / 0.5);
+  .svc:first-child {
+    border-top: 0;
   }
   .svc.isnew {
-    border-style: dashed;
-    background: transparent;
-    box-shadow: none;
+    border-top: 1px solid var(--line);
   }
-  .svc.isnew[open] {
-    background: var(--white);
-    border-style: solid;
+  .svc > summary {
+    display: grid;
+    grid-template-columns: 1fr auto auto 20px;
+    gap: var(--s-5);
+    align-items: center;
+    min-height: 44px;
+    cursor: pointer;
+    list-style: none;
   }
-  .svc.is-off .svc-sum b {
+  .svc > summary::-webkit-details-marker {
+    display: none;
+  }
+  .svc > summary::after {
+    content: '';
+    justify-self: center;
+    align-self: center;
+    width: 9px;
+    height: 9px;
+    border-right: 2px solid var(--muted);
+    border-bottom: 2px solid var(--muted);
+    transform: rotate(45deg) translateY(-3px);
+    transition: transform 0.35s var(--ease);
+  }
+  .svc[open] > summary::after {
+    transform: rotate(-135deg) translateY(-3px);
+  }
+  .svc-name {
+    display: flex;
+    align-items: baseline;
+    flex-wrap: wrap;
+    gap: var(--s-2);
+    font: 450 var(--t-lg) / 1.25 var(--font-display);
+  }
+  .nm {
+    white-space: normal;
+  }
+  .star {
+    white-space: nowrap;
+  }
+  .svc.is-off .svc-name {
     color: var(--muted);
-  }
-  .svc-ico {
-    flex: none;
-    display: grid;
-    place-items: center;
-    width: 44px;
-    height: 44px;
-    border-radius: 14px;
-    background: var(--cream-2);
-    color: var(--clay);
-  }
-  .isnew .svc-ico {
-    background: var(--clay);
-    color: var(--white);
-  }
-  .svc-sum {
-    display: grid;
-    gap: 0.3rem;
-    min-width: 0;
-  }
-  .svc-sum b {
-    font-size: 1.05rem;
   }
   .star {
     color: var(--gold);
+    font-size: var(--t-md);
   }
-  .chips {
-    display: flex;
-    flex-wrap: wrap;
-    gap: 0.4rem;
-    font-weight: 600;
+  .svc-dur {
+    min-width: 7ch;
+    text-align: right;
+    font-size: var(--t-sm);
+    color: var(--muted);
+    font-variant-numeric: tabular-nums;
   }
-  .chip-i {
+  .svc-price {
+    min-width: 9ch;
+    text-align: right;
+    font: italic 450 var(--t-lg) var(--font-display);
+    color: var(--accent-text);
+  }
+  .svc.isnew > summary {
+    grid-template-columns: 1fr 20px;
+    align-items: center;
+  }
+  .svc-add {
     display: inline-flex;
     align-items: center;
-    gap: 0.3rem;
-    padding: 0.2rem 0.6rem;
-    border-radius: 999px;
+    gap: var(--s-3);
+    font-weight: 700;
+    color: var(--accent-text);
+  }
+  .add-ico {
+    display: grid;
+    place-items: center;
+    width: 28px;
+    height: 28px;
+    border-radius: 50%;
+    background: var(--clay-ink);
+    color: var(--white);
+  }
+  .svc[open] > form,
+  .svc[open] > .del-form {
+    animation: a-rise 0.45s var(--ease) backwards;
+  }
+  .svc-form {
+    margin: var(--s-3) calc(var(--s-3) * -1) 0;
+    padding: var(--s-5);
+    border-radius: var(--r-md);
     background: var(--cream);
-    font-size: 0.78rem;
+  }
+  .dur-chips {
+    display: flex;
+    flex-wrap: wrap;
+    gap: var(--s-1);
+  }
+  .dchip {
+    min-height: 44px;
+    min-width: 44px;
+    padding: 0 var(--s-3);
+    border: 1px solid var(--line);
+    border-radius: 999px;
+    background: var(--white);
     color: var(--cocoa-2);
+    font: 600 var(--t-xs) var(--font-body);
+    cursor: pointer;
+  }
+  .dchip[aria-pressed='true'] {
+    background: var(--cocoa);
+    border-color: var(--cocoa);
+    color: var(--white);
   }
   .toggles {
-    gap: 1.5rem;
-    padding: 0.4rem 0;
+    gap: var(--s-2) var(--s-5);
+  }
+  .opts {
+    border-top: 1px dashed var(--line);
+    padding-top: var(--s-1);
+  }
+  .opts > summary {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    list-style: none;
+    min-height: 44px;
+    font-weight: 700;
+    font-size: var(--t-sm);
+    color: var(--cocoa-2);
+    cursor: pointer;
+  }
+  .opts > summary::-webkit-details-marker {
+    display: none;
+  }
+  .opts > summary::after {
+    content: '';
+    width: 9px;
+    height: 9px;
+    margin-right: 6px;
+    border-right: 2px solid var(--muted);
+    border-bottom: 2px solid var(--muted);
+    transform: rotate(45deg) translateY(-3px);
+    transition: transform 0.35s var(--ease);
+  }
+  .opts[open] > summary::after {
+    transform: rotate(-135deg) translateY(-3px);
+  }
+  .opts[open] > summary {
+    margin-bottom: var(--s-3);
   }
   .acts {
+    display: flex;
     justify-content: flex-end;
-    padding-top: 1rem;
+    margin-top: var(--s-5);
+    padding-top: var(--s-4);
     border-top: 1px solid var(--line);
   }
-  .acts .btn-danger {
-    margin-right: auto;
+  .del-form {
+    display: flex;
+    justify-content: flex-end;
+    margin-top: var(--s-2);
+  }
+  .del-btn {
+    display: inline-flex;
+    align-items: center;
+    gap: 0.4rem;
+    min-height: 44px;
+    padding: 0 var(--s-3);
+    border: 0;
+    border-radius: 999px;
+    background: none;
+    color: #9c2a1a;
+    font: 600 var(--t-sm) var(--font-body);
+    cursor: pointer;
+  }
+  .del-btn:hover {
+    background: #f8e1dc;
+  }
+  @media (max-width: 640px) {
+    .menu {
+      padding: var(--s-1) var(--s-4);
+    }
+    .svc > summary {
+      grid-template-columns: 1fr auto 20px;
+      gap: 0 var(--s-3);
+    }
+    .svc-name {
+      grid-column: 1;
+    }
+    .svc-dur {
+      grid-column: 1;
+      grid-row: 2;
+      text-align: left;
+      font-size: var(--t-xs);
+    }
+    .svc-price {
+      grid-column: 2;
+      grid-row: 1;
+    }
+    .svc > summary::after {
+      grid-column: 3;
+      grid-row: 1;
+    }
+    .svc-form {
+      margin-inline: calc(var(--s-2) * -1);
+      padding: var(--s-4);
+    }
+    .acts .btn {
+      width: 100%;
+    }
+    .dur-chips {
+      display: grid;
+      grid-template-columns: repeat(3, 1fr);
+    }
+    .del-form {
+      justify-content: center;
+    }
   }
 </style>
 
 <script>
+  const reduce = matchMedia('(prefers-reduced-motion: reduce)').matches;
   document.querySelectorAll<HTMLElement>('[data-open-new]').forEach((b) =>
     b.addEventListener('click', (e) => {
       e.preventDefault();
       const d = document.getElementById('nuevo') as HTMLDetailsElement | null;
       if (!d) return;
       d.open = true;
-      d.scrollIntoView({ behavior: 'smooth', block: 'start' });
+      d.scrollIntoView({ behavior: reduce ? 'auto' : 'smooth', block: 'start' });
       setTimeout(() => d.querySelector<HTMLInputElement>('input[name=name]')?.focus({ preventScroll: true }), 400);
     }),
   );
+
+  // Ayudas de duración y precio: chips que rellenan el campo y vista previa legible.
+  const fmtDur = (m: number) => {
+    const h = Math.floor(m / 60);
+    const r = m % 60;
+    return h ? (r ? `${h} h ${r} min` : `${h} h`) : `${r} min`;
+  };
+  const fmtCOP = new Intl.NumberFormat('es-CO', { style: 'currency', currency: 'COP', maximumFractionDigits: 0 });
+  document.querySelectorAll<HTMLFormElement>('.svc-form').forEach((form) => {
+    const dur = form.querySelector<HTMLInputElement>('[data-dur]');
+    const durOut = form.querySelector<HTMLElement>('[data-dur-out]');
+    const price = form.querySelector<HTMLInputElement>('[data-price]');
+    const priceOut = form.querySelector<HTMLElement>('[data-price-out]');
+    const chips = form.querySelectorAll<HTMLButtonElement>('[data-set-dur]');
+    const syncDur = () => {
+      const m = Number(dur?.value);
+      if (durOut) durOut.textContent = m >= 15 ? `= ${fmtDur(m)}` : 'Mínimo 15 minutos';
+      chips.forEach((c) => c.setAttribute('aria-pressed', String(Number(c.dataset.setDur) === m)));
+    };
+    const syncPrice = () => {
+      if (!price || !priceOut) return;
+      const n = price.value.replace(/\D/g, '');
+      priceOut.textContent = n ? `= ${fmtCOP.format(Number(n))}` : 'Déjalo vacío si es a convenir';
+    };
+    chips.forEach((c) =>
+      c.addEventListener('click', () => {
+        if (!dur) return;
+        dur.value = c.dataset.setDur!;
+        dur.dispatchEvent(new Event('input', { bubbles: true }));
+      }),
+    );
+    dur?.addEventListener('input', syncDur);
+    price?.addEventListener('input', syncPrice);
+    form.addEventListener('bp:restored', () => {
+      syncDur();
+      syncPrice();
+    });
+    syncDur();
+    syncPrice();
+  });
 </script>

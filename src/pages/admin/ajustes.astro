@@ -1,18 +1,19 @@
 ---
 import Admin from '../../layouts/Admin.astro';
 import Icon from '../../components/Icon.astro';
-import { addGalleryImage, getGallery, getGoogleConnection, getSettings, removeGalleryImage, updateSettings } from '../../lib/db';
+import { addGalleryImage, demoMode, getGallery, getGoogleConnection, getSettings, removeGalleryImage, updateSettings } from '../../lib/db';
 import { googleConfigured } from '../../lib/google';
 import { back, bool, isUuid, str } from '../../lib/admin';
 
 const HERE = '/admin/ajustes';
+const OOPS = 'Algo salió mal. Recarga la página e intenta de nuevo.';
 if (Astro.request.method === 'POST') {
   const fd = await Astro.request.formData();
   const action = str(fd, 'action', 20);
 
   if (action === 'settings') {
     const whatsapp = str(fd, 'whatsapp', 20).replace(/\D/g, '');
-    if (whatsapp.length < 10) return back(HERE, 'error', 'El WhatsApp debe incluir el indicativo, por ejemplo 573001234567');
+    if (whatsapp.length < 10) return back(HERE, 'error', 'Escribe el WhatsApp con 57 adelante, ej.: 573001234567');
     const instagram = str(fd, 'instagram', 40).replace(/^@/, '').replace(/[^a-zA-Z0-9._]/g, '');
     await updateSettings({
       business_name: str(fd, 'business_name', 80) || 'Betsy Peinados',
@@ -30,42 +31,46 @@ if (Astro.request.method === 'POST') {
       maps_query: str(fd, 'maps_query', 200),
       home_service: bool(fd, 'home_service'),
     });
-    return back(HERE, 'ok', 'Datos guardados. El sitio se actualiza en unos minutos.');
+    return back(HERE, 'ok', 'Datos guardados. Tu página se actualiza en unos minutos.');
   }
 
   if (action === 'upload') {
     const files = fd.getAll('photos').filter((f): f is File => f instanceof File && f.size > 0);
-    if (!files.length) return back(HERE, 'error', 'Selecciona al menos una foto');
-    if (files.length > 10) return back(HERE, 'error', 'Máximo 10 fotos por vez');
+    if (!files.length) return back(HERE, 'error', 'Elige al menos una foto.');
+    if (files.length > 10) return back(HERE, 'error', 'Puedes subir hasta 10 fotos a la vez.');
     for (const f of files) {
-      if (f.size > 5 * 1024 * 1024) return back(HERE, 'error', `${f.name} pesa más de 5 MB`);
-      if (!['image/jpeg', 'image/png', 'image/webp', 'image/avif'].includes(f.type)) return back(HERE, 'error', `${f.name} no es una imagen válida`);
+      if (f.size > 5 * 1024 * 1024) return back(HERE, 'error', `La foto ${f.name} pesa más de 5 MB. Prueba con una más liviana.`);
+      if (!['image/jpeg', 'image/png', 'image/webp', 'image/avif'].includes(f.type)) return back(HERE, 'error', `${f.name} no es una foto que podamos usar. Usa JPG, PNG o WebP.`);
     }
+    if (demoMode) return back(HERE, 'error', 'En el modo de prueba no se pueden subir fotos.');
     try {
       const alt = str(fd, 'alt', 160) || 'Peinado realizado por Betsy Peinados en Valledupar';
       for (const f of files) await addGalleryImage(f, alt);
     } catch (e) {
-      return back(HERE, 'error', (e as Error).message || 'No se pudieron subir las fotos');
+      console.error(e);
+      return back(HERE, 'error', 'No se pudieron subir las fotos. Intenta de nuevo.');
     }
-    return back(HERE, 'ok', 'Fotos subidas');
+    return back(HERE, 'ok', files.length === 1 ? 'Foto subida' : `${files.length} fotos subidas`);
   }
 
   if (action === 'delete-photo') {
     const id = str(fd, 'id', 40);
-    if (!isUuid(id)) return back(HERE, 'error', 'Foto inválida');
+    if (!isUuid(id)) return back(HERE, 'error', OOPS);
     await removeGalleryImage(id);
     return back(HERE, 'ok', 'Foto eliminada');
   }
-  return back(HERE, 'error', 'Acción desconocida');
+  return back(HERE, 'error', OOPS);
 }
 
 const [s, gallery, google] = await Promise.all([getSettings(), getGallery(), getGoogleConnection()]);
+// Para quien programa: sin GOOGLE_CLIENT_ID, GOOGLE_CLIENT_SECRET y TOKEN_ENCRYPTION_KEY en el servidor,
+// Betsy ve un aviso sin jerga que le pide contactar a quien le ayuda con la web.
 const gReady = googleConfigured();
 ---
 
-<Admin title="Ajustes" subtitle="Conexión con Google, datos del negocio, textos y fotos de la web.">
+<Admin title="Ajustes" subtitle="Tu Google Calendar, los datos del negocio y lo que se ve en tu página.">
   <section class:list={['panel', 'gcal', { on: google }]}>
-    <span class="g-logo"><Icon name="google" size={28} /></span>
+    <span class="g-logo"><Icon name="google" size={26} /></span>
     <div class="g-txt">
       <h2>
         Google Calendar {google ? <span class="tag">Conectado</span> : <span class="tag pendiente">Sin conectar</span>}
@@ -76,16 +81,21 @@ const gReady = googleConfigured();
             Conectado{google.google_email && <> con <strong>{google.google_email}</strong></>}. Cada cita nueva llega a tu calendario y tus eventos personales bloquean esos horarios en la web.
           </p>
         ) : gReady ? (
-          <p class="muted">Conecta tu cuenta para que cada cita llegue automáticamente a tu calendario.</p>
+          <p class="muted">Conéctalo y cada cita nueva se anota sola en tu calendario. Tus eventos personales también ocupan esas horas en la web.</p>
         ) : (
-          <p class="muted">Faltan las credenciales de Google en el servidor (GOOGLE_CLIENT_ID, GOOGLE_CLIENT_SECRET y TOKEN_ENCRYPTION_KEY).</p>
+          <p class="muted">La conexión con Google aún no está activada en tu página. Pídele a quien te ayuda con la web que la active.</p>
         )
       }
     </div>
     <div class="g-act">
       {
         google ? (
-          <form method="post" action="/api/google/disconnect" data-confirm="¿Desconectar Google Calendar? Las citas nuevas dejarán de llegar a tu calendario.">
+          <form
+            method="post"
+            action="/api/google/disconnect"
+            data-confirm="¿Desconectar Google Calendar? Las citas nuevas ya no se anotarán allá y tus eventos personales dejarán de ocupar horas en la web."
+            data-confirm-yes="Sí, desconectar"
+          >
             <button class="btn btn-danger btn-sm">Desconectar</button>
           </form>
         ) : (
@@ -99,34 +109,58 @@ const gReady = googleConfigured();
     </div>
   </section>
 
-  <form method="post" class="panel">
+  <form method="post" class="panel settings" id="datos" data-keep data-draft="settings" data-sticky-save data-dirty-form>
     <input type="hidden" name="action" value="settings" />
-    <h2>Datos del negocio</h2>
-    <div class="grid-2">
-      <div class="field"><label for="bn">Nombre</label><input id="bn" name="business_name" value={s.business_name} maxlength="80" /></div>
-      <div class="field"><label for="tg">Frase corta</label><input id="tg" name="tagline" value={s.tagline} maxlength="120" /></div>
-      <div class="field"><label for="wa">WhatsApp (con indicativo, solo números)</label><input id="wa" name="whatsapp" value={s.whatsapp} inputmode="numeric" maxlength="20" required /></div>
-      <div class="field"><label for="ph">Teléfono visible</label><input id="ph" name="phone" value={s.phone} maxlength="30" /></div>
-      <div class="field"><label for="em">Correo</label><input id="em" name="email" type="email" value={s.email} maxlength="120" /></div>
-      <div class="field"><label for="ig">Instagram (sin @)</label><input id="ig" name="instagram" value={s.instagram} maxlength="40" /></div>
-      <div class="field"><label for="ad">Dirección</label><input id="ad" name="address" value={s.address} maxlength="160" /></div>
-      <div class="field"><label for="mq">Búsqueda para el mapa</label><input id="mq" name="maps_query" value={s.maps_query} maxlength="200" /></div>
-      <div class="field"><label for="ci">Ciudad</label><input id="ci" name="city" value={s.city} maxlength="60" /></div>
-      <div class="field"><label for="rg">Departamento</label><input id="rg" name="region" value={s.region} maxlength="60" /></div>
-      <label class="check full home"><input type="checkbox" name="home_service" checked={s.home_service} /> <span><b>Ofrezco servicio a domicilio</b><small class="muted">Muestra la sección "A domicilio" en la página principal</small></span></label>
+    <div class="sec">
+      <div class="sec-h">
+        <h2>Datos del negocio</h2>
+        <p class="muted">Cómo te encuentran y te escriben tus clientas.</p>
+      </div>
+      <div class="grid-2 fields">
+        <div class="field"><label for="bn">Nombre</label><input id="bn" name="business_name" value={s.business_name} maxlength="80" /></div>
+        <div class="field"><label for="tg">Frase corta</label><input id="tg" name="tagline" value={s.tagline} maxlength="120" /></div>
+        <div class="field">
+          <label for="wa">WhatsApp</label><input id="wa" name="whatsapp" value={s.whatsapp} inputmode="numeric" maxlength="20" required aria-describedby="wa-h" />
+          <small class="hint" id="wa-h">Con 57 adelante, ej.: 573001234567</small>
+        </div>
+        <div class="field"><label for="ph">Teléfono que se ve en tu página</label><input id="ph" name="phone" value={s.phone} maxlength="30" /></div>
+        <div class="field"><label for="em">Correo</label><input id="em" name="email" type="email" value={s.email} maxlength="120" /></div>
+        <div class="field">
+          <label for="ig">Instagram</label><input id="ig" name="instagram" value={s.instagram} maxlength="40" aria-describedby="ig-h" />
+          <small class="hint" id="ig-h">Sin @</small>
+        </div>
+        <div class="field"><label for="ad">Dirección</label><input id="ad" name="address" value={s.address} maxlength="160" /></div>
+        <div class="field">
+          <label for="mq">Cómo te encuentran en Google Maps</label><input id="mq" name="maps_query" value={s.maps_query} maxlength="200" placeholder="Ej.: Betsy Peinados, Valledupar" />
+        </div>
+        <div class="field"><label for="ci">Ciudad</label><input id="ci" name="city" value={s.city} maxlength="60" /></div>
+        <div class="field"><label for="rg">Departamento</label><input id="rg" name="region" value={s.region} maxlength="60" /></div>
+        <label class="check full home"
+          ><input type="checkbox" name="home_service" checked={s.home_service} /> <span><b>Ofrezco servicio a domicilio</b><small class="muted">Muestra la sección "A domicilio" en la página principal</small></span></label
+        >
+      </div>
     </div>
-    <h2 class="mt">Textos de la página</h2>
-    <div class="grid-2">
-      <div class="field full"><label for="ht">Título principal (la última palabra sale resaltada)</label><input id="ht" name="hero_title" value={s.hero_title} maxlength="80" /></div>
-      <div class="field full"><label for="hs">Subtítulo</label><textarea id="hs" name="hero_subtitle" maxlength="300">{s.hero_subtitle}</textarea></div>
-      <div class="field full"><label for="ab">Sobre mí</label><textarea id="ab" name="about" maxlength="1200">{s.about}</textarea></div>
+    <div class="sec">
+      <div class="sec-h">
+        <h2>Textos de la página</h2>
+        <p class="muted">Lo primero que leen al entrar.</p>
+      </div>
+      <div class="grid-2 fields">
+        <div class="field full">
+          <label for="ht">Título grande de la portada</label><input id="ht" name="hero_title" value={s.hero_title} maxlength="80" aria-describedby="ht-h" />
+          <small class="hint" id="ht-h">La última palabra sale resaltada</small>
+        </div>
+        <div class="field full"><label for="hs">Subtítulo</label><textarea id="hs" name="hero_subtitle" maxlength="300">{s.hero_subtitle}</textarea></div>
+        <div class="field full"><label for="ab">Sobre mí</label><textarea id="ab" name="about" maxlength="1200">{s.about}</textarea></div>
+      </div>
     </div>
     <div class="save-row">
+      <p class="unsaved" data-unsaved hidden>Tienes cambios sin guardar</p>
       <button class="btn btn-clay"><Icon name="check" /> Guardar cambios</button>
     </div>
   </form>
 
-  <section class="panel">
+  <section class="panel" id="galeria" data-keep>
     <div class="panel-head">
       <h2>Galería de fotos</h2>
       <span class="muted">{gallery.length} {gallery.length === 1 ? 'foto' : 'fotos'}</span>
@@ -136,12 +170,15 @@ const gReady = googleConfigured();
       <label class="drop" data-drop>
         <input type="file" name="photos" accept="image/jpeg,image/png,image/webp,image/avif" multiple required data-files />
         <span class="d-ico"><Icon name="upload" size={24} /></span>
-        <b data-drop-label>Toca para elegir fotos o arrástralas aquí</b>
+        <b data-drop-label>Toca para elegir fotos</b>
         <small class="muted">JPG, PNG o WebP · máximo 5 MB · hasta 10 a la vez. La primera foto aparece en la portada.</small>
       </label>
       <div class="up-row">
-        <input class="input" name="alt" maxlength="160" placeholder="Descripción (ej. Ondas para grado)" aria-label="Descripción" />
-        <button class="btn btn-clay"><Icon name="upload" /> Subir fotos</button>
+        <div class="field">
+          <label for="alt">Descripción de las fotos (opcional)</label>
+          <input class="input" id="alt" name="alt" maxlength="160" placeholder="Ej.: Ondas para grado" />
+        </div>
+        <button class="btn btn-soft" data-upload-btn><Icon name="upload" /> Subir fotos</button>
       </div>
     </form>
     <ul class="photos">
@@ -150,7 +187,11 @@ const gReady = googleConfigured();
           <li>
             <img src={g.url} alt={g.alt} loading="lazy" width="160" height="200" />
             {i === 0 && <span class="cover">Portada</span>}
-            <form method="post" data-confirm="¿Eliminar esta foto de la galería?">
+            <form
+              method="post"
+              data-confirm={i === 0 ? '¿Eliminar la foto de portada? La siguiente pasará a la portada.' : '¿Eliminar esta foto de la galería?'}
+              data-confirm-yes="Sí, eliminar"
+            >
               <input type="hidden" name="action" value="delete-photo" />
               <input type="hidden" name="id" value={g.id} />
               <button class="btn btn-sm btn-icon del" aria-label="Eliminar foto">
@@ -160,36 +201,31 @@ const gReady = googleConfigured();
           </li>
         ))
       }
+      {gallery.length === 0 && <li class="none">Aún no hay fotos. La primera que subas será la portada.</li>}
     </ul>
   </section>
 </Admin>
 
 <style>
-  .mt {
-    margin-top: 1.75rem !important;
-  }
   .gcal {
     display: flex;
     align-items: center;
-    gap: 1.1rem;
+    gap: var(--s-4);
     flex-wrap: wrap;
-    border: 1.5px solid #f0d9a8;
-    background: linear-gradient(120deg, #fff8ea, var(--white));
+    border-left: 4px solid #c99a2e;
   }
   .gcal.on {
-    border-color: #cfd8bf;
-    background: linear-gradient(120deg, #f1f4ea, var(--white));
+    border-left-color: var(--sage);
   }
   .g-logo {
     flex: none;
     display: grid;
     place-items: center;
-    width: 56px;
-    height: 56px;
-    border-radius: 18px;
-    background: var(--white);
+    width: 48px;
+    height: 48px;
+    border-radius: var(--r-sm);
+    background: var(--cream);
     color: #4285f4;
-    box-shadow: var(--shadow);
   }
   .g-txt {
     flex: 1 1 260px;
@@ -204,20 +240,84 @@ const gReady = googleConfigured();
   .g-txt p {
     margin: 0;
   }
+  .settings .fields {
+    grid-template-columns: repeat(auto-fit, minmax(min(100%, 300px), 1fr));
+    align-items: start;
+  }
+  .sec + .sec {
+    margin-top: var(--s-6);
+    padding-top: var(--s-5);
+    border-top: 1px solid var(--line);
+  }
+  .sec-h p {
+    margin: calc(var(--s-2) * -1) 0 var(--s-4);
+  }
   .home {
     padding: 0.85rem 1rem;
-    border-radius: 16px;
+    border-radius: var(--r-md);
     background: var(--cream);
   }
   .home span {
     display: grid;
   }
+  /* Barra de guardar: franja sólida pegada al pie del panel (escritorio); en el celular solo se
+     fija cuando hay cambios, como en Horario. */
   .save-row {
+    position: sticky;
+    bottom: 0;
+    z-index: 4;
     display: flex;
+    align-items: center;
     justify-content: flex-end;
-    margin-top: 1.5rem;
-    padding-top: 1.25rem;
+    gap: var(--s-3);
+    flex-wrap: wrap;
+    margin: var(--s-5) calc(clamp(1.1rem, 3vw, 1.75rem) * -1) calc(clamp(1.1rem, 3vw, 1.75rem) * -1);
+    padding: var(--s-3) clamp(1.1rem, 3vw, 1.75rem);
+    border-radius: 0 0 var(--r-lg) var(--r-lg);
+    background: var(--white);
     border-top: 1px solid var(--line);
+    box-shadow: 0 -10px 24px -18px rgb(42 28 22 / 0.35);
+  }
+  .unsaved {
+    margin: 0 auto 0 0;
+    font-size: var(--t-sm);
+    font-weight: 700;
+    color: var(--accent-text);
+  }
+  @media (min-width: 1100px) {
+    .sec {
+      display: grid;
+      grid-template-columns: 220px 1fr;
+      gap: var(--s-6);
+      align-items: start;
+    }
+    .sec-h {
+      position: sticky;
+      top: var(--s-5);
+    }
+    .sec-h p {
+      margin: 0;
+    }
+  }
+  @media (max-width: 860px) {
+    .save-row {
+      position: static;
+      box-shadow: none;
+    }
+    .settings.dirty .save-row {
+      position: sticky;
+      bottom: calc(var(--tab-h) + env(safe-area-inset-bottom));
+      border-radius: 0;
+      box-shadow: 0 -10px 24px -18px rgb(42 28 22 / 0.35);
+    }
+    .save-row .btn {
+      width: 100%;
+    }
+  }
+  @media (max-width: 560px) {
+    .g-logo {
+      display: none;
+    }
   }
   .upload {
     display: grid;
@@ -228,9 +328,9 @@ const gReady = googleConfigured();
     display: grid;
     justify-items: center;
     gap: 0.35rem;
-    padding: 1.75rem 1rem;
+    padding: var(--s-6) var(--s-4);
     border: 2px dashed var(--sand);
-    border-radius: 20px;
+    border-radius: var(--r-md);
     background: var(--cream);
     text-align: center;
     cursor: pointer;
@@ -241,11 +341,16 @@ const gReady = googleConfigured();
     border-color: var(--clay);
     background: #fbefe6;
   }
+  .drop:has(input:focus-visible) {
+    outline: 2.5px solid var(--clay);
+    outline-offset: 3px;
+    border-color: var(--clay);
+  }
   .drop.over {
     transform: scale(1.01);
   }
   .drop.has b {
-    color: var(--clay);
+    color: var(--accent-text);
   }
   .drop input {
     position: absolute;
@@ -266,6 +371,7 @@ const gReady = googleConfigured();
   .up-row {
     display: grid;
     grid-template-columns: 1fr auto;
+    align-items: end;
     gap: 0.6rem;
   }
   .photos {
@@ -278,9 +384,17 @@ const gReady = googleConfigured();
   }
   .photos li {
     position: relative;
-    border-radius: 16px;
+    border-radius: var(--r-md);
     overflow: hidden;
     animation: a-rise 0.5s var(--ease) backwards;
+  }
+  .photos li.none {
+    grid-column: 1 / -1;
+    padding: var(--s-5);
+    border: 1.5px dashed var(--field-line);
+    color: var(--muted);
+    text-align: center;
+    font: italic 450 var(--t-md) var(--font-display);
   }
   .photos img {
     display: block;
@@ -300,7 +414,7 @@ const gReady = googleConfigured();
     border-radius: 999px;
     background: var(--cocoa);
     color: var(--white);
-    font-size: 0.72rem;
+    font-size: var(--t-xs);
     font-weight: 700;
   }
   .photos form {
@@ -339,14 +453,42 @@ const gReady = googleConfigured();
   const input = document.querySelector<HTMLInputElement>('[data-files]');
   const label = document.querySelector('[data-drop-label]');
   if (drop && input && label) {
+    // En el celular no se arrastra: el texto solo menciona arrastrar donde hay mouse.
+    const idle = matchMedia('(hover: hover)').matches ? 'Haz clic para elegir fotos o arrástralas aquí' : 'Toca para elegir fotos';
+    const upBtn = document.querySelector<HTMLElement>('[data-upload-btn]');
     const sync = () => {
       const n = input.files?.length ?? 0;
       drop.classList.toggle('has', n > 0);
-      label.textContent = n ? `${n} ${n === 1 ? 'foto lista' : 'fotos listas'} para subir` : 'Toca para elegir fotos o arrástralas aquí';
+      label.textContent = n ? `${n} ${n === 1 ? 'foto lista' : 'fotos listas'} para subir` : idle;
+      // Solo pasa a botón principal cuando ya hay fotos elegidas.
+      upBtn?.classList.toggle('btn-clay', n > 0);
+      upBtn?.classList.toggle('btn-soft', n === 0);
     };
+    sync();
     input.addEventListener('change', sync);
     ['dragenter', 'dragover'].forEach((ev) => drop.addEventListener(ev, () => drop.classList.add('over')));
     ['dragleave', 'drop'].forEach((ev) => drop.addEventListener(ev, () => drop.classList.remove('over')));
     input.addEventListener('drop', () => setTimeout(sync, 0));
+  }
+
+  // Datos del negocio: cambios sin guardar → barra fija (celular), aviso y confirmación al salir.
+  const sf = document.querySelector<HTMLFormElement>('[data-dirty-form]');
+  if (sf) {
+    const fields = [...sf.querySelectorAll<HTMLInputElement | HTMLTextAreaElement>('input:not([type=hidden]), textarea')];
+    const note = sf.querySelector<HTMLElement>('[data-unsaved]');
+    let sending = false;
+    const isDirty = () => fields.some((f) => (f instanceof HTMLInputElement && f.type === 'checkbox' ? f.checked !== f.defaultChecked : f.value !== f.defaultValue));
+    const sync = () => {
+      const d = isDirty();
+      sf.classList.toggle('dirty', d);
+      if (note) note.hidden = !d;
+    };
+    sf.addEventListener('input', sync);
+    sf.addEventListener('change', sync);
+    sf.addEventListener('bp:restored', sync);
+    sf.addEventListener('submit', () => (sending = true));
+    addEventListener('beforeunload', (e) => {
+      if (!sending && isDirty()) e.preventDefault();
+    });
   }
 </script>

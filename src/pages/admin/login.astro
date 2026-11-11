@@ -20,7 +20,7 @@ if (Astro.request.method === 'POST') {
     // Honeypot o envío automático: respuesta genérica, sin dar pistas.
     error = 'No pudimos validar el formulario. Recarga la página e intenta de nuevo.';
   } else if (!supabaseConfigured) {
-    error = 'El acceso aún no está configurado.';
+    error = 'El acceso todavía no está listo. Pídele a quien te ayuda con la web que lo active.';
   } else if (!adminEmails().includes(email)) {
     // Mismo mensaje que una contraseña incorrecta: no revelamos qué correos existen.
     error = 'Correo o contraseña incorrectos.';
@@ -41,8 +41,8 @@ const reason = Astro.url.searchParams.get('motivo');
 <Base title="Ingresar · Panel Betsy Peinados" description="Acceso al panel" noindex>
   <main id="contenido" class="login">
     <form method="post" class="box">
-      <a href="/" class="logo">Betsy <span>panel</span></a>
-      <h1>Bienvenida</h1>
+      <a href="/" class="logo"><img src="/logo.webp" alt="" width="56" height="56" /> <span class="l-txt">Betsy <span>panel</span></span></a>
+      <h1>Hola, <em>Betsy</em></h1>
       {error && <p class="notice error" role="alert">{error}</p>}
       {!error && reason === 'inactividad' && <p class="notice" role="status">Cerramos tu sesión por inactividad para proteger los datos de tus clientas.</p>}
       <input type="hidden" name="ft" value={ft} />
@@ -69,6 +69,7 @@ const reason = Astro.url.searchParams.get('motivo');
     display: grid;
     place-items: center;
     padding: 1.5rem;
+    background: #f3ebe1;
   }
   .box {
     width: min(420px, 100%);
@@ -77,23 +78,46 @@ const reason = Astro.url.searchParams.get('motivo');
     padding: 2.25rem;
     background: var(--white);
     border: 1px solid var(--line);
-    border-radius: var(--radius-lg);
+    border-radius: 24px;
     box-shadow: var(--shadow);
   }
+  .box .field input {
+    border-color: color-mix(in oklab, var(--cocoa) 50%, transparent);
+    border-radius: 12px;
+  }
+  .box .field input:focus {
+    border-color: var(--clay);
+  }
+  .box .btn-clay {
+    --b-bg: #a4512f;
+  }
   .logo {
+    display: flex;
+    align-items: center;
+    gap: 0.75rem;
     font-family: var(--font-display);
     font-style: italic;
-    font-size: 1.8rem;
+    font-size: 1.6rem;
+    line-height: 1;
     text-decoration: none;
   }
-  .logo span {
-    font: 700 0.65rem var(--font-body);
+  .logo img {
+    border-radius: 50%;
+  }
+  .l-txt span {
+    display: block;
+    margin-top: 0.3rem;
+    font: 700 0.75rem var(--font-body);
+    font-style: normal;
     letter-spacing: 0.25em;
     text-transform: uppercase;
-    color: var(--clay);
+    color: var(--clay-deep);
   }
   h1 {
-    font-size: 2.2rem;
+    font-size: 2rem;
     margin: 0;
+  }
+  h1 em {
+    color: var(--clay-deep);
   }
 </style>
