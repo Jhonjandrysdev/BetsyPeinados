@@ -2,41 +2,41 @@
    Archivos livianos + font-display:swap + fuentes de respaldo con métricas ajustadas
    = texto visible al instante y sin saltos de diseño (mejor LCP/CLS para SEO). */
 @font-face {
-  font-family: 'Playfair Display';
+  font-family: 'Fraunces';
   font-style: normal;
-  font-weight: 400 900;
+  font-weight: 100 900;
   font-display: swap;
-  src: url('@fontsource-variable/playfair-display/files/playfair-display-latin-wght-normal.woff2') format('woff2');
+  src: url('@fontsource-variable/fraunces/files/fraunces-latin-full-normal.woff2') format('woff2');
   unicode-range: U+0000-00FF, U+0131, U+0152-0153, U+02BB-02BC, U+02C6, U+02DA, U+02DC, U+0304, U+0308, U+0329, U+2000-206F, U+20AC, U+2122, U+2191, U+2193, U+2212, U+2215, U+FEFF, U+FFFD;
 }
 @font-face {
-  font-family: 'Playfair Display';
+  font-family: 'Fraunces';
   font-style: italic;
-  font-weight: 400 900;
+  font-weight: 100 900;
   font-display: swap;
-  src: url('@fontsource-variable/playfair-display/files/playfair-display-latin-wght-italic.woff2') format('woff2');
+  src: url('@fontsource-variable/fraunces/files/fraunces-latin-full-italic.woff2') format('woff2');
   unicode-range: U+0000-00FF, U+0131, U+0152-0153, U+02BB-02BC, U+02C6, U+02DA, U+02DC, U+0304, U+0308, U+0329, U+2000-206F, U+20AC, U+2122, U+2191, U+2193, U+2212, U+2215, U+FEFF, U+FFFD;
 }
 @font-face {
-  font-family: 'Manrope';
+  font-family: 'Jost';
   font-style: normal;
-  font-weight: 200 800;
+  font-weight: 100 900;
   font-display: swap;
-  src: url('@fontsource-variable/manrope/files/manrope-latin-wght-normal.woff2') format('woff2');
+  src: url('@fontsource-variable/jost/files/jost-latin-wght-normal.woff2') format('woff2');
   unicode-range: U+0000-00FF, U+0131, U+0152-0153, U+02BB-02BC, U+02C6, U+02DA, U+02DC, U+0304, U+0308, U+0329, U+2000-206F, U+20AC, U+2122, U+2191, U+2193, U+2212, U+2215, U+FEFF, U+FFFD;
 }
 @font-face {
-  font-family: 'Playfair Fallback';
+  font-family: 'Fraunces Fallback';
   src: local('Times New Roman'), local('Georgia'), local('Noto Serif');
-  size-adjust: 112.5%;
+  size-adjust: 108%;
   ascent-override: 97%;
   descent-override: 22.5%;
   line-gap-override: 0%;
 }
 @font-face {
-  font-family: 'Manrope Fallback';
+  font-family: 'Jost Fallback';
   src: local('Arial'), local('Helvetica'), local('Roboto');
-  size-adjust: 103.5%;
+  size-adjust: 96%;
   ascent-override: 103%;
   descent-override: 29%;
   line-gap-override: 0%;
@@ -61,8 +61,8 @@
   --fg: var(--cocoa);
   --line: color-mix(in oklab, var(--cocoa) 14%, transparent);
 
-  --font-display: 'Playfair Display', 'Playfair Fallback', Georgia, serif;
-  --font-body: 'Manrope', 'Manrope Fallback', system-ui, -apple-system, 'Segoe UI', sans-serif;
+  --font-display: 'Fraunces', 'Fraunces Fallback', Georgia, serif;
+  --font-body: 'Jost', 'Jost Fallback', system-ui, -apple-system, 'Segoe UI', sans-serif;
 
   --radius: 22px;
   --radius-lg: 36px;
@@ -97,7 +97,10 @@ body {
   color: var(--fg);
   font-family: var(--font-body);
   font-size: 1.0625rem;
+  font-weight: 450;
   line-height: 1.65;
+  /* Fraunces en versión suave (elegida por el consejo): los ejes que Jost no tiene se ignoran. */
+  font-variation-settings: 'SOFT' 100, 'WONK' 0;
   -webkit-font-smoothing: antialiased;
   text-rendering: optimizeLegibility;
 }
@@ -129,7 +132,7 @@ h2,
 h3,
 h4 {
   font-family: var(--font-display);
-  font-weight: 450;
+  font-weight: 600;
   line-height: 1.08;
   letter-spacing: -0.01em;
   margin: 0 0 0.5em;
@@ -138,7 +141,7 @@ h4 {
 
 h1 {
   font-size: clamp(2.7rem, 7vw, 6rem);
-  font-weight: 420;
+  font-weight: 600;
 }
 h2 {
   font-size: clamp(2.1rem, 4.6vw, 3.8rem);

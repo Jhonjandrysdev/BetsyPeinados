@@ -1,7 +1,7 @@
 ---
 import '../styles/global.css';
-import playfairUrl from '@fontsource-variable/playfair-display/files/playfair-display-latin-wght-normal.woff2?url';
-import manropeUrl from '@fontsource-variable/manrope/files/manrope-latin-wght-normal.woff2?url';
+import displayUrl from '@fontsource-variable/fraunces/files/fraunces-latin-full-normal.woff2?url';
+import bodyUrl from '@fontsource-variable/jost/files/jost-latin-wght-normal.woff2?url';
 
 interface Props {
   title: string;
@@ -33,8 +33,8 @@ const ld = jsonLd ? (Array.isArray(jsonLd) ? jsonLd : [jsonLd]) : [];
     <meta name="geo.region" content="CO-CES" />
     <meta name="geo.placename" content="Valledupar" />
 
-    <link rel="preload" href={playfairUrl} as="font" type="font/woff2" crossorigin />
-    <link rel="preload" href={manropeUrl} as="font" type="font/woff2" crossorigin />
+    <link rel="preload" href={displayUrl} as="font" type="font/woff2" crossorigin />
+    <link rel="preload" href={bodyUrl} as="font" type="font/woff2" crossorigin />
     <link rel="icon" href="/favicon.png" type="image/png" sizes="48x48" />
     <link rel="manifest" href="/site.webmanifest" />
 
