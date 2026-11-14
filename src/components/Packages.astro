@@ -1,0 +1,211 @@
+---
+import Icon from './Icon.astro';
+import { DEPOSIT_PCT, DEPOSIT_RULE, LONG_HAIR_EXTRA, PACKAGES, type EventPackage } from '../lib/defaults';
+import { formatCOP } from '../lib/time';
+import type { SiteSettings } from '../lib/types';
+
+interface Props {
+  s: SiteSettings;
+  /** Mostrar solo estos paquetes (por slug). */
+  only?: EventPackage['slug'][];
+  /** Ocultar el enlace "Ver fotos y detalles" (en la página del propio evento). */
+  noDetails?: boolean;
+}
+const { s, only, noDetails = false } = Astro.props;
+const list = only ? PACKAGES.filter((p) => only.includes(p.slug)) : PACKAGES;
+const deposit = (p: EventPackage) => Math.round((p.price * DEPOSIT_PCT) / 100 / 1000) * 1000;
+const waText = (p: EventPackage) =>
+  `¡Hola Betsy! Quiero apartar mi fecha para el paquete ${p.name} (${formatCOP(p.price)}${p.unit ? ` ${p.unit}` : ''}). ` +
+  `Fecha del evento: ___. ${p.slug === 'grupos' ? 'Somos ___ personas. ' : ''}Sé que se aparta con el ${DEPOSIT_PCT}% por Nequi.`;
+const wa = (p: EventPackage) => `https://wa.me/${s.whatsapp}?text=${encodeURIComponent(waText(p))}`;
+---
+
+<ul class:list={['pkgs', { single: list.length === 1 }]}>
+  {
+    list.map((p, i) => (
+      <li class:list={['pkg reveal', { featured: p.featured }]} data-delay={String(i % 4)}>
+        {p.featured && <span class="badge">La más pedida</span>}
+        <p class="pkg-name">{p.name}</p>
+        <p class="pkg-price">
+          {formatCOP(p.price)}
+          {p.unit && <small>{p.unit}</small>}
+        </p>
+        <p class="pkg-pitch">{p.pitch}</p>
+        <ul class="pkg-inc">
+          {p.includes.map((x) => (
+            <li>
+              <Icon name="check" size={16} />
+              <span>{x}</span>
+            </li>
+          ))}
+        </ul>
+        <p class="pkg-dep">
+          <Icon name="calendar" size={15} />
+          <span>
+            Apartas con <strong>{formatCOP(deposit(p))}</strong>
+            {p.unit ? ` ${p.unit}` : ''} ({DEPOSIT_PCT}%)
+          </span>
+        </p>
+        <div class="pkg-cta">
+          <a href={wa(p)} class="btn btn-clay" target="_blank" rel="noopener">
+            <Icon name="whatsapp" /> Apartar mi fecha
+          </a>
+          {
+            p.serviceSlug && (
+              <a href={`/reservar?servicio=${p.serviceSlug}`} class="pkg-link">
+                Ver horarios libres <Icon name="arrow" size={16} />
+              </a>
+            )
+          }
+          {
+            !noDetails && p.slug !== 'grupos' && (
+              <a href={`/${p.slug}`} class="pkg-link">
+                Ver fotos y detalles <Icon name="arrow" size={16} />
+              </a>
+            )
+          }
+        </div>
+      </li>
+    ))
+  }
+</ul>
+<p class="pkg-note reveal">
+  <Icon name="sparkle" size={16} />
+  <span>{DEPOSIT_RULE} Cabello extra largo o muy abundante: +{formatCOP(LONG_HAIR_EXTRA)}.</span>
+</p>
+
+<style>
+  .pkgs {
+    list-style: none;
+    margin: 0;
+    padding: 0;
+    display: grid;
+    gap: 1.1rem;
+    grid-template-columns: repeat(auto-fit, minmax(min(100%, 250px), 1fr));
+  }
+  .pkgs.single {
+    max-width: 440px;
+  }
+  .pkg {
+    position: relative;
+    display: flex;
+    flex-direction: column;
+    padding: 1.6rem 1.4rem 1.4rem;
+    border: 1px solid var(--line);
+    border-radius: var(--radius);
+    background: var(--white);
+    box-shadow: var(--shadow);
+  }
+  .pkg.featured {
+    border-color: color-mix(in oklab, var(--clay) 55%, transparent);
+    box-shadow: 0 0 0 1px color-mix(in oklab, var(--clay) 30%, transparent), var(--shadow-lg);
+  }
+  .badge {
+    position: absolute;
+    top: -0.75rem;
+    left: 1.4rem;
+    padding: 0.3rem 0.75rem;
+    border-radius: 999px;
+    background: var(--clay);
+    color: var(--white);
+    font-size: 0.7rem;
+    font-weight: 800;
+    letter-spacing: 0.08em;
+    text-transform: uppercase;
+  }
+  .pkg-name {
+    margin: 0;
+    font-size: 0.78rem;
+    font-weight: 800;
+    letter-spacing: 0.14em;
+    text-transform: uppercase;
+    color: var(--clay);
+  }
+  .pkg-price {
+    margin: 0.35rem 0 0;
+    font-family: var(--font-display);
+    font-weight: 600;
+    font-size: clamp(2rem, 5vw, 2.4rem);
+    line-height: 1.05;
+  }
+  .pkg-price small {
+    display: block;
+    margin-top: 0.2rem;
+    font-family: var(--font-body);
+    font-size: 0.8rem;
+    font-weight: 700;
+    color: var(--muted);
+  }
+  .pkg-pitch {
+    margin: 0.7rem 0 0;
+    color: var(--muted);
+    font-size: 0.95rem;
+  }
+  .pkg-inc {
+    list-style: none;
+    margin: 1rem 0 0;
+    padding: 1rem 0 0;
+    border-top: 1px solid var(--line);
+    display: grid;
+    gap: 0.55rem;
+    font-size: 0.92rem;
+  }
+  .pkg-inc li {
+    display: flex;
+    gap: 0.55rem;
+    align-items: flex-start;
+  }
+  .pkg-inc :global(svg) {
+    flex-shrink: 0;
+    margin-top: 0.2rem;
+    color: var(--sage);
+  }
+  .pkg-dep {
+    display: flex;
+    gap: 0.5rem;
+    align-items: center;
+    margin: 1.1rem 0 0;
+    padding: 0.6rem 0.8rem;
+    border-radius: 14px;
+    background: var(--cream-2);
+    font-size: 0.85rem;
+  }
+  .pkg-dep :global(svg) {
+    flex-shrink: 0;
+    color: var(--clay);
+  }
+  .pkg-cta {
+    margin-top: auto;
+    padding-top: 1.1rem;
+    display: grid;
+    gap: 0.55rem;
+    justify-items: start;
+  }
+  .pkg-cta .btn {
+    width: 100%;
+    justify-content: center;
+  }
+  .pkg-link {
+    display: inline-flex;
+    align-items: center;
+    gap: 0.35rem;
+    font-size: 0.88rem;
+    font-weight: 700;
+    color: var(--clay-deep);
+    text-decoration: underline;
+    text-underline-offset: 3px;
+  }
+  .pkg-note {
+    display: flex;
+    gap: 0.55rem;
+    align-items: flex-start;
+    margin: 1.4rem 0 0;
+    color: var(--muted);
+    font-size: 0.9rem;
+  }
+  .pkg-note :global(svg) {
+    flex-shrink: 0;
+    margin-top: 0.2rem;
+    color: var(--gold);
+  }
+</style>

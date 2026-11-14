@@ -1,6 +1,6 @@
 ---
 import '../styles/global.css';
-import displayUrl from '@fontsource-variable/bodoni-moda/files/bodoni-moda-latin-opsz-normal.woff2?url';
+import displayUrl from '@fontsource-variable/fraunces/files/fraunces-latin-full-normal.woff2?url';
 import bodyUrl from '@fontsource-variable/jost/files/jost-latin-wght-normal.woff2?url';
 
 interface Props {
@@ -69,6 +69,26 @@ const ld = jsonLd ? (Array.isArray(jsonLd) ? jsonLd : [jsonLd]) : [];
         { rootMargin: '0px 0px -4% 0px', threshold: 0 },
       );
       document.querySelectorAll('.reveal').forEach((el) => io.observe(el));
+
+      // Origen de la visita (?src=ig, ?src=reel…): se guarda en la sesión y viaja en el
+      // mensaje de WhatsApp y en las notas de la reserva, para saber qué trae clientas.
+      try {
+        const src = new URLSearchParams(location.search).get('src')?.replace(/[^\w-]/g, '').slice(0, 24);
+        if (src) sessionStorage.setItem('bp-src', src);
+        const from = sessionStorage.getItem('bp-src');
+        if (from) {
+          document.querySelectorAll<HTMLAnchorElement>('a[href^="https://wa.me/"]').forEach((a) => {
+            const url = new URL(a.href);
+            const text = url.searchParams.get('text');
+            if (text && !text.includes('(vía ')) {
+              url.searchParams.set('text', `${text} (vía ${from})`);
+              a.href = url.toString();
+            }
+          });
+        }
+      } catch {
+        /* almacenamiento bloqueado: sin medición */
+      }
     </script>
   </body>
 </html>

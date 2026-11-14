@@ -1,0 +1,189 @@
+---
+// Páginas de aterrizaje por evento (/grados, /quince, /novias) para enlazar desde cada reel con ?src=reel.
+import Base from '../layouts/Base.astro';
+import Header from '../components/Header.astro';
+import Footer from '../components/Footer.astro';
+import Icon from '../components/Icon.astro';
+import Packages from '../components/Packages.astro';
+import Testimonials from '../components/Testimonials.astro';
+import StickyCta from '../components/StickyCta.astro';
+import WhatsAppFab from '../components/WhatsAppFab.astro';
+import { getGallery, getSettings } from '../lib/db';
+import { DEPOSIT_RULE, FAQ, PACKAGES } from '../lib/defaults';
+import { formatCOP } from '../lib/time';
+import { faqJsonLd } from '../lib/seo';
+
+const pkg = PACKAGES.find((p) => p.slug === Astro.params.evento && p.slug !== 'grupos');
+if (!pkg) return new Response(null, { status: 404 });
+
+const [s, gallery] = await Promise.all([getSettings(), getGallery()]);
+Astro.response.headers.set('Cache-Control', 'public, s-maxage=300, stale-while-revalidate=86400');
+
+const words: Record<string, string[]> = {
+  grados: ['grado', 'graduación', 'recogido', 'ondas'],
+  quince: ['quince', 'quinceañera', 'xv', 'corona', 'rizos'],
+  novias: ['novia', 'boda', 'velo', 'tocado'],
+};
+const match = gallery.filter((g) => words[pkg.slug].some((w) => (g.alt || '').toLowerCase().includes(w)));
+const photos = (match.length >= 3 ? match : gallery).slice(0, 6);
+const faq = FAQ.filter((f) => /anticip|aparto|cabello|domicilio|cancelar/i.test(f.q));
+const wa = `https://wa.me/${s.whatsapp}?text=${encodeURIComponent(`¡Hola Betsy! Vi el paquete ${pkg.name} y quiero saber si tienes libre mi fecha: ___`)}`;
+const title = `${pkg.title} en ${s.city} · ${formatCOP(pkg.price)} · ${s.business_name}`;
+const description = `${pkg.pitch} Paquete ${pkg.name} por ${formatCOP(pkg.price)} en ${s.city}. ${DEPOSIT_RULE}`;
+---
+
+<Base title={title} description={description} image={photos[0]?.url} jsonLd={[faqJsonLd(faq)]}>
+  <Header />
+  <main id="contenido">
+    <section class="ev-hero">
+      <div class="wrap ev-grid">
+        <div>
+          <p class="eyebrow reveal">{s.city} · {pkg.name}</p>
+          <h1 class="reveal" data-delay="1">{pkg.title.split(' ').slice(0, -1).join(' ')} <em>{pkg.title.split(' ').slice(-1)}</em></h1>
+          <p class="lead reveal" data-delay="2">{pkg.pitch}</p>
+          <div class="ev-cta reveal" data-delay="3">
+            <a href="#paquete" class="btn btn-clay"><Icon name="calendar" /> Ver precio y apartar</a>
+            <a href={wa} class="btn btn-ghost" target="_blank" rel="noopener"><Icon name="whatsapp" /> Preguntar por mi fecha</a>
+          </div>
+        </div>
+        <div id="paquete" class="ev-pkg">
+          <Packages s={s} only={[pkg.slug]} noDetails />
+        </div>
+      </div>
+    </section>
+
+    {
+      photos.length > 0 && (
+        <section class="section">
+          <div class="wrap">
+            <p class="eyebrow reveal">Trabajos reales</p>
+            <h2 class="reveal">
+              Así quedan mis <em>clientas</em>
+            </h2>
+            <div class="ev-gallery">
+              {photos.map((g, i) => (
+                <figure class="reveal" data-delay={String(i % 3)}>
+                  <img src={g.url} alt={g.alt || `Peinado de ${pkg.name.toLowerCase()}`} loading="lazy" decoding="async" width="600" height="800" />
+                </figure>
+              ))}
+            </div>
+            <a href={`https://www.instagram.com/${s.instagram}`} target="_blank" rel="noopener" class="btn btn-ghost ev-more">
+              <Icon name="instagram" /> Ver más en Instagram
+            </a>
+          </div>
+        </section>
+      )
+    }
+
+    <Testimonials />
+
+    <section class="section">
+      <div class="wrap ev-faq">
+        <p class="eyebrow reveal">Antes de apartar</p>
+        <h2 class="reveal">Lo que suelen <em>preguntarme</em></h2>
+        {
+          faq.map((f) => (
+            <details class="reveal">
+              <summary>{f.q}</summary>
+              <p>{f.a}</p>
+            </details>
+          ))
+        }
+        <p class="ev-other reveal">
+          ¿Buscas otro peinado? <a href="/#paquetes">Ver todos los paquetes</a> o <a href="/#servicios">los servicios sueltos</a>.
+        </p>
+      </div>
+    </section>
+  </main>
+  <Footer s={s} />
+  <WhatsAppFab number={s.whatsapp} />
+  <StickyCta href="#paquete" whatsapp={s.whatsapp} />
+</Base>
+
+<style>
+  .ev-hero {
+    padding: clamp(2.5rem, 7vw, 5.5rem) 0 clamp(2rem, 5vw, 4rem);
+  }
+  .ev-grid {
+    display: grid;
+    gap: clamp(2rem, 5vw, 4rem);
+    align-items: center;
+  }
+  @media (min-width: 900px) {
+    .ev-grid {
+      grid-template-columns: 1.1fr 0.9fr;
+    }
+  }
+  h1 {
+    margin: 0.6rem 0 0;
+    font-size: clamp(2.6rem, 8vw, 4.6rem);
+    line-height: 1.02;
+  }
+  .ev-hero .lead {
+    margin-top: 1.1rem;
+  }
+  .ev-cta {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 0.7rem;
+    margin-top: 1.6rem;
+  }
+  .ev-pkg :global(.pkgs.single) {
+    max-width: none;
+  }
+  .ev-gallery {
+    display: grid;
+    gap: 0.8rem;
+    grid-template-columns: repeat(2, 1fr);
+    margin-top: 1.8rem;
+  }
+  @media (min-width: 760px) {
+    .ev-gallery {
+      grid-template-columns: repeat(3, 1fr);
+    }
+  }
+  .ev-gallery figure {
+    margin: 0;
+    overflow: hidden;
+    border-radius: var(--radius);
+    aspect-ratio: 3 / 4;
+    background: var(--cream-2);
+  }
+  .ev-gallery img {
+    width: 100%;
+    height: 100%;
+    object-fit: cover;
+  }
+  .ev-more {
+    margin-top: 1.4rem;
+  }
+  .ev-faq {
+    max-width: 760px;
+  }
+  .ev-faq h2 {
+    margin-bottom: 1.2rem;
+  }
+  details {
+    border-bottom: 1px solid var(--line);
+    padding: 1rem 0;
+  }
+  summary {
+    cursor: pointer;
+    font-weight: 700;
+    list-style-position: inside;
+  }
+  details p {
+    margin: 0.6rem 0 0;
+    color: var(--muted);
+  }
+  .ev-other {
+    margin-top: 1.6rem;
+    color: var(--muted);
+  }
+  .ev-other a {
+    color: var(--clay-deep);
+    font-weight: 700;
+    text-decoration: underline;
+    text-underline-offset: 3px;
+  }
+</style>

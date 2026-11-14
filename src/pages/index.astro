@@ -5,6 +5,9 @@ import Footer from '../components/Footer.astro';
 import Icon from '../components/Icon.astro';
 import HeroArt from '../components/HeroArt.astro';
 import WhatsAppFab from '../components/WhatsAppFab.astro';
+import Packages from '../components/Packages.astro';
+import Testimonials from '../components/Testimonials.astro';
+import StickyCta from '../components/StickyCta.astro';
 import { getGallery, getHours, getServices, getSettings } from '../lib/db';
 import { FAQ, WEEKDAYS } from '../lib/defaults';
 import { formatCOP, formatDuration } from '../lib/time';
@@ -59,6 +62,7 @@ const description = `Peinados profesionales en ${s.city}: ondas, recogidos, rizo
               <Icon name="whatsapp" /> Escribir por WhatsApp
             </a>
           </div>
+          <a href="#paquetes" class="hero-pk reveal" data-delay="3">Grado, quince o boda: mira los paquetes <Icon name="arrow" size={16} /></a>
           <ul class="perks reveal" data-delay="3" aria-label="Lo que encuentras aquí">
             <li>
               <span class="perk-ic"><Icon name="calendar" size={18} /></span>
@@ -97,6 +101,20 @@ const description = `Peinados profesionales en ${s.city}: ondas, recogidos, rizo
         </div>
       </div>
     </div>
+
+    <!-- ───────── PAQUETES POR EVENTO ───────── -->
+    <section id="paquetes" class="section">
+      <div class="wrap">
+        <div class="head">
+          <div>
+            <p class="eyebrow reveal">Paquetes por evento</p>
+            <h2 class="reveal">Tu gran día, con precio <em>claro</em></h2>
+          </div>
+          <p class="lead reveal">Sabes desde ya cuánto cuesta y qué incluye. Escríbeme con tu fecha y la apartamos.</p>
+        </div>
+        <Packages s={s} />
+      </div>
+    </section>
 
     <!-- ───────── SERVICIOS ───────── -->
     <section id="servicios" class="section">
@@ -230,6 +248,8 @@ const description = `Peinados profesionales en ${s.city}: ondas, recogidos, rizo
       </div>
       <p class="wrap g-hint" aria-hidden="true">Desliza para ver más →</p>
     </section>
+
+    <Testimonials />
 
     <!-- ───────── SOBRE MÍ ───────── -->
     <section id="sobre-mi" class="section about">
@@ -412,6 +432,7 @@ const description = `Peinados profesionales en ${s.city}: ondas, recogidos, rizo
   </main>
   <Footer s={s} />
   <WhatsAppFab number={s.whatsapp} />
+  <StickyCta href="#paquetes" whatsapp={s.whatsapp} />
 </Base>
 
 <script>
@@ -556,6 +577,17 @@ const description = `Peinados profesionales en ${s.city}: ondas, recogidos, rizo
 </script>
 
 <style>
+  .hero-pk {
+    display: inline-flex;
+    align-items: center;
+    gap: 0.35rem;
+    margin-top: 1rem;
+    font-weight: 700;
+    font-size: 0.95rem;
+    color: var(--clay-deep);
+    text-decoration: underline;
+    text-underline-offset: 3px;
+  }
   /* ───────── HERO ───────── */
   .hero {
     padding: clamp(1.5rem, 3.5vw, 3rem) 0 clamp(4.5rem, 8vw, 7rem);
