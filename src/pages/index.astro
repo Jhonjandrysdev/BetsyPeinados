@@ -186,10 +186,16 @@ const description = `Peinados profesionales en ${s.city}: ondas, recogidos, rizo
             <p class="eyebrow reveal">Galería</p>
             <h2 class="reveal">Trabajos que <em>enamoran</em></h2>
           </div>
-          <a href={`https://www.instagram.com/${s.instagram}`} target="_blank" rel="noopener" class="btn btn-ghost reveal">
-            <Icon name="instagram" /> Ver más en Instagram
-          </a>
+          <div class="g-tools reveal">
+            <button type="button" class="g-arrow prev" data-g-prev aria-label="Fotos anteriores"><Icon name="chevron" size={22} /></button>
+            <button type="button" class="g-arrow" data-g-next aria-label="Más fotos"><Icon name="chevron" size={22} /></button>
+            <a href={`https://www.instagram.com/${s.instagram}`} target="_blank" rel="noopener" class="btn btn-ghost">
+              <Icon name="instagram" /> Ver más en Instagram
+            </a>
+          </div>
         </div>
+      </div>
+      <div class="g-rail" data-g-rail>
         <div class="gallery">
           {
             shown.length > 0
@@ -222,6 +228,7 @@ const description = `Peinados profesionales en ${s.city}: ondas, recogidos, rizo
           }
         </div>
       </div>
+      <p class="wrap g-hint" aria-hidden="true">Desliza para ver más →</p>
     </section>
 
     <!-- ───────── SOBRE MÍ ───────── -->
@@ -461,6 +468,44 @@ const description = `Peinados profesionales en ${s.city}: ondas, recogidos, rizo
     const short = new Intl.DateTimeFormat('en-US', { timeZone: 'America/Bogota', weekday: 'short' }).format(new Date());
     const wd = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'].indexOf(short);
     hours.querySelector(`[data-wd="${wd}"]`)?.classList.add('today');
+  }
+
+  // ── Galería: arrastrar con el mouse y flechas ──
+  const rail = document.querySelector<HTMLElement>('[data-g-rail]');
+  if (rail) {
+    const prev = document.querySelector<HTMLButtonElement>('[data-g-prev]');
+    const next = document.querySelector<HTMLButtonElement>('[data-g-next]');
+    const sync = () => {
+      const max = rail.scrollWidth - rail.clientWidth - 2;
+      if (prev) prev.disabled = rail.scrollLeft <= 2;
+      if (next) next.disabled = rail.scrollLeft >= max;
+    };
+    const step = () => Math.max(260, rail.clientWidth * 0.7);
+    prev?.addEventListener('click', () => rail.scrollBy({ left: -step(), behavior: reduce ? 'auto' : 'smooth' }));
+    next?.addEventListener('click', () => rail.scrollBy({ left: step(), behavior: reduce ? 'auto' : 'smooth' }));
+    rail.addEventListener('scroll', sync, { passive: true });
+    window.addEventListener('resize', sync);
+    sync();
+    let startX = 0;
+    let startLeft = 0;
+    let down = false;
+    rail.addEventListener('pointerdown', (e) => {
+      if (e.pointerType !== 'mouse' || e.button !== 0) return;
+      down = true;
+      startX = e.clientX;
+      startLeft = rail.scrollLeft;
+    });
+    window.addEventListener('pointermove', (e) => {
+      if (!down) return;
+      const dx = e.clientX - startX;
+      if (Math.abs(dx) > 6) rail.classList.add('dragging');
+      if (rail.classList.contains('dragging')) rail.scrollLeft = startLeft - dx;
+    });
+    window.addEventListener('pointerup', () => {
+      down = false;
+      // deja pasar un instante para que el clic del arrastre no abra la foto
+      requestAnimationFrame(() => rail.classList.remove('dragging'));
+    });
   }
 
   // ── Visor de fotos de la galería ──
@@ -1009,17 +1054,95 @@ const description = `Peinados profesionales en ${s.city}: ondas, recogidos, rizo
   }
 
   /* ───────── GALERÍA ───────── */
+  /* Galería bento deslizable (adaptada del componente "Bento Gallery" de 21st.dev) */
+  .g-tools {
+    display: flex;
+    align-items: center;
+    gap: 0.6rem;
+  }
+  .g-arrow {
+    display: grid;
+    place-items: center;
+    width: 52px;
+    height: 52px;
+    border-radius: 50%;
+    border: 1.5px solid var(--line);
+    background: var(--white);
+    color: var(--cocoa);
+    cursor: pointer;
+    transition: background-color 0.25s, color 0.25s, transform 0.35s var(--ease), opacity 0.25s;
+  }
+  .g-arrow:hover {
+    background: var(--cocoa);
+    color: var(--cream);
+    transform: scale(1.06);
+  }
+  .g-arrow:disabled {
+    opacity: 0.35;
+    pointer-events: none;
+  }
+  .g-arrow.prev :global(svg) {
+    transform: rotate(180deg);
+  }
+  .g-rail {
+    --cell: clamp(170px, 19vw, 250px);
+    overflow-x: auto;
+    overscroll-behavior-x: contain;
+    scroll-snap-type: x proximity;
+    scroll-padding-inline: max(1.25rem, calc((100vw - 1180px) / 2));
+    padding: 0.4rem max(1.25rem, calc((100vw - 1180px) / 2)) 1.2rem;
+    scrollbar-width: none;
+    cursor: grab;
+  }
+  .g-rail::-webkit-scrollbar {
+    display: none;
+  }
+  .g-rail.dragging {
+    cursor: grabbing;
+    scroll-snap-type: none;
+  }
+  .g-rail.dragging .g-btn {
+    pointer-events: none;
+  }
   .gallery {
-    columns: 3 260px;
-    column-gap: 1.1rem;
+    display: grid;
+    grid-auto-flow: column dense;
+    grid-template-rows: repeat(2, var(--cell));
+    grid-auto-columns: var(--cell);
+    gap: 1rem;
+    width: max-content;
   }
   .g-item {
     position: relative;
-    break-inside: avoid;
-    margin: 0 0 1.1rem;
+    margin: 0;
     border-radius: var(--radius-lg);
     overflow: hidden;
     background: var(--sand);
+    scroll-snap-align: start;
+    transition: transform 0.5s var(--ease), box-shadow 0.5s var(--ease), opacity 0.6s var(--ease);
+  }
+  .g-item:hover {
+    transform: translateY(-4px);
+    box-shadow: 0 24px 40px -24px rgb(42 28 22 / 0.55);
+  }
+  /* ritmo bento: una grande, una alta y dos pequeñas */
+  .g-item:nth-child(5n + 1) {
+    grid-row: span 2;
+    grid-column: span 2;
+  }
+  .g-item:nth-child(5n + 4) {
+    grid-row: span 2;
+  }
+  .g-item.ph,
+  .g-item.ph:nth-child(n) {
+    aspect-ratio: auto;
+  }
+  .g-hint {
+    margin-top: 0.2rem;
+    font-size: 0.82rem;
+    font-weight: 600;
+    letter-spacing: 0.06em;
+    color: var(--muted);
   }
   /* formas alternadas: arcos y esquinas orgánicas */
   .g-item:nth-child(4n + 1) {
@@ -1032,6 +1155,7 @@ const description = `Peinados profesionales en ${s.city}: ondas, recogidos, rizo
     position: relative;
     display: block;
     width: 100%;
+    height: 100%;
     padding: 0;
     border: 0;
     background: none;
@@ -1048,7 +1172,10 @@ const description = `Peinados profesionales en ${s.city}: ondas, recogidos, rizo
   }
   .g-item img {
     width: 100%;
-    height: auto;
+    height: 100%;
+    object-fit: cover;
+    object-position: 50% 25%;
+    -webkit-user-drag: none;
     transition: transform 1.1s var(--ease);
   }
   .g-zoom {
@@ -1828,13 +1955,17 @@ const description = `Peinados profesionales en ${s.city}: ondas, recogidos, rizo
     }
   }
   @media (max-width: 560px) {
+    .g-rail {
+      --cell: 150px;
+    }
     .gallery {
-      columns: 2;
-      column-gap: 0.7rem;
+      gap: 0.7rem;
     }
     .g-item {
-      margin-bottom: 0.7rem;
       border-radius: 22px;
+    }
+    .g-arrow {
+      display: none;
     }
     .g-item:nth-child(4n + 1) {
       border-radius: 999px 999px 22px 22px;
