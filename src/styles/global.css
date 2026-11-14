@@ -1,6 +1,9 @@
 /* Tipografías autoalojadas, solo subconjunto latino (cubre español: á é í ó ú ñ ¿ ¡).
    Archivos livianos + font-display:swap + fuentes de respaldo con métricas ajustadas
    = texto visible al instante y sin saltos de diseño (mejor LCP/CLS para SEO). */
+/* Tipografías autoalojadas, solo subconjunto latino (cubre español: á é í ó ú ñ ¿ ¡).
+   Fraunces suave (títulos, cálida y legible en celular) + Jost (texto, geométrica y limpia).
+   font-display:swap + fuentes de respaldo con métricas ajustadas = texto visible al instante y sin saltos (mejor LCP/CLS). */
 @font-face {
   font-family: 'Fraunces';
   font-style: normal;
@@ -148,7 +151,7 @@ h2 {
 }
 h3 {
   font-size: clamp(1.35rem, 2vw, 1.6rem);
-  font-weight: 500;
+  font-weight: 560;
 }
 
 em,
