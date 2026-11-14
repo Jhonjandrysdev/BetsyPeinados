@@ -629,7 +629,12 @@ const data = {
           name: fd.get('name'),
           phone: fd.get('phone'),
           email: fd.get('email') || '',
-          notes: fd.get('notes') || '',
+          notes: (() => {
+            const n = String(fd.get('notes') || '');
+            let from = '';
+            try { from = sessionStorage.getItem('bp-src') || ''; } catch { /* sin almacenamiento */ }
+            return from ? `${n}${n ? ' · ' : ''}[Origen: ${from}]`.slice(0, 500) : n;
+          })(),
           website: fd.get('website') || '',
           consent: fd.get('consent') === 'on',
           ft: data.ft,

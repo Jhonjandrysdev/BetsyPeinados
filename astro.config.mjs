@@ -16,7 +16,7 @@ export default defineConfig({
   trailingSlash: 'never',
   integrations: [
     sitemap({
-      customPages: [`${SITE}/`, `${SITE}/reservar`, `${SITE}/privacidad`],
+      customPages: [`${SITE}/`, `${SITE}/reservar`, `${SITE}/grados`, `${SITE}/quince`, `${SITE}/novias`, `${SITE}/privacidad`],
       filter: (page) => !page.includes('/admin') && !page.includes('/api/') && !page.includes('/reserva/'),
     }),
   ],

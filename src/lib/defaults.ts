@@ -70,7 +70,77 @@ export const FAQ = [
     a: 'Sí, según disponibilidad y zona. Escríbeme por WhatsApp después de agendar para coordinar la dirección.',
   },
   {
+    q: '¿Cómo aparto la fecha de mi grado, quince o boda?',
+    a: 'Con un anticipo del 30% por Nequi. Se descuenta del total el día del evento y puedes reprogramar gratis avisando con 72 horas. Escríbeme por WhatsApp con la fecha y te confirmo disponibilidad.',
+  },
+  {
     q: '¿Puedo cancelar o cambiar mi cita?',
     a: 'Claro. Avísame por WhatsApp con al menos 24 horas para liberar el espacio y reprogramar sin problema.',
   },
 ];
+
+// ── Paquetes por evento (Roast Room, 2026-11-14) ──
+// Precio FIJO, sin "desde". Betsy debe confirmar estos valores antes de publicar.
+export const DEPOSIT_PCT = 30;
+export const DEPOSIT_RULE = `Apartas tu fecha con el ${DEPOSIT_PCT}% por Nequi. Se descuenta del total y puedes reprogramar gratis avisando con 72 horas.`;
+export const LONG_HAIR_EXTRA = 20000;
+
+export interface EventPackage {
+  slug: 'grados' | 'quince' | 'novias' | 'grupos';
+  name: string;
+  title: string;
+  pitch: string;
+  price: number;
+  /** Texto bajo el precio, p. ej. "por persona". */
+  unit?: string;
+  includes: string[];
+  /** Servicio que se preselecciona en /reservar. */
+  serviceSlug?: string;
+  featured?: boolean;
+}
+
+export const PACKAGES: EventPackage[] = [
+  {
+    slug: 'grados',
+    name: 'Grado',
+    title: 'Peinado para tu grado',
+    pitch: 'Lista para la ceremonia, las fotos y la fiesta, sin retoques.',
+    price: 90000,
+    includes: ['Asesoría previa por WhatsApp con tu foto de referencia', 'Ondas, recogido o semirecogido', 'Fijación de larga duración'],
+    serviceSlug: 'recogidos',
+  },
+  {
+    slug: 'quince',
+    name: 'Quinceañera',
+    title: 'Peinado para tus quince',
+    pitch: 'Rizos, trenzas o recogido pensado para tu vestido y tu corona.',
+    price: 160000,
+    includes: ['Asesoría previa con tu vestido y accesorios', 'Colocación de corona, tiara o accesorios', 'Fijación para toda la noche'],
+    serviceSlug: 'quinceaneras',
+    featured: true,
+  },
+  {
+    slug: 'novias',
+    name: 'Novia',
+    title: 'Peinado de novia',
+    pitch: 'Probamos antes para que el día de tu boda no haya sorpresas.',
+    price: 350000,
+    includes: ['Prueba de peinado antes de la boda', 'Peinado el día de tu boda', 'Domicilio incluido en Valledupar', 'Colocación de velo o tocado'],
+    serviceSlug: 'novias',
+  },
+  {
+    slug: 'grupos',
+    name: 'Grupo a domicilio',
+    title: 'Damas, mamá y familia',
+    pitch: 'Desde 4 personas voy a tu casa y el domicilio no se cobra.',
+    price: 70000,
+    unit: 'por persona',
+    includes: ['Desde 4 personas', 'Domicilio gratis en Valledupar', 'Ondas, coletas o recogidos para cada una'],
+  },
+];
+
+/**
+ * Reseñas reales de clientas (con su permiso). La sección solo aparece cuando hay al menos una.
+ * Ejemplo: { name: 'Laura M.', event: 'Grado', text: '...', photo: '/resenas/laura.webp' }
+ */
+export const TESTIMONIALS: { name: string; event: string; text: string; photo?: string }[] = [];

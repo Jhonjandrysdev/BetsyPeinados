@@ -1,0 +1,63 @@
+---
+import { TESTIMONIALS } from '../lib/defaults';
+---
+
+{
+  TESTIMONIALS.length > 0 && (
+    <section id="resenas" class="section">
+      <div class="wrap">
+        <p class="eyebrow reveal">Reseñas</p>
+        <h2 class="reveal">
+          Lo que dicen mis <em>clientas</em>
+        </h2>
+        <ul class="tms">
+          {TESTIMONIALS.map((t, i) => (
+            <li class="tm reveal" data-delay={String(i % 3)}>
+              {t.photo && <img src={t.photo} alt={`Peinado de ${t.name}`} loading="lazy" decoding="async" width="400" height="500" />}
+              <blockquote>“{t.text}”</blockquote>
+              <p class="who">
+                <strong>{t.name}</strong> · {t.event}
+              </p>
+            </li>
+          ))}
+        </ul>
+      </div>
+    </section>
+  )
+}
+
+<style>
+  .tms {
+    list-style: none;
+    margin: 2rem 0 0;
+    padding: 0;
+    display: grid;
+    gap: 1.1rem;
+    grid-template-columns: repeat(auto-fit, minmax(min(100%, 260px), 1fr));
+  }
+  .tm {
+    padding: 1.3rem;
+    border: 1px solid var(--line);
+    border-radius: var(--radius);
+    background: var(--white);
+    box-shadow: var(--shadow);
+  }
+  .tm img {
+    width: 100%;
+    aspect-ratio: 4 / 5;
+    object-fit: cover;
+    border-radius: 16px;
+    margin-bottom: 1rem;
+  }
+  blockquote {
+    margin: 0;
+    font-family: var(--font-display);
+    font-size: 1.1rem;
+    line-height: 1.45;
+  }
+  .who {
+    margin: 0.8rem 0 0;
+    color: var(--muted);
+    font-size: 0.88rem;
+  }
+</style>
