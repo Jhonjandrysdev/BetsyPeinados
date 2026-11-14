@@ -171,8 +171,8 @@ const greet = hour < 12 ? 'Buenos días' : hour < 19 ? 'Buenas tardes' : 'Buenas
     --tab-h: 64px;
     background: var(--a-bg);
     font-size: 1rem;
-    /* Cifras alineadas (Playfair usa números antiguos por defecto) */
-    font-variant-numeric: lining-nums;
+    /* Cifras alineadas y del mismo ancho en agenda y totales */
+    font-variant-numeric: lining-nums tabular-nums;
   }
   @media (min-width: 861px) {
     html:has(form[data-sticky-save]) {
@@ -295,10 +295,10 @@ const greet = hour < 12 ? 'Buenos días' : hour < 19 ? 'Buenas tardes' : 'Buenas
     box-shadow: 0 10px 24px -14px rgb(0 0 0 / 0.6);
   }
   .a-nav a span {
-    font-family: var(--font-display);
-    font-size: 1.12rem;
-    font-weight: 450;
-    letter-spacing: 0.005em;
+    font-family: var(--font-body);
+    font-size: 0.98rem;
+    font-weight: 550;
+    letter-spacing: 0.02em;
   }
   .a-nav a[aria-current='page'] span {
     font-style: italic;

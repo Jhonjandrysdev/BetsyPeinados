@@ -24,6 +24,7 @@ const year = new Date().getFullYear();
       <p><a href={`https://www.instagram.com/${s.instagram}`} rel="noopener" target="_blank"><Icon name="instagram" size={16} /> @{s.instagram}</a></p>
     </div>
   </div>
+  <p class="wordmark" aria-hidden="true">Betsy <em>peinados</em></p>
   <div class="wrap legal">
     <span>© {year} {s.business_name}. Hecho con cariño en Valledupar.</span>
     <a href="/privacidad">Política de privacidad</a>
@@ -39,6 +40,8 @@ const year = new Date().getFullYear();
     margin-right: 0.5rem;
   }
   .footer {
+    position: relative;
+    overflow: hidden;
     background: var(--cocoa);
     color: color-mix(in oklab, var(--cream) 82%, transparent);
     padding: 4.5rem 0 2rem;
@@ -96,10 +99,38 @@ const year = new Date().getFullYear();
     justify-content: space-between;
     gap: 1rem;
     flex-wrap: wrap;
-    margin-top: 3.5rem;
+    margin-top: 0;
     padding-top: 1.5rem;
     border-top: 1px solid rgb(255 255 255 / 0.1);
     font-size: 0.85rem;
+  }
+  .wordmark {
+    margin: 3rem 0 -0.12em;
+    text-align: center;
+    white-space: nowrap;
+    font-family: var(--font-display);
+    font-size: clamp(3.4rem, 12.5vw, 11.5rem);
+    font-weight: 450;
+    line-height: 0.9;
+    letter-spacing: -0.02em;
+    color: transparent;
+    -webkit-text-stroke: 1px rgb(255 250 244 / 0.16);
+    background: linear-gradient(180deg, rgb(255 250 244 / 0.1), transparent 85%);
+    -webkit-background-clip: text;
+    background-clip: text;
+    user-select: none;
+  }
+  .wordmark em {
+    margin-left: 0.18em;
+    font-style: italic;
+    color: transparent;
+  }
+  .grid h2 + p a,
+  .grid p a {
+    transition: color 0.25s, transform 0.3s var(--ease);
+  }
+  .grid p a:hover {
+    transform: translateX(3px);
   }
   @media (max-width: 760px) {
     .grid {
