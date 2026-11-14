@@ -50,20 +50,29 @@ const wa = (p: EventPackage) => `https://wa.me/${s.whatsapp}?text=${encodeURICom
           <a href={wa(p)} class="btn btn-clay" target="_blank" rel="noopener">
             <Icon name="whatsapp" /> Apartar mi fecha
           </a>
-          {
-            p.serviceSlug && (
-              <a href={`/reservar?servicio=${p.serviceSlug}`} class="pkg-link">
-                Ver horarios libres <Icon name="arrow" size={16} />
-              </a>
-            )
-          }
-          {
-            !noDetails && p.slug !== 'grupos' && (
-              <a href={`/${p.slug}`} class="pkg-link">
-                Ver fotos y detalles <Icon name="arrow" size={16} />
-              </a>
-            )
-          }
+          <div class="pkg-links">
+            {
+              p.serviceSlug && (
+                <a href={`/reservar?servicio=${p.serviceSlug}`} class="pkg-link">
+                  Ver horarios libres <Icon name="arrow" size={16} />
+                </a>
+              )
+            }
+            {
+              !noDetails && p.slug !== 'grupos' && (
+                <a href={`/${p.slug}`} class="pkg-link">
+                  Ver fotos y detalles <Icon name="arrow" size={16} />
+                </a>
+              )
+            }
+            {
+              p.slug === 'grupos' && (
+                <a href="/#domicilio" class="pkg-link">
+                  Ver servicio a domicilio <Icon name="arrow" size={16} />
+                </a>
+              )
+            }
+          </div>
         </div>
       </li>
     ))
@@ -184,6 +193,17 @@ const wa = (p: EventPackage) => `https://wa.me/${s.whatsapp}?text=${encodeURICom
   .pkg-cta .btn {
     width: 100%;
     justify-content: center;
+  }
+  /* Misma altura para la zona de enlaces en todas las tarjetas: así los botones quedan alineados. */
+  .pkg-links {
+    display: grid;
+    gap: 0.55rem;
+    justify-items: start;
+    align-content: start;
+    min-height: 3.6rem;
+  }
+  .pkgs.single .pkg-links {
+    min-height: 0;
   }
   .pkg-link {
     display: inline-flex;
