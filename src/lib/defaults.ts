@@ -33,13 +33,17 @@ const svc = (
   price_from: number | null,
   featured: boolean,
   sort: number,
-): Service => ({ id, slug, name, description, category, duration_min, price_from, active: true, featured, sort });
+  tiers?: [number, number, number],
+): Service => ({
+  id, slug, name, description, category, duration_min, price_from, active: true, featured, sort,
+  price_short: tiers?.[0] ?? null, price_medium: tiers?.[1] ?? null, price_long: tiers?.[2] ?? null, extra_cm_price: null,
+});
 
 export const DEFAULT_SERVICES: Service[] = [
-  svc('00000000-0000-4000-8000-000000000001', 'ondas', 'Ondas', 'Ondas definidas y pulidas con movimiento y brillo que duran toda la noche. Corto $70.000 · Medio largo $80.000 · Extra largo $90.000.', 'Peinados', 60, 70000, true, 1),
-  svc('00000000-0000-4000-8000-000000000005', 'peinados-sociales', 'Peinados sociales', 'Recogidos, semirecogidos y peinados elegantes para grados, matrimonios y eventos. Corto $70.000 · Medio largo $90.000 · Extra largo $100.000.', 'Eventos', 90, 70000, true, 2),
-  svc('00000000-0000-4000-8000-000000000002', 'quinceaneras', 'Quinceañeras', 'Rizos, trenzas o recogido con tu corona o tiara para brillar en tus quince. Corto $80.000 · Medio largo $100.000 · Extra largo $120.000.', 'Eventos', 120, 80000, true, 3),
-  svc('00000000-0000-4000-8000-000000000004', 'ninas', 'Peinados para niñas', 'Trenzas, rizos y accesorios con detalles tiernos para las más pequeñas. Desde $60.000.', 'Infantil', 45, 60000, false, 4),
+  svc('00000000-0000-4000-8000-000000000001', 'ondas', 'Ondas', 'Ondas definidas y pulidas con movimiento y brillo que duran toda la noche.', 'Peinados', 60, 70000, true, 1, [70000, 80000, 90000]),
+  svc('00000000-0000-4000-8000-000000000005', 'peinados-sociales', 'Peinados sociales', 'Recogidos, semirecogidos y peinados elegantes para grados, matrimonios y eventos.', 'Eventos', 90, 70000, true, 2, [70000, 90000, 100000]),
+  svc('00000000-0000-4000-8000-000000000002', 'quinceaneras', 'Quinceañeras', 'Rizos, trenzas o recogido con tu corona o tiara para brillar en tus quince.', 'Eventos', 120, 80000, true, 3, [80000, 100000, 120000]),
+  svc('00000000-0000-4000-8000-000000000004', 'ninas', 'Peinados para niñas', 'Trenzas, rizos y accesorios con detalles tiernos para las más pequeñas.', 'Infantil', 45, 60000, false, 4),
   svc('00000000-0000-4000-8000-000000000006', 'novias', 'Novias', 'Diseñado para tu rostro y tu vestido, con asesoría previa y fijación de larga duración. Valor según el diseño: escríbeme para cotizar.', 'Novias', 180, null, true, 5),
   svc('00000000-0000-4000-8000-000000000007', 'peinado-maquillaje', 'Peinado + maquillaje', 'Paquete completo: tu peinado con Betsy y maquillaje profesional el mismo día. Valor según el peinado y el maquillaje: te lo confirmo por WhatsApp.', 'Paquetes', 150, null, true, 6),
 ];
@@ -100,17 +104,24 @@ export const HAIR_LENGTHS: { id: HairLength; label: string }[] = [
   { id: 'extra', label: 'Extra largo' },
 ];
 export const hairLabel = (id: string | null | undefined) => HAIR_LENGTHS.find((h) => h.id === id)?.label ?? '';
-/** Precio por largo de cabello, según el slug del servicio. */
-export const PRICE_TIERS: Record<string, Record<HairLength, number>> = {
-  ondas: { corto: 70000, medio: 80000, extra: 90000 },
-  'peinados-sociales': { corto: 70000, medio: 90000, extra: 100000 },
-  recogidos: { corto: 70000, medio: 90000, extra: 100000 }, // slug anterior de Peinados sociales
-  quinceaneras: { corto: 80000, medio: 100000, extra: 120000 },
+type Priced = Pick<Service, 'price_short' | 'price_medium' | 'price_long'> | null | undefined;
+/** Precios por largo del servicio (editables en el panel), o null si no varía por largo. */
+export const tiersOf = (sv: Priced): Record<HairLength, number> | null => {
+  if (!sv || (sv.price_short == null && sv.price_medium == null && sv.price_long == null)) return null;
+  const c = sv.price_short ?? sv.price_medium ?? sv.price_long ?? 0;
+  const m = sv.price_medium ?? c;
+  return { corto: c, medio: m, extra: sv.price_long ?? m };
 };
-export const priceFor = (slug: string | undefined, len: string | null | undefined): number | null =>
-  (slug && len && PRICE_TIERS[slug]?.[len as HairLength]) || null;
+export const priceFor = (sv: Priced, len: string | null | undefined): number | null => (len && tiersOf(sv)?.[len as HairLength]) || null;
 export const depositOf = (price: number | null) => (price ? Math.round((price * DEPOSIT_PCT) / 100 / 1000) * 1000 : null);
 export const ONDAS_LENGTH_NOTE = 'En ondas, a partir de medio largo cada centímetro adicional de largo tiene un costo extra.';
+/** Nota del adicional por centímetro para un servicio. */
+export const cmNote = (sv: Pick<Service, 'slug' | 'extra_cm_price'>, fmt: (n: number) => string) =>
+  sv.extra_cm_price
+    ? `A partir de medio largo, cada cm adicional de cabello suma ${fmt(sv.extra_cm_price)}.`
+    : sv.slug === 'ondas'
+      ? 'A partir de medio largo, cada cm adicional de cabello tiene un costo extra.'
+      : '';
 
 export interface EventPackage {
   slug: 'grados' | 'quince' | 'novias' | 'grupos' | 'maquillaje';

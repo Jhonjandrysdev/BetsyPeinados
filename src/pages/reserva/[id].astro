@@ -11,8 +11,8 @@ const appt = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.t
 if (!appt) return Astro.redirect('/reservar', 303);
 const [s, service] = await Promise.all([getSettings(), appt.service_id ? getService(appt.service_id) : null]);
 const pending = appt.status === 'pendiente';
-const price = priceFor(service?.slug, appt.hair_length) ?? service?.price_from ?? null;
-const exact = priceFor(service?.slug, appt.hair_length) != null;
+const price = priceFor(service, appt.hair_length) ?? service?.price_from ?? null;
+const exact = priceFor(service, appt.hair_length) != null;
 const deposit = exact ? depositOf(price) : null;
 const place = appt.home_service && appt.home_address ? appt.home_address : s.address;
 

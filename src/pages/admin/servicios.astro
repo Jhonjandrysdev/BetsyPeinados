@@ -4,6 +4,7 @@ import Icon from '../../components/Icon.astro';
 import { deleteService, getServices, upsertService } from '../../lib/db';
 import { back, bool, int, isUuid, slugify, str } from '../../lib/admin';
 import { formatCOP, formatDuration } from '../../lib/time';
+import { tiersOf } from '../../lib/defaults';
 
 const HERE = '/admin/servicios';
 const OOPS = 'Algo salió mal. Recarga la página e intenta de nuevo.';
@@ -22,6 +23,12 @@ if (Astro.request.method === 'POST') {
     const name = str(fd, 'name', 80);
     if (name.length < 2) return back(HERE, 'error', 'Escribe un nombre de al menos 2 letras.');
     const priceRaw = str(fd, 'price_from', 12).replace(/\D/g, '');
+    const money = (k: string) => {
+      const v = str(fd, k, 12).replace(/\D/g, '');
+      return v ? Math.min(Number(v), 100_000_000) : null;
+    };
+    const tiers = { price_short: money('price_short'), price_medium: money('price_medium'), price_long: money('price_long') };
+    const lowest = Object.values(tiers).filter((v): v is number => v != null);
     try {
       await upsertService({
         id: isUuid(id) ? id : undefined,
@@ -30,7 +37,10 @@ if (Astro.request.method === 'POST') {
         description: str(fd, 'description', 500),
         category: str(fd, 'category', 40) || 'Peinados',
         duration_min: int(fd, 'duration_min', 15, 480, 60),
-        price_from: priceRaw ? Math.min(Number(priceRaw), 100_000_000) : null,
+        // Si hay precios por largo, el "desde" es el más bajo.
+        price_from: lowest.length ? Math.min(...lowest) : priceRaw ? Math.min(Number(priceRaw), 100_000_000) : null,
+        ...tiers,
+        extra_cm_price: money('extra_cm_price'),
         active: bool(fd, 'active'),
         featured: bool(fd, 'featured'),
         sort: int(fd, 'sort', 0, 999, 0),
@@ -46,7 +56,7 @@ if (Astro.request.method === 'POST') {
 }
 
 const services = await getServices(false);
-const blank = { id: '', slug: '', name: '', description: '', category: 'Peinados', duration_min: 60, price_from: null as number | null, active: true, featured: false, sort: services.length + 1 };
+const blank = { id: '', slug: '', name: '', description: '', category: 'Peinados', duration_min: 60, price_from: null as number | null, price_short: null as number | null, price_medium: null as number | null, price_long: null as number | null, extra_cm_price: null as number | null, active: true, featured: false, sort: services.length + 1 };
 const DURS = [30, 45, 60, 90, 120, 180];
 ---
 
@@ -73,7 +83,9 @@ const DURS = [30, 45, 60, 90, 120, 180];
                     {!s.active && <span class="tag cancelada">Oculto en la web</span>}
                   </span>
                   <span class="svc-dur">{formatDuration(s.duration_min)}</span>
-                  <span class="svc-price">{formatCOP(s.price_from)}</span>
+                  <span class="svc-price">
+                    {tiersOf(s) ? `${formatCOP(tiersOf(s)!.corto)} – ${formatCOP(tiersOf(s)!.extra)}` : formatCOP(s.price_from)}
+                  </span>
                 </>
               ) : (
                 <span class="svc-add">
@@ -95,6 +107,28 @@ const DURS = [30, 45, 60, 90, 120, 180];
                     Déjalo vacío si es a convenir
                   </small>
                 </div>
+                <fieldset class="field full tiers">
+                  <legend>Precio según el largo del cabello <span class="hint">(opcional)</span></legend>
+                  <div class="tiers-in">
+                    <label>
+                      Corto
+                      <input name="price_short" inputmode="numeric" value={s.price_short ?? ''} placeholder="70000" />
+                    </label>
+                    <label>
+                      Medio largo
+                      <input name="price_medium" inputmode="numeric" value={s.price_medium ?? ''} placeholder="80000" />
+                    </label>
+                    <label>
+                      Extra largo
+                      <input name="price_long" inputmode="numeric" value={s.price_long ?? ''} placeholder="90000" />
+                    </label>
+                    <label>
+                      Adicional por cm (desde medio largo)
+                      <input name="extra_cm_price" inputmode="numeric" value={s.extra_cm_price ?? ''} placeholder="Ej.: 2000" />
+                    </label>
+                  </div>
+                  <small class="hint">Si llenas los precios por largo, la clienta elige su largo al reservar y el "Precio desde" se toma del más bajo.</small>
+                </fieldset>
                 <div class="field">
                   <label for={`dur-${k}`}>Duración en minutos</label>
                   <input id={`dur-${k}`} name="duration_min" type="number" min="15" max="480" step="5" value={s.duration_min} required aria-describedby={`dur-h-${k}`} data-dur />
@@ -174,6 +208,27 @@ const DURS = [30, 45, 60, 90, 120, 180];
 </Admin>
 
 <style>
+  .tiers {
+    border: 1px dashed var(--line, #e2d3c5);
+    border-radius: 14px;
+    padding: 0.8rem 0.9rem;
+    margin: 0;
+  }
+  .tiers legend {
+    font-weight: 700;
+    padding: 0 0.3rem;
+  }
+  .tiers-in {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(130px, 1fr));
+    gap: 0.6rem;
+  }
+  .tiers-in label {
+    display: grid;
+    gap: 0.25rem;
+    font-size: 0.85rem;
+    font-weight: 600;
+  }
   /* La carta del salón: filas con duración y precio alineados */
   .menu {
     max-width: 820px;

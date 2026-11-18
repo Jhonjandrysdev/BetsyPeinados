@@ -202,9 +202,9 @@ const shortWhen = (iso: string) => {
 type WaKind = 'remind' | 'thanks' | 'hello' | 'deposit';
 const waKind = (a: Appointment): WaKind =>
   a.status === 'completada' ? 'thanks' : a.status === 'pendiente' && !started(a) ? 'deposit' : isActive(a) && !started(a) ? 'remind' : 'hello';
-const slugOf = new Map(services.map((x) => [x.id, x.slug]));
+const svcOf = new Map(services.map((x) => [x.id, x]));
 /** Valor de la cita: por largo de cabello si el servicio tiene tarifas, si no el "desde" del servicio. */
-const priceOfAppt = (a: Appointment) => priceFor(slugOf.get(a.service_id ?? ''), a.hair_length) ?? (a.service_id ? (priceOf.get(a.service_id) ?? 0) : 0);
+const priceOfAppt = (a: Appointment) => priceFor(svcOf.get(a.service_id ?? ''), a.hair_length) ?? (a.service_id ? (priceOf.get(a.service_id) ?? 0) : 0);
 const waText = (a: Appointment) => {
   const who = firstName(a.customer_name);
   const kind = waKind(a);
@@ -585,7 +585,7 @@ const todayOff = offOf(today);
               {priceOfAppt(a) > 0 && (
                 <div>
                   <dt>
-                    <Icon name="money" size={16} /> {priceFor(slugOf.get(a.service_id ?? ''), a.hair_length) ? 'Valor' : 'Valor desde'}
+                    <Icon name="money" size={16} /> {priceFor(svcOf.get(a.service_id ?? ''), a.hair_length) ? 'Valor' : 'Valor desde'}
                   </dt>
                   <dd>
                     {formatCOP(priceOfAppt(a))}

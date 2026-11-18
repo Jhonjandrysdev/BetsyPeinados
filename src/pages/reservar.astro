@@ -6,7 +6,7 @@ import { getServices, getSettings } from '../lib/db';
 import { openDays } from '../lib/slots';
 import { formatCOP, formatDuration, localDate } from '../lib/time';
 import { formToken } from '../lib/http';
-import { DEPOSIT_PCT, HAIR_LENGTHS, ONDAS_LENGTH_NOTE, POLICIES, PRICE_TIERS } from '../lib/defaults';
+import { DEPOSIT_PCT, HAIR_LENGTHS, POLICIES, cmNote, tiersOf } from '../lib/defaults';
 
 const [s, services] = await Promise.all([getSettings(), getServices()]);
 const days = await openDays(localDate(), s.max_days_ahead + 1);
@@ -24,7 +24,8 @@ const data = {
     duration: formatDuration(x.duration_min),
     price: formatCOP(x.price_from),
     from: x.price_from,
-    tiers: PRICE_TIERS[x.slug] ?? null,
+    tiers: tiersOf(x),
+    cm: cmNote(x, formatCOP),
   })),
 };
 ---
@@ -59,6 +60,16 @@ const data = {
                 <span class="option-body">
                   <span class="option-title">{sv.name}</span>
                   <span class="option-desc">{sv.description}</span>
+                  {tiersOf(sv) && (
+                    <span class="option-tiers">
+                      {HAIR_LENGTHS.map((h) => (
+                        <span>
+                          {h.label} <b>{formatCOP(tiersOf(sv)![h.id])}</b>
+                        </span>
+                      ))}
+                    </span>
+                  )}
+                  {cmNote(sv, formatCOP) && <span class="option-cm">{cmNote(sv, formatCOP)}</span>}
                   <span class="option-meta">
                     <span>
                       <Icon name="clock" size={15} /> {formatDuration(sv.duration_min)}
@@ -119,7 +130,7 @@ const data = {
               ))
             }
           </div>
-          <p class="hint" data-ondas-note hidden>{ONDAS_LENGTH_NOTE}</p>
+          <p class="hint" data-cm-note hidden></p>
         </div>
         <div class="fields">
           <div class="field">
@@ -492,6 +503,28 @@ const data = {
     height: 1px;
     overflow: hidden;
   }
+  .option-tiers {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 0.3rem 0.5rem;
+    margin-top: 0.45rem;
+    font-size: 0.84rem;
+  }
+  .option-tiers span {
+    padding: 0.2rem 0.55rem;
+    border-radius: 999px;
+    background: color-mix(in oklab, var(--clay) 9%, transparent);
+  }
+  .option-tiers b {
+    color: var(--clay);
+  }
+  .option-cm {
+    display: block;
+    margin-top: 0.35rem;
+    font-size: 0.82rem;
+    font-style: italic;
+    color: var(--muted, #7a6a60);
+  }
   .hair {
     margin: 0 0 1.2rem;
   }
@@ -601,7 +634,7 @@ const data = {
     days: string[];
     preselect: string;
     pct: number;
-    services: { id: string; slug: string; name: string; duration: string; price: string; from: number | null; tiers: Record<string, number> | null }[];
+    services: { id: string; slug: string; name: string; duration: string; price: string; from: number | null; tiers: Record<string, number> | null; cm: string }[];
   }
   const data: Data = JSON.parse(document.getElementById('booking-data')!.textContent!);
   const form = document.getElementById('booking') as HTMLFormElement;
@@ -707,7 +740,9 @@ const data = {
     const sv = data.services.find((x) => x.id === serviceId());
     const tiers = sv?.tiers ?? null;
     $<HTMLElement>('[data-hair]').hidden = !tiers;
-    $<HTMLElement>('[data-ondas-note]').hidden = sv?.slug !== 'ondas';
+    const cmEl = $<HTMLElement>('[data-cm-note]');
+    cmEl.textContent = sv?.cm ?? '';
+    cmEl.hidden = !sv?.cm;
     form.querySelectorAll<HTMLInputElement>('input[name="hair_length"]').forEach((r) => {
       r.required = Boolean(tiers);
       if (!tiers) r.checked = false;

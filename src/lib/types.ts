@@ -28,6 +28,12 @@ export interface Service {
   category: string;
   duration_min: number;
   price_from: number | null;
+  /** Precios por largo de cabello (null = el servicio no varía por largo). */
+  price_short?: number | null;
+  price_medium?: number | null;
+  price_long?: number | null;
+  /** Adicional por cada cm a partir de medio largo (solo ondas, normalmente). */
+  extra_cm_price?: number | null;
   active: boolean;
   featured: boolean;
   sort: number;
