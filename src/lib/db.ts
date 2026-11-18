@@ -72,11 +72,17 @@ export async function upsertService(s: Omit<Service, 'id'> & { id?: string }): P
     else demo.services.push({ ...s, id: crypto.randomUUID() } as Service);
     return;
   }
-  if (s.id) check(await supabaseAdmin().from('services').update(s).eq('id', s.id));
-  else {
-    const { id: _ignored, ...rest } = s;
-    check(await supabaseAdmin().from('services').insert(rest));
+  const save = async (row: typeof s) => {
+    const { id: _ignored, ...rest } = row;
+    return row.id ? supabaseAdmin().from('services').update(rest).eq('id', row.id) : supabaseAdmin().from('services').insert(rest);
+  };
+  let res = await save(s);
+  // Si la base aún no tiene las columnas de precios por largo, guarda lo demás.
+  if (res.error?.code === 'PGRST204') {
+    const { price_short: _a, price_medium: _b, price_long: _c, extra_cm_price: _d, ...base } = s;
+    res = await save(base);
   }
+  check(res);
 }
 
 export async function deleteService(id: string): Promise<void> {
