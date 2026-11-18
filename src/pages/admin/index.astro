@@ -1,9 +1,10 @@
 ---
 import Admin from '../../layouts/Admin.astro';
 import Icon from '../../components/Icon.astro';
-import { getAppointment, getAppointments, getBlockedDates, getGoogleConnection, getHours, getServices, updateAppointment } from '../../lib/db';
+import { getAppointment, getAppointments, getBlockedDates, getGoogleConnection, getHours, getServices, getSettings, updateAppointment } from '../../lib/db';
 import { book, BookingError, bookingSchema } from '../../lib/booking';
-import { cancelCalendarEvent } from '../../lib/google';
+import { cancelCalendarEvent, confirmCalendarEvent, createCalendarEvent } from '../../lib/google';
+import { DEPOSIT_PCT, HAIR_LENGTHS, depositOf, hairLabel, priceFor } from '../../lib/defaults';
 import { addDays, formatCOP, fromLocal, isDate, localDate, localTime, minutesOf, prettyDate, prettyTime as prettyTimeRaw, weekdayOf } from '../../lib/time';
 import { isUuid, str } from '../../lib/admin';
 import type { Appointment, AppointmentStatus } from '../../lib/types';
@@ -32,7 +33,20 @@ if (Astro.request.method === 'POST') {
     const appt = await getAppointment(id);
     if (!appt) return go('error', 'No encontramos esa cita. Recarga la página.');
     const prev = appt.status;
-    await updateAppointment(id, { status });
+    const depositOk = status === 'confirmada' && prev === 'pendiente';
+    await updateAppointment(id, depositOk ? { status, deposit_confirmed_at: new Date().toISOString() } : { status });
+    if (depositOk) {
+      // Abono recibido: la cita queda en firme también en Google Calendar.
+      try {
+        if (appt.google_event_id) await confirmCalendarEvent(appt.google_event_id, appt);
+        else {
+          const eventId = await createCalendarEvent({ ...appt, status: 'confirmada' }, await getSettings());
+          if (eventId) await updateAppointment(id, { google_event_id: eventId });
+        }
+      } catch (e) {
+        console.error(e);
+      }
+    }
     if (status === 'cancelada' && appt.google_event_id) {
       try {
         await cancelCalendarEvent(appt.google_event_id, Boolean(appt.customer_email));
@@ -51,7 +65,9 @@ if (Astro.request.method === 'POST') {
           ? `¡Listo! Cita de ${who} marcada como realizada.`
           : prev === 'completada'
             ? `La cita de ${who} ya no está marcada como realizada.`
-            : `Cita de ${who} confirmada`,
+            : depositOk
+              ? `Abono de ${who} recibido. La cita quedó confirmada ✨`
+              : `Cita de ${who} confirmada`,
     );
   }
 
@@ -64,6 +80,9 @@ if (Astro.request.method === 'POST') {
       phone: str(fd, 'phone', 20),
       email: str(fd, 'email', 120),
       notes: str(fd, 'notes', 500),
+      hair_length: str(fd, 'hair_length', 10),
+      home_service: fd.get('home_service') === 'on',
+      home_address: str(fd, 'home_address', 200),
     });
     if (!parsed.success) {
       // Los mensajes del esquema le hablan a la clienta de la web; aquí se le habla a Betsy.
@@ -75,6 +94,7 @@ if (Astro.request.method === 'POST') {
         date: 'Elige la fecha y la hora de la cita',
         time: 'Elige la fecha y la hora de la cita',
         service_id: 'Elige un servicio',
+        home_address: 'Escribe la dirección del domicilio',
       };
       return go('error', msgs[field] ?? 'Revisa los datos de la cita.');
     }
@@ -148,7 +168,7 @@ const emptyWeek = weekActive.length === 0 && income === 0;
 const present = new Set(appts.filter((a) => a.status !== 'cancelada').map((a) => a.status));
 
 // Formatos
-const statusLabel: Record<AppointmentStatus, string> = { confirmada: 'Confirmada', pendiente: 'Pendiente', completada: 'Realizada', cancelada: 'Cancelada' };
+const statusLabel: Record<AppointmentStatus, string> = { confirmada: 'Confirmada', pendiente: 'Esperando abono', completada: 'Realizada', cancelada: 'Cancelada' };
 const fmtDayShort = new Intl.DateTimeFormat('es-CO', { weekday: 'short', timeZone: 'UTC' });
 const fmtDayLong = new Intl.DateTimeFormat('es-CO', { weekday: 'long', timeZone: 'UTC' });
 const fmtMonth = new Intl.DateTimeFormat('es-CO', { month: 'long', timeZone: 'UTC' });
@@ -179,8 +199,12 @@ const shortWhen = (iso: string) => {
 };
 
 // WhatsApp: el mensaje depende del estado (no se le "recuerda" una cita cancelada o pasada).
-type WaKind = 'remind' | 'thanks' | 'hello';
-const waKind = (a: Appointment): WaKind => (a.status === 'completada' ? 'thanks' : isActive(a) && !started(a) ? 'remind' : 'hello');
+type WaKind = 'remind' | 'thanks' | 'hello' | 'deposit';
+const waKind = (a: Appointment): WaKind =>
+  a.status === 'completada' ? 'thanks' : a.status === 'pendiente' && !started(a) ? 'deposit' : isActive(a) && !started(a) ? 'remind' : 'hello';
+const slugOf = new Map(services.map((x) => [x.id, x.slug]));
+/** Valor de la cita: por largo de cabello si el servicio tiene tarifas, si no el "desde" del servicio. */
+const priceOfAppt = (a: Appointment) => priceFor(slugOf.get(a.service_id ?? ''), a.hair_length) ?? (a.service_id ? (priceOf.get(a.service_id) ?? 0) : 0);
 const waText = (a: Appointment) => {
   const who = firstName(a.customer_name);
   const kind = waKind(a);
@@ -189,11 +213,16 @@ const waText = (a: Appointment) => {
     const when = d === today ? 'de hoy' : d === tomorrow ? 'de mañana' : `del ${prettyDate(a.starts_at).toLowerCase()}`;
     return `Hola ${who} 👋 Te escribe Betsy Peinados para recordarte tu cita ${when} a las ${prettyTime(a.starts_at)} ¡Te espero! ✨`;
   }
+  if (kind === 'deposit') {
+    const dep = depositOf(priceOfAppt(a) || null);
+    return `Hola ${who} 👋 Te escribe Betsy Peinados. Tu cupo del ${prettyDate(a.starts_at).toLowerCase()} a las ${prettyTime(a.starts_at)} está apartado. Para confirmarlo envíame el comprobante del abono del ${DEPOSIT_PCT}%${dep ? ` (${formatCOP(dep)})` : ''}. ¡Gracias! ✨`;
+  }
   if (kind === 'thanks') return `Hola ${who} 👋 Te escribe Betsy Peinados. ¡Gracias por venir! ✨`;
   return `Hola ${who} 👋 Te escribe Betsy Peinados.`;
 };
 const waLink = (a: Appointment) => `https://wa.me/${a.customer_phone}?text=${encodeURIComponent(waText(a))}`;
-const waLabel = (a: Appointment) => (waKind(a) === 'remind' ? 'Recordar por WhatsApp' : 'Escribir por WhatsApp');
+const waLabel = (a: Appointment) =>
+  ({ remind: 'Recordar por WhatsApp', deposit: 'Pedir comprobante', thanks: 'Escribir por WhatsApp', hello: 'Escribir por WhatsApp' })[waKind(a)];
 
 const initials = (n: string) =>
   n
@@ -382,9 +411,13 @@ const todayOff = offOf(today);
                     data-d={durOf(a)}
                     title={`${a.customer_name} · ${prettyTime(a.starts_at)} · ${a.service_name}`}
                   >
-                    <b>{a.customer_name}</b>
+                    <b>
+                      {a.home_service && <Icon name="home" size={12} />}
+                      {a.customer_name}
+                    </b>
                     <span>
                       {prettyTime(a.starts_at)} · {a.service_name}
+                      {a.status === 'pendiente' && ' · Espera abono'}
                     </span>
                     <span class="sr-only">
                       , {prettyDate(a.starts_at)}, {statusLabel[a.status]}
@@ -438,10 +471,11 @@ const todayOff = offOf(today);
                           <b>{a.customer_name}</b>
                           <small>
                             {a.service_name}
+                            {a.home_service && ' · A domicilio'}
                             {a.status !== 'pendiente' && a.status !== 'confirmada' && ` · ${statusLabel[a.status]}`}
                             {a.status === 'confirmada' && <span class="sr-only">, Confirmada</span>}
                           </small>
-                          {a.status === 'pendiente' && <span class="tag pendiente">Pendiente</span>}
+                          {a.status === 'pendiente' && <span class="tag pendiente">Espera abono</span>}
                         </span>
                       </button>
                       {a.status !== 'cancelada' && (
@@ -498,6 +532,11 @@ const todayOff = offOf(today);
                 </span>
               )}
               <span class="tag plain">{a.source === 'web' ? 'Reservó en la web' : 'La agendaste tú'}</span>
+              {a.home_service && (
+                <span class="tag plain">
+                  <Icon name="home" size={13} /> A domicilio
+                </span>
+              )}
             </div>
           </header>
           <div class="ap-in">
@@ -535,12 +574,43 @@ const todayOff = offOf(today);
                   </dd>
                 </div>
               )}
-              {a.service_id && (priceOf.get(a.service_id) ?? 0) > 0 && (
+              {a.hair_length && (
                 <div>
                   <dt>
-                    <Icon name="money" size={16} /> Valor desde
+                    <Icon name="scissors" size={16} /> Largo del cabello
                   </dt>
-                  <dd>{formatCOP(priceOf.get(a.service_id) ?? 0)}</dd>
+                  <dd>{hairLabel(a.hair_length)}</dd>
+                </div>
+              )}
+              {priceOfAppt(a) > 0 && (
+                <div>
+                  <dt>
+                    <Icon name="money" size={16} /> {priceFor(slugOf.get(a.service_id ?? ''), a.hair_length) ? 'Valor' : 'Valor desde'}
+                  </dt>
+                  <dd>
+                    {formatCOP(priceOfAppt(a))}
+                    <small class="muted"> · abono {DEPOSIT_PCT}%: {formatCOP(depositOf(priceOfAppt(a)))}</small>
+                  </dd>
+                </div>
+              )}
+              {a.home_service && (
+                <div>
+                  <dt>
+                    <Icon name="home" size={16} /> Domicilio
+                  </dt>
+                  <dd>
+                    <a href={`https://www.google.com/maps/search/?api=1&query=${encodeURIComponent(a.home_address ?? '')}`} target="_blank" rel="noopener">
+                      {a.home_address}
+                    </a>
+                  </dd>
+                </div>
+              )}
+              {a.deposit_confirmed_at && (
+                <div>
+                  <dt>
+                    <Icon name="check" size={16} /> Abono
+                  </dt>
+                  <dd>Recibido el {prettyDate(a.deposit_confirmed_at).toLowerCase()}</dd>
                 </div>
               )}
             </dl>
@@ -550,8 +620,24 @@ const todayOff = offOf(today);
                 {a.notes}
               </blockquote>
             )}
+            {a.status === 'pendiente' && (
+              <p class="ap-dep">
+                <Icon name="clock" size={16} /> Cupo apartado en espera del comprobante del abono del {DEPOSIT_PCT}%. Cuando lo recibas, confírmala aquí.
+              </p>
+            )}
             <div class="ap-acts">
-              {canComplete && (
+              {a.status === 'pendiente' && (
+                <form method="post" data-confirm={`¿Ya recibiste el comprobante del abono de ${who}? La cita quedará confirmada.`} data-confirm-yes="Sí, confirmar">
+                  <input type="hidden" name="action" value="status" />
+                  <input type="hidden" name="id" value={a.id} />
+                  <input type="hidden" name="desde" value={start} />
+                  <input type="hidden" name="status" value="confirmada" />
+                  <button class="btn btn-clay">
+                    <Icon name="money" /> Confirmar abono
+                  </button>
+                </form>
+              )}
+              {canComplete && a.status !== 'pendiente' && (
                 <form method="post" data-confirm={`¿Marcar la cita de ${who} como realizada?`} data-confirm-yes="Sí, marcar">
                   <input type="hidden" name="action" value="status" />
                   <input type="hidden" name="id" value={a.id} />
@@ -562,7 +648,7 @@ const todayOff = offOf(today);
                   </button>
                 </form>
               )}
-              <a class:list={['btn', 'btn-wa', { 'btn-wa-main': !canComplete }]} href={waLink(a)} target="_blank" rel="noopener">
+              <a class:list={['btn', 'btn-wa', { 'btn-wa-main': !canComplete && a.status !== 'pendiente' }]} href={waLink(a)} target="_blank" rel="noopener">
                 <Icon name="whatsapp" /> {waLabel(a)}
               </a>
               {a.status === 'completada' && (
@@ -667,6 +753,20 @@ const todayOff = offOf(today);
               <label for="m-email">Correo</label>
               <input id="m-email" name="email" type="email" maxlength="120" />
             </div>
+            <div class="field">
+              <label for="m-hair">Largo del cabello</label>
+              <select id="m-hair" name="hair_length">
+                <option value="">Sin especificar</option>
+                {HAIR_LENGTHS.map((h) => <option value={h.id}>{h.label}</option>)}
+              </select>
+            </div>
+            <label class="field chk">
+              <input type="checkbox" name="home_service" data-home-toggle /> <span>Servicio a domicilio</span>
+            </label>
+            <div class="field full" data-home-field hidden>
+              <label for="m-address">Dirección del domicilio</label>
+              <input id="m-address" name="home_address" maxlength="200" placeholder="Barrio, calle y número" autocomplete="off" />
+            </div>
             <div class="field full">
               <label for="m-notes">Notas</label>
               <textarea id="m-notes" name="notes" maxlength="500" placeholder="Ocasión, largo del cabello, si es a domicilio…"></textarea>
@@ -683,6 +783,34 @@ const todayOff = offOf(today);
 </Admin>
 
 <style>
+  .chk {
+    flex-direction: row;
+    align-items: center;
+    gap: 0.5rem;
+    align-self: end;
+    padding-bottom: 0.6rem;
+    font-weight: 600;
+  }
+  .chk input {
+    width: 1.1rem;
+    height: 1.1rem;
+    accent-color: var(--clay);
+  }
+  .ap-dep {
+    display: flex;
+    gap: 0.5rem;
+    align-items: flex-start;
+    margin: 0 0 1rem;
+    padding: 0.75rem 0.9rem;
+    border-radius: 14px;
+    background: #f7ecd0;
+    color: #6b4d0c;
+    font-size: 0.9rem;
+  }
+  .ap-dep :global(svg) {
+    flex: none;
+    margin-top: 0.15rem;
+  }
   /* Estados (color de la barra/fondo de cada cita) */
   .confirmada {
     --ev: var(--sage);
@@ -1845,6 +1973,7 @@ const todayOff = offOf(today);
       // «Cerrar sin guardar» descarta lo escrito; la X solo cierra (se conserva para seguir luego).
       if ((b as HTMLElement).dataset.discard !== undefined && formNew) {
         formNew.reset();
+        homeToggle?.dispatchEvent(new Event("change"));
         dirty = false;
         if (errEl) errEl.hidden = true;
         showEnd();
@@ -1865,7 +1994,9 @@ const todayOff = offOf(today);
           ? '#m-email'
           : /esa hora/i.test(message)
             ? '#m-time'
-            : /fecha/i.test(message)
+            : /domicilio/i.test(message)
+              ? '#m-address'
+              : /fecha/i.test(message)
               ? '#m-date'
               : /servicio/i.test(message)
                 ? '#m-service'
@@ -1875,7 +2006,7 @@ const todayOff = offOf(today);
       errEl.hidden = false;
     }
     const more = $<HTMLDetailsElement>('[data-more]');
-    if (more && ($<HTMLInputElement>('#m-email')?.value || $<HTMLTextAreaElement>('#m-notes')?.value)) more.open = true;
+    if (more && ($<HTMLInputElement>('#m-email')?.value || $<HTMLTextAreaElement>('#m-notes')?.value || /domicilio/i.test(message))) more.open = true;
     dirty = true;
     showEnd();
     dlgNew?.showModal();
@@ -1886,6 +2017,17 @@ const todayOff = offOf(today);
       field.focus();
     }
   });
+
+  // Servicio a domicilio: muestra y exige la dirección.
+  const homeToggle = document.querySelector<HTMLInputElement>('[data-home-toggle]');
+  const homeField = document.querySelector<HTMLElement>('[data-home-field]');
+  const syncHome = () => {
+    if (!homeToggle || !homeField) return;
+    homeField.hidden = !homeToggle.checked;
+    homeField.querySelector('input')!.required = homeToggle.checked;
+  };
+  homeToggle?.addEventListener('change', syncHome);
+  syncHome();
 
   // Tira de días (móvil).
   const chips = document.querySelectorAll<HTMLButtonElement>('.chip');

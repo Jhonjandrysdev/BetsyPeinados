@@ -152,7 +152,7 @@ export async function getAppointment(id: string): Promise<Appointment | null> {
 export class SlotTakenError extends Error {}
 
 export async function createAppointment(
-  a: Omit<Appointment, 'id' | 'created_at' | 'google_event_id'>,
+  a: Omit<Appointment, 'id' | 'created_at' | 'google_event_id' | 'deposit_confirmed_at'>,
 ): Promise<Appointment> {
   if (demoMode) {
     if (import.meta.env.PROD) throw new Error('Supabase no está configurado');
@@ -165,7 +165,7 @@ export async function createAppointment(
         new Date(x.ends_at).getTime() > s,
     );
     if (clash) throw new SlotTakenError('Horario ocupado');
-    const row: Appointment = { ...a, id: crypto.randomUUID(), created_at: new Date().toISOString(), google_event_id: null };
+    const row: Appointment = { ...a, id: crypto.randomUUID(), created_at: new Date().toISOString(), google_event_id: null, deposit_confirmed_at: null };
     demo.appointments.push(row);
     return row;
   }
@@ -177,7 +177,7 @@ export async function createAppointment(
 
 export async function updateAppointment(
   id: string,
-  patch: Partial<Pick<Appointment, 'status' | 'google_event_id' | 'notes'>>,
+  patch: Partial<Pick<Appointment, 'status' | 'google_event_id' | 'notes' | 'deposit_confirmed_at'>>,
 ): Promise<void> {
   if (demoMode) {
     const a = demo.appointments.find((x) => x.id === id);

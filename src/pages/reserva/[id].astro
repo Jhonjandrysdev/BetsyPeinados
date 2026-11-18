@@ -2,13 +2,19 @@
 import Base from '../../layouts/Base.astro';
 import Header from '../../components/Header.astro';
 import Icon from '../../components/Icon.astro';
-import { getAppointment, getSettings } from '../../lib/db';
-import { prettyDate, prettyTime } from '../../lib/time';
+import { getAppointment, getService, getSettings } from '../../lib/db';
+import { DEPOSIT_PCT, POLICIES, depositOf, hairLabel, priceFor } from '../../lib/defaults';
+import { formatCOP, prettyDate, prettyTime } from '../../lib/time';
 
 const { id = '' } = Astro.params;
 const appt = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(id) ? await getAppointment(id) : null;
 if (!appt) return Astro.redirect('/reservar', 303);
-const s = await getSettings();
+const [s, service] = await Promise.all([getSettings(), appt.service_id ? getService(appt.service_id) : null]);
+const pending = appt.status === 'pendiente';
+const price = priceFor(service?.slug, appt.hair_length) ?? service?.price_from ?? null;
+const exact = priceFor(service?.slug, appt.hair_length) != null;
+const deposit = exact ? depositOf(price) : null;
+const place = appt.home_service && appt.home_address ? appt.home_address : s.address;
 
 const stamp = (iso: string) => iso.replace(/[-:]/g, '').replace(/\.\d{3}/, '');
 const gcal = `https://calendar.google.com/calendar/render?${new URLSearchParams({
@@ -19,7 +25,10 @@ const gcal = `https://calendar.google.com/calendar/render?${new URLSearchParams(
   details: `Cita en ${s.business_name}. WhatsApp: +${s.whatsapp}`,
 })}`;
 const wa = `https://wa.me/${s.whatsapp}?text=${encodeURIComponent(
-  `¡Hola Betsy! Soy ${appt.customer_name}. Acabo de agendar ${appt.service_name} para el ${prettyDate(appt.starts_at)} a las ${prettyTime(appt.starts_at)} ✨`,
+  pending
+    ? `¡Hola Betsy! Soy ${appt.customer_name}. Aparté ${appt.service_name} para el ${prettyDate(appt.starts_at)} a las ${prettyTime(appt.starts_at)} (reserva #${appt.id.slice(0, 8).toUpperCase()}). ` +
+        `Te envío el comprobante del abono del ${DEPOSIT_PCT}%${deposit ? ` (${formatCOP(deposit)})` : ''} ✨`
+    : `¡Hola Betsy! Soy ${appt.customer_name}. Tengo cita de ${appt.service_name} para el ${prettyDate(appt.starts_at)} a las ${prettyTime(appt.starts_at)} ✨`,
 )}`;
 const cancelled = appt.status === 'cancelada';
 
@@ -51,14 +60,20 @@ const ics = [
 const icsHref = `data:text/calendar;charset=utf-8,${encodeURIComponent(ics)}`;
 ---
 
-<Base title={`Cita ${cancelled ? 'cancelada' : 'confirmada'} · ${s.business_name}`} description="Detalle de tu cita." noindex>
+<Base title={`Cita ${cancelled ? 'cancelada' : pending ? 'apartada' : 'confirmada'} · ${s.business_name}`} description="Detalle de tu cita." noindex>
   <Header minimal />
   <main id="contenido" class="wrap ok">
     <div class="intro">
-      <div class:list={['seal', { off: cancelled }]} aria-hidden="true"><Icon name={cancelled ? 'close' : 'check'} size={30} /></div>
-      <h1>{cancelled ? 'Esta cita fue cancelada' : <>¡Tu cita está <em>confirmada</em>!</>}</h1>
+      <div class:list={['seal', { off: cancelled, wait: pending }]} aria-hidden="true"><Icon name={cancelled ? 'close' : pending ? 'clock' : 'check'} size={30} /></div>
+      <h1>{cancelled ? 'Esta cita fue cancelada' : pending ? <>¡Tu cupo está <em>apartado</em>!</> : <>¡Tu cita está <em>confirmada</em>!</>}</h1>
       <p class="lead">
-        {cancelled ? 'Si quieres reprogramar, agenda un nuevo horario.' : `Gracias, ${appt.customer_name.split(' ')[0]}. Te espero para dejarte espectacular.`}
+        {
+          cancelled
+            ? 'Si quieres reprogramar, agenda un nuevo horario.'
+            : pending
+              ? `Gracias, ${appt.customer_name.split(' ')[0]}. Para confirmar tu cita envía el comprobante del abono del ${DEPOSIT_PCT}%${deposit ? ` (${formatCOP(deposit)})` : ''} por WhatsApp. Betsy la confirma apenas lo reciba.`
+              : `Gracias, ${appt.customer_name.split(' ')[0]}. Te espero para dejarte espectacular.`
+        }
       </p>
     </div>
 
@@ -73,7 +88,7 @@ const icsHref = `data:text/calendar;charset=utf-8,${encodeURIComponent(ics)}`;
           <defs><path id="press-ring" d="M60 60m-44 0a44 44 0 1 1 88 0a44 44 0 1 1-88 0"></path></defs>
           <circle cx="60" cy="60" r="56" fill="none" stroke="currentColor" stroke-width="3"></circle>
           <circle cx="60" cy="60" r="33" fill="none" stroke="currentColor" stroke-width="1.5"></circle>
-          <text><textPath href="#press-ring" textLength="270">{cancelled ? 'CANCELADA • BETSY PEINADOS •' : 'CONFIRMADA • BETSY PEINADOS •'}</textPath></text>
+          <text><textPath href="#press-ring" textLength="270">{cancelled ? 'CANCELADA • BETSY PEINADOS •' : pending ? 'EN ESPERA • BETSY PEINADOS •' : 'CONFIRMADA • BETSY PEINADOS •'}</textPath></text>
           <text x="60" y="68" text-anchor="middle" class="press-b">B</text>
         </svg>
         <p class="t-kicker">Reserva #{code}</p>
@@ -81,7 +96,10 @@ const icsHref = `data:text/calendar;charset=utf-8,${encodeURIComponent(ics)}`;
         <dl>
           <div><dt>Fecha</dt><dd class="cap">{prettyDate(appt.starts_at)}</dd></div>
           <div><dt>Hora</dt><dd>{prettyTime(appt.starts_at)}</dd></div>
-          <div><dt>Lugar</dt><dd>{s.address}</dd></div>
+          <div><dt>{appt.home_service ? 'Domicilio' : 'Lugar'}</dt><dd>{place}</dd></div>
+          {appt.hair_length && <div><dt>Largo</dt><dd>{hairLabel(appt.hair_length)}</dd></div>}
+          {price && <div><dt>{exact ? 'Valor' : 'Valor desde'}</dt><dd>{formatCOP(price)}</dd></div>}
+          {pending && <div><dt>Estado</dt><dd>Esperando comprobante del abono</dd></div>}
           <div><dt>A nombre de</dt><dd>{appt.customer_name}</dd></div>
         </dl>
       </div>
@@ -90,14 +108,21 @@ const icsHref = `data:text/calendar;charset=utf-8,${encodeURIComponent(ics)}`;
     {
       !cancelled && (
         <div class="cta">
-          <a class="btn btn-clay" href={wa} target="_blank" rel="noopener"><Icon name="whatsapp" /> Avisar por WhatsApp</a>
+          <a class="btn btn-clay" href={wa} target="_blank" rel="noopener"><Icon name="whatsapp" /> {pending ? 'Enviar comprobante por WhatsApp' : 'Escribir por WhatsApp'}</a>
           <a class="btn btn-ghost" href={gcal} target="_blank" rel="noopener"><Icon name="google" /> Google Calendar</a>
           <a class="btn btn-ghost" href={icsHref} download={`cita-betsy-${code.toLowerCase()}.ics`}><Icon name="calendar" /> Descargar .ics</a>
         </div>
       )
     }
     {cancelled && <div class="cta"><a class="btn btn-clay" href="/reservar">Agendar de nuevo</a></div>}
-    <p class="small">¿Necesitas cambiar o cancelar? Escríbeme por WhatsApp con al menos 24 horas de anticipación.</p>
+    {
+      !cancelled && (
+        <ul class="rules">
+          {POLICIES.map((x) => <li>{x}</li>)}
+        </ul>
+      )
+    }
+    <p class="small">¿Necesitas cambiar la fecha? Escríbeme por WhatsApp con al menos 24 horas de anticipación.</p>
   </main>
 </Base>
 
@@ -120,6 +145,20 @@ const icsHref = `data:text/calendar;charset=utf-8,${encodeURIComponent(ics)}`;
   }
   .seal.off {
     background: var(--muted);
+  }
+  .seal.wait {
+    background: #c39a2e;
+  }
+  .rules {
+    max-width: 520px;
+    margin: 1.6rem auto 0;
+    padding: 1rem 1.2rem 1rem 2.2rem;
+    border-radius: 16px;
+    background: color-mix(in oklab, var(--sand, #f1e4d6) 60%, transparent);
+    text-align: left;
+    font-size: 0.92rem;
+    display: grid;
+    gap: 0.3rem;
   }
   @keyframes pop {
     from {

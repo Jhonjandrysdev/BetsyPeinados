@@ -1,6 +1,6 @@
 ---
 import Icon from './Icon.astro';
-import { DEPOSIT_PCT, DEPOSIT_RULE, LONG_HAIR_EXTRA, PACKAGES, type EventPackage } from '../lib/defaults';
+import { DEPOSIT_PCT, DEPOSIT_RULE, ONDAS_LENGTH_NOTE, PACKAGES, depositOf, type EventPackage } from '../lib/defaults';
 import { formatCOP } from '../lib/time';
 import type { SiteSettings } from '../lib/types';
 
@@ -13,10 +13,9 @@ interface Props {
 }
 const { s, only, noDetails = false } = Astro.props;
 const list = only ? PACKAGES.filter((p) => only.includes(p.slug)) : PACKAGES;
-const deposit = (p: EventPackage) => Math.round((p.price * DEPOSIT_PCT) / 100 / 1000) * 1000;
 const waText = (p: EventPackage) =>
-  `¡Hola Betsy! Quiero apartar mi fecha para el paquete ${p.name} (${formatCOP(p.price)}${p.unit ? ` ${p.unit}` : ''}). ` +
-  `Fecha del evento: ___. ${p.slug === 'grupos' ? 'Somos ___ personas. ' : ''}Sé que se aparta con el ${DEPOSIT_PCT}% por Nequi.`;
+  `¡Hola Betsy! Quiero apartar mi fecha para el paquete ${p.name}${p.price ? ` (${p.from ? 'desde ' : ''}${formatCOP(p.price)}${p.unit ? ` ${p.unit}` : ''})` : ''}. ` +
+  `Fecha del evento: ___. ${p.slug === 'grupos' ? 'Somos ___ personas. ' : ''}${p.price ? '' : '¿Me cotizas? '}Sé que el cupo se asegura con el ${DEPOSIT_PCT}%.`;
 const wa = (p: EventPackage) => `https://wa.me/${s.whatsapp}?text=${encodeURIComponent(waText(p))}`;
 ---
 
@@ -27,8 +26,15 @@ const wa = (p: EventPackage) => `https://wa.me/${s.whatsapp}?text=${encodeURICom
         {p.featured && <span class="badge">La más pedida</span>}
         <p class="pkg-name">{p.name}</p>
         <p class="pkg-price">
-          {formatCOP(p.price)}
-          {p.unit && <small>{p.unit}</small>}
+          {p.price ? (
+            <>
+              {p.from && <small class="from">desde</small>}
+              {formatCOP(p.price)}
+              {p.unit && <small>{p.unit}</small>}
+            </>
+          ) : (
+            <span class="quote">Cotiza por WhatsApp</span>
+          )}
         </p>
         <p class="pkg-pitch">{p.pitch}</p>
         <ul class="pkg-inc">
@@ -42,8 +48,14 @@ const wa = (p: EventPackage) => `https://wa.me/${s.whatsapp}?text=${encodeURICom
         <p class="pkg-dep">
           <Icon name="calendar" size={15} />
           <span>
-            Apartas con <strong>{formatCOP(deposit(p))}</strong>
-            {p.unit ? ` ${p.unit}` : ''} ({DEPOSIT_PCT}%)
+            {p.price ? (
+              <>
+                Apartas con {p.from ? 'desde ' : ''}<strong>{formatCOP(depositOf(p.price))}</strong>
+                {p.unit ? ` ${p.unit}` : ''} ({DEPOSIT_PCT}%)
+              </>
+            ) : (
+              <>Apartas con el {DEPOSIT_PCT}% del valor cotizado</>
+            )}
           </span>
         </p>
         <div class="pkg-cta">
@@ -59,7 +71,7 @@ const wa = (p: EventPackage) => `https://wa.me/${s.whatsapp}?text=${encodeURICom
               )
             }
             {
-              !noDetails && p.slug !== 'grupos' && (
+              !noDetails && p.slug !== 'grupos' && p.slug !== 'maquillaje' && (
                 <a href={`/${p.slug}`} class="pkg-link">
                   Ver fotos y detalles <Icon name="arrow" size={16} />
                 </a>
@@ -80,10 +92,16 @@ const wa = (p: EventPackage) => `https://wa.me/${s.whatsapp}?text=${encodeURICom
 </ul>
 <p class="pkg-note reveal">
   <Icon name="sparkle" size={16} />
-  <span>{DEPOSIT_RULE} Cabello extra largo o muy abundante: +{formatCOP(LONG_HAIR_EXTRA)}.</span>
+  <span>{DEPOSIT_RULE} {ONDAS_LENGTH_NOTE}</span>
 </p>
 
 <style>
+  .pkg-price .from {
+    margin-right: 0.3rem;
+  }
+  .pkg-price .quote {
+    font-size: 0.6em;
+  }
   .pkgs {
     list-style: none;
     margin: 0;

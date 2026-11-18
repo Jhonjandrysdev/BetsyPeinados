@@ -13,7 +13,7 @@ import { DEPOSIT_RULE, FAQ, PACKAGES } from '../lib/defaults';
 import { formatCOP } from '../lib/time';
 import { faqJsonLd } from '../lib/seo';
 
-const pkg = PACKAGES.find((p) => p.slug === Astro.params.evento && p.slug !== 'grupos');
+const pkg = PACKAGES.find((p) => p.slug === Astro.params.evento && p.slug !== 'grupos' && p.slug !== 'maquillaje');
 if (!pkg) return new Response(null, { status: 404 });
 
 const [s, gallery] = await Promise.all([getSettings(), getGallery()]);
@@ -28,8 +28,9 @@ const match = gallery.filter((g) => words[pkg.slug].some((w) => (g.alt || '').to
 const photos = (match.length >= 3 ? match : gallery).slice(0, 6);
 const faq = FAQ.filter((f) => /anticip|aparto|cabello|domicilio|cancelar/i.test(f.q));
 const wa = `https://wa.me/${s.whatsapp}?text=${encodeURIComponent(`¡Hola Betsy! Vi el paquete ${pkg.name} y quiero saber si tienes libre mi fecha: ___`)}`;
-const title = `${pkg.title} en ${s.city} · ${formatCOP(pkg.price)} · ${s.business_name}`;
-const description = `${pkg.pitch} Paquete ${pkg.name} por ${formatCOP(pkg.price)} en ${s.city}. ${DEPOSIT_RULE}`;
+const priceTxt = pkg.price ? `${pkg.from ? 'desde ' : ''}${formatCOP(pkg.price)}` : 'cotiza por WhatsApp';
+const title = `${pkg.title} en ${s.city} · ${priceTxt} · ${s.business_name}`;
+const description = `${pkg.pitch} Paquete ${pkg.name} ${pkg.price ? `por ${priceTxt}` : '(cotiza por WhatsApp)'} en ${s.city}. ${DEPOSIT_RULE}`;
 ---
 
 <Base title={title} description={description} image={photos[0]?.url} jsonLd={[faqJsonLd(faq)]}>

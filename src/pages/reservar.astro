@@ -6,6 +6,7 @@ import { getServices, getSettings } from '../lib/db';
 import { openDays } from '../lib/slots';
 import { formatCOP, formatDuration, localDate } from '../lib/time';
 import { formToken } from '../lib/http';
+import { DEPOSIT_PCT, HAIR_LENGTHS, ONDAS_LENGTH_NOTE, POLICIES, PRICE_TIERS } from '../lib/defaults';
 
 const [s, services] = await Promise.all([getSettings(), getServices()]);
 const days = await openDays(localDate(), s.max_days_ahead + 1);
@@ -15,7 +16,16 @@ const data = {
   ft: await formToken('book'),
   days,
   preselect,
-  services: services.map((x) => ({ id: x.id, name: x.name, duration: formatDuration(x.duration_min), price: formatCOP(x.price_from) })),
+  pct: DEPOSIT_PCT,
+  services: services.map((x) => ({
+    id: x.id,
+    slug: x.slug,
+    name: x.name,
+    duration: formatDuration(x.duration_min),
+    price: formatCOP(x.price_from),
+    from: x.price_from,
+    tiers: PRICE_TIERS[x.slug] ?? null,
+  })),
 };
 ---
 
@@ -28,7 +38,7 @@ const data = {
     <div class="intro">
       <p class="eyebrow">Reserva online</p>
       <h1>Agenda tu <em>cita</em></h1>
-      <p class="lead">Tres pasos y listo. Tu espacio queda apartado al instante.</p>
+      <p class="lead">Tres pasos y listo. Tu cupo queda apartado al instante y se confirma con el abono del {DEPOSIT_PCT}%.</p>
     </div>
 
     <form class="card" id="booking" novalidate>
@@ -94,6 +104,23 @@ const data = {
       <fieldset data-step="3" hidden>
         <legend>Tus datos</legend>
         <div class="summary" data-summary></div>
+        <div class="hair" data-hair hidden>
+          <p class="hair-t">Largo de tu cabello</p>
+          <div class="hair-opts">
+            {
+              HAIR_LENGTHS.map((h) => (
+                <label class="hair-opt">
+                  <input type="radio" name="hair_length" value={h.id} />
+                  <span>
+                    {h.label}
+                    <small data-tier={h.id} />
+                  </span>
+                </label>
+              ))
+            }
+          </div>
+          <p class="hint" data-ondas-note hidden>{ONDAS_LENGTH_NOTE}</p>
+        </div>
         <div class="fields">
           <div class="field">
             <label for="name">Nombre completo</label>
@@ -109,7 +136,28 @@ const data = {
           </div>
           <div class="field full">
             <label for="notes">¿Algo que deba saber? <span class="hint">(opcional)</span></label>
-            <textarea id="notes" name="notes" maxlength="500" placeholder="Ocasión, largo de tu cabello, idea de peinado, si es a domicilio…"></textarea>
+            <textarea id="notes" name="notes" maxlength="500" placeholder="Ocasión, idea de peinado, foto de referencia…"></textarea>
+          </div>
+          {
+            s.home_service && (
+              <label class="consent full home-chk">
+                <input type="checkbox" name="home_service" data-home-toggle />
+                <span>
+                  <b>Quiero servicio a domicilio</b> (el valor del desplazamiento te lo confirmo por WhatsApp)
+                </span>
+              </label>
+            )
+          }
+          <div class="field full" data-home-field hidden>
+            <label for="home_address">Dirección del domicilio</label>
+            <input id="home_address" name="home_address" type="text" autocomplete="street-address" maxlength="200" placeholder="Barrio, calle y número" />
+          </div>
+          <div class="policies full">
+            <p><b>Antes de reservar</b></p>
+            <ul>
+              {POLICIES.map((x) => <li>{x}</li>)}
+            </ul>
+            <p class="dep" data-deposit hidden></p>
           </div>
           <div class="hp" aria-hidden="true">
             <label for="website">No llenar</label>
@@ -123,7 +171,7 @@ const data = {
         <p class="notice error" data-error hidden role="alert"></p>
         <div class="actions">
           <button type="button" class="btn btn-ghost" data-prev>Atrás</button>
-          <button type="submit" class="btn btn-clay" data-submit><Icon name="check" /> Confirmar cita</button>
+          <button type="submit" class="btn btn-clay" data-submit><Icon name="check" /> Apartar mi cupo</button>
         </div>
       </fieldset>
     </form>
@@ -444,6 +492,69 @@ const data = {
     height: 1px;
     overflow: hidden;
   }
+  .hair {
+    margin: 0 0 1.2rem;
+  }
+  .hair-t {
+    margin: 0 0 0.5rem;
+    font-weight: 700;
+  }
+  .hair-opts {
+    display: grid;
+    grid-template-columns: repeat(3, 1fr);
+    gap: 0.5rem;
+  }
+  .hair-opt {
+    position: relative;
+    cursor: pointer;
+  }
+  .hair-opt input {
+    position: absolute;
+    opacity: 0;
+  }
+  .hair-opt span {
+    display: grid;
+    gap: 0.15rem;
+    padding: 0.7rem 0.5rem;
+    border: 1.5px solid var(--line, #e7d9cc);
+    border-radius: 14px;
+    text-align: center;
+    font-weight: 600;
+    font-size: 0.92rem;
+    transition: border-color 0.2s, background-color 0.2s;
+  }
+  .hair-opt small {
+    color: var(--clay);
+    font-weight: 700;
+  }
+  .hair-opt input:checked + span {
+    border-color: var(--clay);
+    background: color-mix(in oklab, var(--clay) 10%, transparent);
+  }
+  .hair-opt input:focus-visible + span {
+    outline: 2px solid var(--clay);
+    outline-offset: 2px;
+  }
+  .policies {
+    padding: 0.9rem 1rem;
+    border-radius: 16px;
+    background: color-mix(in oklab, var(--sand, #f1e4d6) 60%, transparent);
+    font-size: 0.9rem;
+  }
+  .policies p {
+    margin: 0 0 0.35rem;
+  }
+  .policies ul {
+    margin: 0;
+    padding-left: 1.1rem;
+    display: grid;
+    gap: 0.25rem;
+  }
+  .policies .dep {
+    margin: 0.6rem 0 0;
+    font-weight: 700;
+    color: var(--clay);
+  }
   .consent {
     display: flex;
     gap: 0.7rem;
@@ -489,7 +600,8 @@ const data = {
     ft: string;
     days: string[];
     preselect: string;
-    services: { id: string; name: string; duration: string; price: string }[];
+    pct: number;
+    services: { id: string; slug: string; name: string; duration: string; price: string; from: number | null; tiers: Record<string, number> | null }[];
   }
   const data: Data = JSON.parse(document.getElementById('booking-data')!.textContent!);
   const form = document.getElementById('booking') as HTMLFormElement;
@@ -589,16 +701,46 @@ const data = {
     }
   }
 
+  const cop = (n: number) => `$${n.toLocaleString('es-CO')}`;
+  const hairOf = () => (new FormData(form).get('hair_length') as string) || '';
   function renderSummary() {
     const sv = data.services.find((x) => x.id === serviceId());
+    const tiers = sv?.tiers ?? null;
+    $<HTMLElement>('[data-hair]').hidden = !tiers;
+    $<HTMLElement>('[data-ondas-note]').hidden = sv?.slug !== 'ondas';
+    form.querySelectorAll<HTMLInputElement>('input[name="hair_length"]').forEach((r) => {
+      r.required = Boolean(tiers);
+      if (!tiers) r.checked = false;
+    });
+    if (tiers) form.querySelectorAll<HTMLElement>('[data-tier]').forEach((t) => (t.textContent = cop(tiers[t.dataset.tier!])));
+    const price = tiers ? (tiers[hairOf()] ?? null) : null;
+    const priceText = tiers
+      ? price
+        ? cop(price)
+        : `desde ${cop(Math.min(...Object.values(tiers)))}`
+      : sv?.from != null
+        ? `desde ${sv.price}`
+        : 'Valor a convenir';
     const el = $('[data-summary]');
     el.replaceChildren(
       document.createTextNode(`${sv?.name ?? ''} · ${pretty12(state.time)}`),
       Object.assign(document.createElement('small'), {
-        textContent: `${fmtDay.format(new Date(`${state.date}T12:00:00Z`))} · ${sv?.duration ?? ''} · ${sv?.price ?? ''}`,
+        textContent: `${fmtDay.format(new Date(`${state.date}T12:00:00Z`))} · ${sv?.duration ?? ''} · ${priceText}`,
       }),
     );
+    const dep = $<HTMLElement>('[data-deposit]');
+    dep.hidden = !price;
+    if (price) dep.textContent = `Abono para asegurar tu cupo (${data.pct}%): ${cop(Math.round((price * data.pct) / 100 / 1000) * 1000)}`;
   }
+  form.addEventListener('change', (e) => {
+    const t = e.target as HTMLInputElement;
+    if (t.name === 'hair_length') renderSummary();
+    if (t.matches('[data-home-toggle]')) {
+      const f = $<HTMLElement>('[data-home-field]');
+      f.hidden = !t.checked;
+      f.querySelector('input')!.required = t.checked;
+    }
+  });
 
   form.querySelectorAll('[data-next]').forEach((b) =>
     b.addEventListener('click', () => {
@@ -662,6 +804,9 @@ const data = {
             try { from = sessionStorage.getItem('bp-src') || ''; } catch { /* sin almacenamiento */ }
             return from ? `${n}${n ? ' · ' : ''}[Origen: ${from}]`.slice(0, 500) : n;
           })(),
+          hair_length: fd.get('hair_length') || '',
+          home_service: fd.get('home_service') === 'on',
+          home_address: fd.get('home_address') || '',
           website: fd.get('website') || '',
           consent: fd.get('consent') === 'on',
           ft: data.ft,

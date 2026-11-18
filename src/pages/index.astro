@@ -35,7 +35,7 @@ const hourRows = [1, 2, 3, 4, 5, 6, 0].map((d) => hours.find((h) => h.weekday ==
 const marquee = ['Ondas', 'Quinceañeras', 'Coletas', 'Niñas', 'Recogidos', 'Novias', 'Grados', 'Maquillaje + peinado'];
 
 const title = `${s.business_name} · Peinados para grados, bodas y eventos en ${s.city}`;
-const description = `Peinados profesionales en ${s.city}: ondas, recogidos, rizos definidos y combos de maquillaje. Agenda tu cita online en segundos con ${s.business_name}.`;
+const description = `Peinados profesionales en ${s.city}: ondas, peinados sociales, quinceañeras, novias y peinado + maquillaje. Agenda tu cita online en segundos con ${s.business_name}.`;
 ---
 
 <Base title={title} description={description} image={hero?.url} jsonLd={[businessJsonLd(s, services, hours, Astro.site), faqJsonLd(FAQ)]}>

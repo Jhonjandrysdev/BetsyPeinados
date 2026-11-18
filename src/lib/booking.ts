@@ -24,6 +24,12 @@ export const bookingSchema = z.object({
     .optional()
     .default(''),
   notes: z.string().transform((s) => s.replace(/[\u0000-\u0008\u000b-\u001f\u007f<>]/g, '').trim()).pipe(z.string().max(500)).optional().default(''),
+  hair_length: z.union([z.enum(['corto', 'medio', 'extra']), z.literal('')]).optional().default(''),
+  home_service: z.boolean().optional().default(false),
+  home_address: z.string().transform(clean).pipe(z.string().max(200)).optional().default(''),
+}).refine((v) => !v.home_service || v.home_address.length >= 5, {
+  path: ['home_address'],
+  message: 'Escribe la dirección para el servicio a domicilio',
 });
 
 export type BookingInput = z.infer<typeof bookingSchema>;
@@ -57,8 +63,12 @@ export async function book(input: BookingInput, source: 'web' | 'admin'): Promis
       notes: input.notes,
       starts_at: start.toISOString(),
       ends_at: end.toISOString(),
-      status: 'confirmada',
+      // Las reservas web quedan apartadas en espera del comprobante del abono; Betsy las confirma en el panel.
+      status: source === 'web' ? 'pendiente' : 'confirmada',
       source,
+      home_service: input.home_service,
+      home_address: input.home_service ? input.home_address : null,
+      hair_length: input.hair_length || null,
     });
   } catch (e) {
     if (e instanceof SlotTakenError) throw new BookingError('Ese horario se acaba de ocupar. Elige otro, por favor.', 409);

@@ -60,6 +60,10 @@ export interface Appointment {
   source: 'web' | 'admin';
   google_event_id: string | null;
   created_at: string;
+  home_service: boolean;
+  home_address: string | null;
+  hair_length: string | null;
+  deposit_confirmed_at: string | null;
 }
 
 export interface GalleryImage {

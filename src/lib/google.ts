@@ -7,6 +7,7 @@ import { decrypt, encrypt } from './crypto';
 import { getGoogleConnection, saveGoogleConnection } from './db';
 import type { Appointment, SiteSettings } from './types';
 import { TZ } from './time';
+import { hairLabel } from './defaults';
 
 const SCOPES = [
   'openid',
@@ -119,9 +120,15 @@ export async function googleBusy(from: Date, to: Date): Promise<{ start: number;
 }
 
 /** Crea el evento de la cita en Google Calendar. Devuelve el id del evento o null si no hay conexión. */
+const summaryOf = (a: Appointment) =>
+  `${a.status === 'pendiente' ? '⏳ Espera abono · ' : '💇‍♀️ '}${a.service_name}${a.home_service ? ' · 🏠 Domicilio' : ''} · ${a.customer_name}`;
+
 export async function createCalendarEvent(a: Appointment, s: SiteSettings): Promise<string | null> {
   const description = [
     `Servicio: ${a.service_name}`,
+    a.hair_length ? `Largo del cabello: ${hairLabel(a.hair_length)}` : null,
+    a.home_service ? `🏠 A domicilio: ${a.home_address ?? ''}` : null,
+    a.status === 'pendiente' ? 'Estado: esperando comprobante del abono' : null,
     `Clienta: ${a.customer_name}`,
     `WhatsApp: +${a.customer_phone.replace(/^\+/, '')} · https://wa.me/${a.customer_phone.replace(/\D/g, '')}`,
     a.customer_email ? `Correo: ${a.customer_email}` : '',
@@ -133,9 +140,9 @@ export async function createCalendarEvent(a: Appointment, s: SiteSettings): Prom
     .join('\n');
 
   const body: Record<string, unknown> = {
-    summary: `💇‍♀️ ${a.service_name} · ${a.customer_name}`,
+    summary: summaryOf(a),
     description,
-    location: s.address,
+    location: a.home_service && a.home_address ? a.home_address : s.address,
     start: { dateTime: a.starts_at, timeZone: TZ },
     end: { dateTime: a.ends_at, timeZone: TZ },
     reminders: { useDefault: false, overrides: [{ method: 'popup', minutes: 60 }, { method: 'popup', minutes: 1440 }] },
@@ -149,6 +156,14 @@ export async function createCalendarEvent(a: Appointment, s: SiteSettings): Prom
     body: JSON.stringify(body),
   })) as { id?: string } | null;
   return json?.id ?? null;
+}
+
+/** Cuando Betsy confirma el abono, quita la marca "Espera abono" del evento. */
+export async function confirmCalendarEvent(eventId: string, a: Appointment): Promise<void> {
+  await gfetch(`/calendars/{cal}/events/${encodeURIComponent(eventId)}?sendUpdates=none`, {
+    method: 'PATCH',
+    body: JSON.stringify({ summary: summaryOf({ ...a, status: 'confirmada' }) }),
+  });
 }
 
 export async function cancelCalendarEvent(eventId: string, notify: boolean): Promise<void> {
