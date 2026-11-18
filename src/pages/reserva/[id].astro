@@ -118,14 +118,20 @@ const icsHref = `data:text/calendar;charset=utf-8,${encodeURIComponent(ics)}`;
           )}
           {!hasReceipt && (
             <>
-              <p class="pay-step">Paso 1 · Transfiere el abono</p>
-              <h2 id="pay-t" class="pay-amount">{deposit ? formatCOP(deposit) : `${DEPOSIT_PCT}% del valor`}</h2>
-              {!deposit && <p class="pay-hint">Betsy te confirma el valor exacto por WhatsApp.</p>}
+              <p class="pay-step">Paso 1 · Transfiere</p>
+              <p class="pay-txt">
+                Escanea el QR o usa la llave desde Nequi, Bancolombia, Daviplata o tu banco. Escribe <b>{code}</b> en la descripción.
+              </p>
               <div class:list={['pay-grid', { noqr: !qr }]}>
-                {qr && <img class="pay-qr" src={qr} alt="Código QR para transferir el abono" width="180" height="180" />}
+                {qr && <img class="pay-qr" src={qr} alt="Código QR para transferir el abono" width="160" height="160" />}
                 <div class="pay-data">
+                  <div>
+                    <p class="pay-lbl">Valor a transferir ({DEPOSIT_PCT}%)</p>
+                    <p id="pay-t" class="pay-amount">{deposit ? formatCOP(deposit) : `${DEPOSIT_PCT}% del valor`}</p>
+                    {!deposit && <p class="pay-hint">Betsy te confirma el valor exacto por WhatsApp.</p>}
+                  </div>
                   {s.pay_key ? (
-                    <>
+                    <div>
                       <p class="pay-lbl">{s.pay_bank ? `Llave · ${s.pay_bank}` : 'Llave Bre-B'}</p>
                       <div class="pay-key">
                         <code data-key>{s.pay_key}</code>
@@ -134,26 +140,22 @@ const icsHref = `data:text/calendar;charset=utf-8,${encodeURIComponent(ics)}`;
                         </button>
                       </div>
                       {s.pay_holder && <p class="pay-lbl">A nombre de {s.pay_holder}</p>}
-                    </>
+                    </div>
                   ) : (
                     !qr && <p class="pay-hint">Betsy te comparte los datos para transferir por WhatsApp.</p>
                   )}
-                  <p class="pay-lbl">
-                    En la descripción escribe <b>{code}</b>
-                  </p>
                 </div>
               </div>
-              <p class="pay-step">Paso 2 · Sube el comprobante</p>
-              <form method="post" enctype="multipart/form-data" class="pay-up">
+              <p class="pay-step step2">Paso 2 · Sube el comprobante</p>
+              <form method="post" enctype="multipart/form-data" class="pay-up" data-up>
                 <label class="btn btn-clay pay-file">
-                  <Icon name="upload" /> <span data-file-label>Elegir comprobante</span>
+                  <Icon name="upload" /> <span data-file-label>Adjuntar comprobante</span>
                   <input type="file" name="receipt" accept="image/*,application/pdf" required data-file />
                 </label>
-                <button class="btn btn-ghost" data-send hidden>
-                  Enviar comprobante
-                </button>
               </form>
-              <p class="pay-hint">¿Prefieres? También puedes enviarlo por WhatsApp.</p>
+              <p class="pay-hint center" data-up-msg role="status" aria-live="polite">
+                Foto o PDF de la transferencia. También puedes enviarlo por WhatsApp.
+              </p>
             </>
           )}
           {hasReceipt && (
@@ -226,16 +228,20 @@ const icsHref = `data:text/calendar;charset=utf-8,${encodeURIComponent(ics)}`;
       /* sin portapapeles */
     }
   });
-  // Elegir archivo: muestra el nombre y el botón de enviar
+  // Adjuntar comprobante: se envía apenas se elige el archivo.
   const file = document.querySelector<HTMLInputElement>('[data-file]');
   file?.addEventListener('change', () => {
     const f = file.files?.[0];
     if (!f) return;
-    document.querySelector('[data-file-label]')!.textContent = f.name.length > 28 ? `${f.name.slice(0, 25)}…` : f.name;
-    const send = document.querySelector<HTMLButtonElement>('[data-send]')!;
-    send.hidden = false;
-    send.classList.replace('btn-ghost', 'btn-clay');
-    file.closest('label')!.classList.replace('btn-clay', 'btn-ghost');
+    const msg = document.querySelector<HTMLElement>('[data-up-msg]')!;
+    if (f.size > 5 * 1024 * 1024) {
+      msg.textContent = 'El archivo pesa más de 5 MB. Prueba con una captura de pantalla.';
+      return;
+    }
+    document.querySelector('[data-file-label]')!.textContent = 'Subiendo…';
+    file.closest('label')!.classList.add('busy');
+    msg.textContent = f.name;
+    document.querySelector<HTMLFormElement>('[data-up]')!.submit();
   });
   // Cuando Betsy confirme el abono, la página se actualiza sola.
   const watch = document.querySelector<HTMLElement>('[data-status-watch]');
@@ -299,17 +305,25 @@ const icsHref = `data:text/calendar;charset=utf-8,${encodeURIComponent(ics)}`;
     text-transform: uppercase;
     color: var(--clay);
   }
-  .pay-step + .pay-up,
-  .pay-grid + .pay-step {
-    margin-top: 1.3rem;
+  .pay-step.step2 {
+    margin-top: 1.4rem;
+  }
+  .pay-txt {
+    margin: 0;
+    font-size: 0.92rem;
+    color: var(--muted, #7a6a60);
   }
   .pay-amount {
-    margin: 0;
-    font-size: clamp(1.9rem, 6vw, 2.4rem);
+    margin: 0.1rem 0 0;
+    font-family: var(--font-display);
+    font-size: clamp(1.9rem, 7vw, 2.3rem);
+    font-weight: 700;
+    line-height: 1.1;
+    color: var(--clay);
   }
   .pay-grid {
     display: grid;
-    grid-template-columns: 150px 1fr;
+    grid-template-columns: 160px 1fr;
     gap: 1rem;
     align-items: center;
     margin-top: 1rem;
@@ -318,8 +332,8 @@ const icsHref = `data:text/calendar;charset=utf-8,${encodeURIComponent(ics)}`;
     grid-template-columns: 1fr;
   }
   .pay-qr {
-    width: 150px;
-    height: 150px;
+    width: 160px;
+    height: 160px;
     object-fit: contain;
     padding: 6px;
     border-radius: 16px;
@@ -328,7 +342,7 @@ const icsHref = `data:text/calendar;charset=utf-8,${encodeURIComponent(ics)}`;
   }
   .pay-data {
     display: grid;
-    gap: 0.45rem;
+    gap: 0.9rem;
     min-width: 0;
   }
   .pay-lbl {
@@ -353,13 +367,24 @@ const icsHref = `data:text/calendar;charset=utf-8,${encodeURIComponent(ics)}`;
     color: var(--muted, #7a6a60);
   }
   .pay-up {
-    display: flex;
-    flex-wrap: wrap;
-    gap: 0.5rem;
+    margin-top: 0.6rem;
   }
   .pay-file {
     position: relative;
+    width: 100%;
+    justify-content: center;
     cursor: pointer;
+  }
+  .pay-file.busy {
+    opacity: 0.7;
+    pointer-events: none;
+  }
+  .pay-file:focus-within {
+    outline: 2px solid var(--clay);
+    outline-offset: 3px;
+  }
+  .pay-hint.center {
+    text-align: center;
   }
   .pay-file input {
     position: absolute;
@@ -395,6 +420,9 @@ const icsHref = `data:text/calendar;charset=utf-8,${encodeURIComponent(ics)}`;
     }
     .pay-key {
       justify-content: center;
+    }
+    .pay-txt {
+      text-align: center;
     }
   }
   .rules {
