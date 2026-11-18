@@ -1,7 +1,8 @@
 ---
 import Admin from '../../layouts/Admin.astro';
 import Icon from '../../components/Icon.astro';
-import { addGalleryImage, demoMode, getGallery, getGoogleConnection, getSettings, removeGalleryImage, updateSettings } from '../../lib/db';
+import { addGalleryImage, demoMode, getGallery, getGoogleConnection, getSettings, removeGalleryImage, updateSettings, uploadPayQr } from '../../lib/db';
+import { publicStorageUrl } from '../../lib/supabase';
 import { googleConfigured } from '../../lib/google';
 import { back, bool, isUuid, str } from '../../lib/admin';
 
@@ -32,6 +33,34 @@ if (Astro.request.method === 'POST') {
       home_service: bool(fd, 'home_service'),
     });
     return back(HERE, 'ok', 'Datos guardados. Tu página se actualiza en unos minutos.');
+  }
+
+  if (action === 'payment') {
+    const patch: Record<string, string | null> = {
+      pay_key: str(fd, 'pay_key', 80) || null,
+      pay_holder: str(fd, 'pay_holder', 80) || null,
+      pay_bank: str(fd, 'pay_bank', 60) || null,
+    };
+    const qr = fd.get('pay_qr');
+    if (qr instanceof File && qr.size > 0) {
+      if (qr.size > 3 * 1024 * 1024) return back(HERE, 'error', 'La imagen del QR pesa más de 3 MB.');
+      if (!['image/jpeg', 'image/png', 'image/webp'].includes(qr.type)) return back(HERE, 'error', 'Sube el QR como imagen JPG, PNG o WebP.');
+      if (demoMode) return back(HERE, 'error', 'En el modo de prueba no se pueden subir imágenes.');
+      try {
+        patch.pay_qr_path = await uploadPayQr(qr);
+      } catch (e) {
+        console.error(e);
+        return back(HERE, 'error', 'No se pudo subir el QR. Intenta de nuevo.');
+      }
+    }
+    if (bool(fd, 'pay_qr_remove')) patch.pay_qr_path = null;
+    try {
+      await updateSettings(patch);
+    } catch (e) {
+      console.error(e);
+      return back(HERE, 'error', 'No se pudieron guardar los datos de pago. Falta activar esta opción en la base de datos.');
+    }
+    return back(HERE, 'ok', 'Datos de pago guardados. Tus clientas los verán al apartar su cupo.');
   }
 
   if (action === 'upload') {
@@ -160,6 +189,41 @@ const gReady = googleConfigured();
     </div>
   </form>
 
+  <form method="post" enctype="multipart/form-data" class="panel settings" id="pagos" data-keep>
+    <input type="hidden" name="action" value="payment" />
+    <div class="sec">
+      <div class="sec-h">
+        <h2>Cobro del abono</h2>
+        <p class="muted">Lo que ve la clienta al apartar su cupo para transferirte el 50%.</p>
+      </div>
+      <div class="grid-2 fields">
+        <div class="field">
+          <label for="pk">Llave Bre-B o número</label><input id="pk" name="pay_key" value={s.pay_key ?? ''} maxlength="80" placeholder="Ej.: @betsy o 3001234567" />
+        </div>
+        <div class="field"><label for="pb">Banco o app</label><input id="pb" name="pay_bank" value={s.pay_bank ?? ''} maxlength="60" placeholder="Ej.: Nequi, Bancolombia" /></div>
+        <div class="field"><label for="phd">A nombre de</label><input id="phd" name="pay_holder" value={s.pay_holder ?? ''} maxlength="80" placeholder="Ej.: Betsy Barrera" /></div>
+        <div class="field">
+          <label for="pq">Imagen del código QR</label>
+          <input id="pq" name="pay_qr" type="file" accept="image/jpeg,image/png,image/webp" aria-describedby="pq-h" />
+          <small class="hint" id="pq-h">Descárgalo desde tu app del banco (Bre-B o Nequi) y súbelo aquí.</small>
+        </div>
+        {
+          s.pay_qr_path && (
+            <div class="field full qr-now">
+              <img src={publicStorageUrl(s.pay_qr_path)} alt="QR de pagos actual" width="120" height="120" />
+              <label class="check">
+                <input type="checkbox" name="pay_qr_remove" /> <span>Quitar este QR</span>
+              </label>
+            </div>
+          )
+        }
+      </div>
+    </div>
+    <div class="save-row">
+      <button class="btn btn-clay"><Icon name="check" /> Guardar datos de pago</button>
+    </div>
+  </form>
+
   <section class="panel" id="galeria" data-keep>
     <div class="panel-head">
       <h2>Galería de fotos</h2>
@@ -207,6 +271,19 @@ const gReady = googleConfigured();
 </Admin>
 
 <style>
+  .qr-now {
+    display: flex;
+    align-items: center;
+    gap: 1rem;
+  }
+  .qr-now img {
+    width: 120px;
+    height: 120px;
+    object-fit: contain;
+    border-radius: 12px;
+    background: #fff;
+    padding: 6px;
+  }
   .gcal {
     display: flex;
     align-items: center;

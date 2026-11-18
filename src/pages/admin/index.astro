@@ -1,7 +1,8 @@
 ---
 import Admin from '../../layouts/Admin.astro';
 import Icon from '../../components/Icon.astro';
-import { getAppointment, getAppointments, getBlockedDates, getGoogleConnection, getHours, getServices, getSettings, updateAppointment } from '../../lib/db';
+import { getAppointment, getAppointments, getBlockedDates, getGoogleConnection, getHours, getServices, getSettings, getTemplates, updateAppointment } from '../../lib/db';
+import { DEFAULT_TEMPLATES, fillTemplate, type NoticeEvent } from '../../lib/messages';
 import { book, BookingError, bookingSchema } from '../../lib/booking';
 import { cancelCalendarEvent, confirmCalendarEvent, createCalendarEvent } from '../../lib/google';
 import { DEPOSIT_PCT, HAIR_LENGTHS, depositOf, hairLabel, priceFor } from '../../lib/defaults';
@@ -19,10 +20,10 @@ if (Astro.request.method === 'POST') {
   const fd = await Astro.request.formData();
   const action = str(fd, 'action', 20);
   const desde = str(fd, 'desde', 10);
-  const go = (kind: 'ok' | 'error' | 'warn', msg: string, week = desde) =>
+  const go = (kind: 'ok' | 'error' | 'warn', msg: string, week = desde, open = '') =>
     new Response(null, {
       status: 303,
-      headers: { Location: `/admin?${isDate(week) ? `desde=${week}&` : ''}${kind}=${encodeURIComponent(msg)}` },
+      headers: { Location: `/admin?${isDate(week) ? `desde=${week}&` : ''}${open ? `abrir=${open}&` : ''}${kind}=${encodeURIComponent(msg)}` },
     });
   const OOPS = 'Algo salió mal. Recarga la página e intenta de nuevo.';
 
@@ -66,8 +67,10 @@ if (Astro.request.method === 'POST') {
           : prev === 'completada'
             ? `La cita de ${who} ya no está marcada como realizada.`
             : depositOk
-              ? `Abono de ${who} recibido. La cita quedó confirmada ✨`
+              ? `Abono de ${who} recibido. La cita quedó confirmada ✨ Avísale por WhatsApp.`
               : `Cita de ${who} confirmada`,
+      desde,
+      depositOk ? id : '',
     );
   }
 
@@ -124,7 +127,7 @@ const end = addDays(start, 7);
 const weekDays = Array.from({ length: 7 }, (_, i) => addDays(start, i));
 const thisWeek = weekDays.includes(today);
 
-const [appts, services, hours, blocked, upcoming, todayAll, google] = await Promise.all([
+const [appts, services, hours, blocked, upcoming, todayAll, google, settings, templates] = await Promise.all([
   getAppointments({ from: fromLocal(start, '00:00'), to: fromLocal(end, '00:00') }),
   getServices(false),
   getHours(),
@@ -132,6 +135,8 @@ const [appts, services, hours, blocked, upcoming, todayAll, google] = await Prom
   getAppointments({ from: now, to: new Date(now.getTime() + 90 * 864e5), activeOnly: true }),
   getAppointments({ from: fromLocal(today, '00:00'), to: fromLocal(tomorrow, '00:00') }),
   getGoogleConnection(),
+  getSettings(),
+  getTemplates(),
 ]);
 
 const isActive = (a: Appointment) => a.status === 'confirmada' || a.status === 'pendiente';
@@ -198,31 +203,35 @@ const shortWhen = (iso: string) => {
   return `${day}, ${prettyTime(iso)}`;
 };
 
-// WhatsApp: el mensaje depende del estado (no se le "recuerda" una cita cancelada o pasada).
-type WaKind = 'remind' | 'thanks' | 'hello' | 'deposit';
-const waKind = (a: Appointment): WaKind =>
-  a.status === 'completada' ? 'thanks' : a.status === 'pendiente' && !started(a) ? 'deposit' : isActive(a) && !started(a) ? 'remind' : 'hello';
+// WhatsApp: el mensaje depende del estado (plantillas editables en Mensajes).
+type WaKind = NoticeEvent | 'hello';
 const svcOf = new Map(services.map((x) => [x.id, x]));
 /** Valor de la cita: por largo de cabello si el servicio tiene tarifas, si no el "desde" del servicio. */
 const priceOfAppt = (a: Appointment) => priceFor(svcOf.get(a.service_id ?? ''), a.hair_length) ?? (a.service_id ? (priceOf.get(a.service_id) ?? 0) : 0);
-const waText = (a: Appointment) => {
-  const who = firstName(a.customer_name);
-  const kind = waKind(a);
-  if (kind === 'remind') {
-    const d = localDate(new Date(a.starts_at));
-    const when = d === today ? 'de hoy' : d === tomorrow ? 'de mañana' : `del ${prettyDate(a.starts_at).toLowerCase()}`;
-    return `Hola ${who} 👋 Te escribe Betsy Peinados para recordarte tu cita ${when} a las ${prettyTime(a.starts_at)} ¡Te espero! ✨`;
-  }
-  if (kind === 'deposit') {
-    const dep = depositOf(priceOfAppt(a) || null);
-    return `Hola ${who} 👋 Te escribe Betsy Peinados. Tu cupo del ${prettyDate(a.starts_at).toLowerCase()} a las ${prettyTime(a.starts_at)} está apartado. Para confirmarlo envíame el comprobante del abono del ${DEPOSIT_PCT}%${dep ? ` (${formatCOP(dep)})` : ''}. ¡Gracias! ✨`;
-  }
-  if (kind === 'thanks') return `Hola ${who} 👋 Te escribe Betsy Peinados. ¡Gracias por venir! ✨`;
-  return `Hola ${who} 👋 Te escribe Betsy Peinados.`;
+/** Abono confirmado y la clienta aún no sabe: se le ofrece el aviso. */
+const owesNotice = (a: Appointment) => a.status === 'confirmada' && Boolean(a.deposit_confirmed_at) && !a.notified?.abono && !started(a);
+const waKind = (a: Appointment): WaKind =>
+  a.status === 'completada'
+    ? 'gracias'
+    : a.status === 'cancelada'
+      ? 'cancelada'
+      : started(a)
+        ? 'hello'
+        : a.status === 'pendiente'
+          ? 'apartada'
+          : owesNotice(a)
+            ? 'abono'
+            : 'recordatorio';
+const waText = (a: Appointment, kind: WaKind = waKind(a)) => {
+  if (kind === 'hello') return `Hola ${firstName(a.customer_name)} 👋 Te escribe ${settings.business_name}.`;
+  const exact = priceFor(svcOf.get(a.service_id ?? ''), a.hair_length);
+  return fillTemplate(templates[kind] ?? DEFAULT_TEMPLATES[kind], { a, s: settings, price: priceOfAppt(a) || null, deposit: exact ? depositOf(exact) : null });
 };
-const waLink = (a: Appointment) => `https://wa.me/${a.customer_phone}?text=${encodeURIComponent(waText(a))}`;
+const waLink = (a: Appointment, kind: WaKind = waKind(a)) => `https://wa.me/${a.customer_phone}?text=${encodeURIComponent(waText(a, kind))}`;
 const waLabel = (a: Appointment) =>
-  ({ remind: 'Recordar por WhatsApp', deposit: 'Pedir comprobante', thanks: 'Escribir por WhatsApp', hello: 'Escribir por WhatsApp' })[waKind(a)];
+  ({ recordatorio: 'Recordar por WhatsApp', apartada: 'Pedir abono', abono: 'Avisar: cita confirmada', gracias: 'Agradecer por WhatsApp', cancelada: 'Avisar cancelación', hello: 'Escribir por WhatsApp' })[
+    waKind(a)
+  ];
 
 const initials = (n: string) =>
   n
@@ -417,7 +426,7 @@ const todayOff = offOf(today);
                     </b>
                     <span>
                       {prettyTime(a.starts_at)} · {a.service_name}
-                      {a.status === 'pendiente' && ' · Espera abono'}
+                      {a.status === 'pendiente' && (a.receipt_path ? ' · Revisar comprobante' : ' · Espera abono')}
                     </span>
                     <span class="sr-only">
                       , {prettyDate(a.starts_at)}, {statusLabel[a.status]}
@@ -475,7 +484,8 @@ const todayOff = offOf(today);
                             {a.status !== 'pendiente' && a.status !== 'confirmada' && ` · ${statusLabel[a.status]}`}
                             {a.status === 'confirmada' && <span class="sr-only">, Confirmada</span>}
                           </small>
-                          {a.status === 'pendiente' && <span class="tag pendiente">Espera abono</span>}
+                          {a.status === 'pendiente' && <span class="tag pendiente">{a.receipt_path ? 'Revisar comprobante' : 'Espera abono'}</span>}
+                          {owesNotice(a) && <span class="tag plain">Falta avisarle</span>}
                         </span>
                       </button>
                       {a.status !== 'cancelada' && (
@@ -605,6 +615,18 @@ const todayOff = offOf(today);
                   </dd>
                 </div>
               )}
+              {a.receipt_path && (
+                <div>
+                  <dt>
+                    <Icon name="upload" size={16} /> Comprobante
+                  </dt>
+                  <dd>
+                    <a href={`/admin/comprobante?id=${a.id}`} target="_blank" rel="noopener">
+                      Ver comprobante
+                    </a>
+                  </dd>
+                </div>
+              )}
               {a.deposit_confirmed_at && (
                 <div>
                   <dt>
@@ -622,7 +644,15 @@ const todayOff = offOf(today);
             )}
             {a.status === 'pendiente' && (
               <p class="ap-dep">
-                <Icon name="clock" size={16} /> Cupo apartado en espera del comprobante del abono del {DEPOSIT_PCT}%. Cuando lo recibas, confírmala aquí.
+                <Icon name="clock" size={16} />
+                {a.receipt_path
+                  ? 'La clienta subió el comprobante. Revísalo y, si el abono llegó, confirma la cita.'
+                  : `Cupo apartado en espera del comprobante del abono del ${DEPOSIT_PCT}%. Cuando lo recibas, confírmala aquí.`}
+              </p>
+            )}
+            {owesNotice(a) && (
+              <p class="ap-dep ok">
+                <Icon name="check" size={16} /> Abono confirmado. Avísale a {who} que su cita quedó en firme: el mensaje ya está escrito.
               </p>
             )}
             <div class="ap-acts">
@@ -648,7 +678,7 @@ const todayOff = offOf(today);
                   </button>
                 </form>
               )}
-              <a class:list={['btn', 'btn-wa', { 'btn-wa-main': !canComplete && a.status !== 'pendiente' }]} href={waLink(a)} target="_blank" rel="noopener">
+              <a class:list={['btn', 'btn-wa', { 'btn-wa-main': (!canComplete && a.status !== 'pendiente') || owesNotice(a) }]} data-notice={`${a.id}:${waKind(a)}`} href={waLink(a)} target="_blank" rel="noopener">
                 <Icon name="whatsapp" /> {waLabel(a)}
               </a>
               {a.status === 'completada' && (
@@ -696,6 +726,8 @@ const todayOff = offOf(today);
       );
     })
   }
+
+  {Astro.url.searchParams.get('abrir') && <span hidden data-abrir={Astro.url.searchParams.get('abrir')} />}
 
   <!-- Nueva cita -->
   <dialog class="new" id="new-appt" aria-labelledby="new-t">
@@ -806,6 +838,10 @@ const todayOff = offOf(today);
     background: #f7ecd0;
     color: #6b4d0c;
     font-size: 0.9rem;
+  }
+  .ap-dep.ok {
+    background: #e6eadb;
+    color: #3f5a2a;
   }
   .ap-dep :global(svg) {
     flex: none;
@@ -2017,6 +2053,17 @@ const todayOff = offOf(today);
       field.focus();
     }
   });
+
+  // Tras confirmar un abono, se abre la cita para avisarle a la clienta.
+  const abrir = document.querySelector<HTMLElement>('[data-abrir]')?.dataset.abrir;
+  if (abrir && /^[0-9a-f-]{36}$/i.test(abrir)) document.querySelector<HTMLDialogElement>(`#ap-${abrir}`)?.showModal();
+  // Registra qué avisos de WhatsApp ya se enviaron (para no repetirlos).
+  document.querySelectorAll<HTMLAnchorElement>('a[data-notice]').forEach((l) =>
+    l.addEventListener('click', () => {
+      const [id, ev] = (l.dataset.notice ?? '').split(':');
+      if (ev && ev !== 'hello') navigator.sendBeacon('/api/admin/avisado', new URLSearchParams({ id, ev }));
+    }),
+  );
 
   // Servicio a domicilio: muestra y exige la dirección.
   const homeToggle = document.querySelector<HTMLInputElement>('[data-home-toggle]');

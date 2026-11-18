@@ -26,6 +26,7 @@ const demo = {
   appointments: [] as Appointment[],
   google: null as GoogleConnection | null,
   rate: new Map<string, { start: number; hits: number }>(),
+  templates: {} as Record<string, string>,
 };
 
 function check<T>(res: { data: T; error: { message: string; code?: string } | null }): T {
@@ -183,7 +184,7 @@ export async function createAppointment(
 
 export async function updateAppointment(
   id: string,
-  patch: Partial<Pick<Appointment, 'status' | 'google_event_id' | 'notes' | 'deposit_confirmed_at'>>,
+  patch: Partial<Pick<Appointment, 'status' | 'google_event_id' | 'notes' | 'deposit_confirmed_at' | 'receipt_path' | 'receipt_at' | 'notified'>>,
 ): Promise<void> {
   if (demoMode) {
     const a = demo.appointments.find((x) => x.id === id);
@@ -219,6 +220,64 @@ export async function removeGalleryImage(id: string): Promise<void> {
   if (!row) return;
   await sb.storage.from('galeria').remove([row.path]);
   check(await sb.from('gallery_images').delete().eq('id', id));
+}
+
+// ───────────── Pagos: QR y comprobantes ─────────────
+const IMG_EXT: Record<string, string> = { 'image/jpeg': 'jpg', 'image/png': 'png', 'image/webp': 'webp', 'image/heic': 'heic', 'application/pdf': 'pdf' };
+
+/** Sube la imagen del QR de pagos (pública, en la galería) y devuelve su ruta. */
+export async function uploadPayQr(file: File): Promise<string> {
+  if (demoMode) throw new Error('Configura Supabase para subir el QR.');
+  const ext = IMG_EXT[file.type];
+  if (!ext || ext === 'pdf' || ext === 'heic') throw new Error('Formato no permitido');
+  const path = `pago/qr-${Date.now()}.${ext}`;
+  check(await supabaseAdmin().storage.from('galeria').upload(path, file, { contentType: file.type, cacheControl: '31536000', upsert: false }));
+  return path;
+}
+
+/** Guarda el comprobante del abono en el bucket privado y lo asocia a la cita. */
+export async function saveReceipt(a: Appointment, file: File): Promise<void> {
+  const ext = IMG_EXT[file.type];
+  if (!ext) throw new Error('Formato no permitido');
+  const patch = { receipt_at: new Date().toISOString(), receipt_path: `${a.id}/${Date.now()}.${ext}` };
+  if (demoMode) {
+    Object.assign(a, patch);
+    return;
+  }
+  check(await supabaseAdmin().storage.from('comprobantes').upload(patch.receipt_path, file, { contentType: file.type, upsert: false }));
+  check(await supabaseAdmin().from('appointments').update(patch).eq('id', a.id));
+}
+
+/** Enlace temporal (10 min) para que Betsy vea el comprobante. */
+export async function receiptUrl(path: string): Promise<string | null> {
+  if (demoMode) return null;
+  const { data } = await supabaseAdmin().storage.from('comprobantes').createSignedUrl(path, 600);
+  return data?.signedUrl ?? null;
+}
+
+export async function markNotified(a: Appointment, ev: string): Promise<void> {
+  const notified = { ...(a.notified ?? {}), [ev]: new Date().toISOString() };
+  if (demoMode) {
+    a.notified = notified;
+    return;
+  }
+  check(await supabaseAdmin().from('appointments').update({ notified }).eq('id', a.id));
+}
+
+// ───────────── Plantillas de mensajes ─────────────
+export async function getTemplates(): Promise<Record<string, string>> {
+  if (demoMode) return { ...demo.templates };
+  const { data, error } = await supabaseAdmin().from('message_templates').select('event, body');
+  if (error) return {}; // la tabla aún no existe: se usan los mensajes por defecto
+  return Object.fromEntries(((data ?? []) as { event: string; body: string }[]).filter((t) => t.body?.trim()).map((t) => [t.event, t.body]));
+}
+
+export async function saveTemplate(event: string, body: string): Promise<void> {
+  if (demoMode) {
+    demo.templates[event] = body;
+    return;
+  }
+  check(await supabaseAdmin().from('message_templates').upsert({ event, body, updated_at: new Date().toISOString() }));
 }
 
 // ───────────── Google ─────────────

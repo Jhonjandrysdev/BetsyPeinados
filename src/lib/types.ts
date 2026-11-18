@@ -18,6 +18,11 @@ export interface SiteSettings {
   slot_step_min: number;
   min_notice_hours: number;
   max_days_ahead: number;
+  /** Datos para el abono por transferencia (Bre-B / Nequi). */
+  pay_key?: string | null;
+  pay_holder?: string | null;
+  pay_bank?: string | null;
+  pay_qr_path?: string | null;
 }
 
 export interface Service {
@@ -70,6 +75,10 @@ export interface Appointment {
   home_address: string | null;
   hair_length: string | null;
   deposit_confirmed_at: string | null;
+  receipt_path?: string | null;
+  receipt_at?: string | null;
+  /** Avisos de WhatsApp ya enviados: { abono: fecha, ... } */
+  notified?: Record<string, string> | null;
 }
 
 export interface GalleryImage {

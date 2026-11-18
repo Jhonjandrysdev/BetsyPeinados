@@ -21,10 +21,11 @@ const nav = [
   { href: '/admin', label: 'Agenda', icon: 'calendar' },
   { href: '/admin/servicios', label: 'Servicios', icon: 'scissors' },
   { href: '/admin/horario', label: 'Horario', icon: 'clock' },
+  { href: '/admin/mensajes', label: 'Mensajes', icon: 'whatsapp' },
   { href: '/admin/ajustes', label: 'Ajustes', icon: 'settings' },
 ] as const;
 const hour = Number(new Intl.DateTimeFormat('es-CO', { hour: 'numeric', hour12: false, timeZone: 'America/Bogota' }).format(new Date()));
-const leads: Record<string, string> = { '/admin': 'Tu', '/admin/servicios': 'Tus', '/admin/horario': 'Tu', '/admin/ajustes': 'Tus' };
+const leads: Record<string, string> = { '/admin': 'Tu', '/admin/servicios': 'Tus', '/admin/horario': 'Tu', '/admin/mensajes': 'Tus', '/admin/ajustes': 'Tus' };
 const lead = leads[path];
 const greet = hour < 12 ? 'Buenos días' : hour < 19 ? 'Buenas tardes' : 'Buenas noches';
 ---
@@ -1086,7 +1087,7 @@ const greet = hour < 12 ? 'Buenos días' : hour < 19 ? 'Buenas tardes' : 'Buenas
   };
   if (tplOk || tplErr || tplWarn) {
     const u = new URL(location.href);
-    ['ok', 'error', 'warn'].forEach((k) => u.searchParams.delete(k));
+    ['ok', 'error', 'warn', 'abrir'].forEach((k) => u.searchParams.delete(k));
     history.replaceState(null, '', u.pathname + u.search + u.hash);
   }
 

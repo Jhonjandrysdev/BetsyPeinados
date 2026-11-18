@@ -2,19 +2,47 @@
 import Base from '../../layouts/Base.astro';
 import Header from '../../components/Header.astro';
 import Icon from '../../components/Icon.astro';
-import { getAppointment, getService, getSettings } from '../../lib/db';
+import { getAppointment, getService, getSettings, saveReceipt } from '../../lib/db';
+import { publicStorageUrl } from '../../lib/supabase';
+import { limited } from '../../lib/http';
 import { DEPOSIT_PCT, POLICIES, depositOf, hairLabel, priceFor } from '../../lib/defaults';
 import { formatCOP, prettyDate, prettyTime } from '../../lib/time';
 
 const { id = '' } = Astro.params;
 const appt = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(id) ? await getAppointment(id) : null;
 if (!appt) return Astro.redirect('/reservar', 303);
+
+// La clienta sube el comprobante del abono desde esta misma página.
+let upMsg = Astro.url.searchParams.has('subido') ? '¡Comprobante recibido! Betsy lo revisa y te confirma la cita aquí y por WhatsApp.' : '';
+let upErr = false;
+if (Astro.request.method === 'POST') {
+  upErr = true;
+  if (await limited(Astro.request, Astro.clientAddress, 'receipt', 6, 3600)) upMsg = 'Has intentado varias veces. Envíalo por WhatsApp, por favor.';
+  else if (appt.status !== 'pendiente') upMsg = 'Esta cita ya no está esperando abono.';
+  else {
+    const f = (await Astro.request.formData()).get('receipt');
+    if (!(f instanceof File) || f.size === 0) upMsg = 'Elige la foto o el PDF del comprobante.';
+    else if (f.size > 5 * 1024 * 1024) upMsg = 'El archivo pesa más de 5 MB. Prueba con una captura de pantalla.';
+    else if (!['image/jpeg', 'image/png', 'image/webp', 'image/heic', 'application/pdf'].includes(f.type)) upMsg = 'Sube una foto (JPG, PNG) o un PDF.';
+    else {
+      try {
+        await saveReceipt(appt, f);
+        return Astro.redirect(`${Astro.url.pathname}?subido=1`, 303);
+      } catch (e) {
+        console.error('Comprobante', e);
+        upMsg = 'No pudimos subir el archivo. Envíalo por WhatsApp, por favor.';
+      }
+    }
+  }
+}
 const [s, service] = await Promise.all([getSettings(), appt.service_id ? getService(appt.service_id) : null]);
 const pending = appt.status === 'pendiente';
 const price = priceFor(service, appt.hair_length) ?? service?.price_from ?? null;
 const exact = priceFor(service, appt.hair_length) != null;
 const deposit = exact ? depositOf(price) : null;
 const place = appt.home_service && appt.home_address ? appt.home_address : s.address;
+const qr = s.pay_qr_path ? publicStorageUrl(s.pay_qr_path) : null;
+const hasReceipt = Boolean(appt.receipt_path);
 
 const stamp = (iso: string) => iso.replace(/[-:]/g, '').replace(/\.\d{3}/, '');
 const gcal = `https://calendar.google.com/calendar/render?${new URLSearchParams({
@@ -71,11 +99,71 @@ const icsHref = `data:text/calendar;charset=utf-8,${encodeURIComponent(ics)}`;
           cancelled
             ? 'Si quieres reprogramar, agenda un nuevo horario.'
             : pending
-              ? `Gracias, ${appt.customer_name.split(' ')[0]}. Para confirmar tu cita envía el comprobante del abono del ${DEPOSIT_PCT}%${deposit ? ` (${formatCOP(deposit)})` : ''} por WhatsApp. Betsy la confirma apenas lo reciba.`
+              ? hasReceipt
+                ? `Gracias, ${appt.customer_name.split(' ')[0]}. Ya recibimos tu comprobante: Betsy lo revisa y esta página cambia sola cuando confirme tu cita.`
+                : `Gracias, ${appt.customer_name.split(' ')[0]}. Transfiere el abono del ${DEPOSIT_PCT}%${deposit ? ` (${formatCOP(deposit)})` : ''} y sube el comprobante para confirmar tu cita.`
               : `Gracias, ${appt.customer_name.split(' ')[0]}. Te espero para dejarte espectacular.`
         }
       </p>
     </div>
+
+
+    {
+      pending && (
+        <section class="pay" aria-labelledby="pay-t" data-status-watch={appt.id} data-status={appt.status}>
+          {upMsg && (
+            <p class:list={['notice', upErr ? 'error' : 'ok']} role="status">
+              {upMsg}
+            </p>
+          )}
+          {!hasReceipt && (
+            <>
+              <p class="pay-step">Paso 1 · Transfiere el abono</p>
+              <h2 id="pay-t" class="pay-amount">{deposit ? formatCOP(deposit) : `${DEPOSIT_PCT}% del valor`}</h2>
+              {!deposit && <p class="pay-hint">Betsy te confirma el valor exacto por WhatsApp.</p>}
+              <div class:list={['pay-grid', { noqr: !qr }]}>
+                {qr && <img class="pay-qr" src={qr} alt="Código QR para transferir el abono" width="180" height="180" />}
+                <div class="pay-data">
+                  {s.pay_key ? (
+                    <>
+                      <p class="pay-lbl">{s.pay_bank ? `Llave · ${s.pay_bank}` : 'Llave Bre-B'}</p>
+                      <div class="pay-key">
+                        <code data-key>{s.pay_key}</code>
+                        <button type="button" class="btn btn-ghost btn-sm" data-copy>
+                          Copiar
+                        </button>
+                      </div>
+                      {s.pay_holder && <p class="pay-lbl">A nombre de {s.pay_holder}</p>}
+                    </>
+                  ) : (
+                    !qr && <p class="pay-hint">Betsy te comparte los datos para transferir por WhatsApp.</p>
+                  )}
+                  <p class="pay-lbl">
+                    En la descripción escribe <b>{code}</b>
+                  </p>
+                </div>
+              </div>
+              <p class="pay-step">Paso 2 · Sube el comprobante</p>
+              <form method="post" enctype="multipart/form-data" class="pay-up">
+                <label class="btn btn-clay pay-file">
+                  <Icon name="upload" /> <span data-file-label>Elegir comprobante</span>
+                  <input type="file" name="receipt" accept="image/*,application/pdf" required data-file />
+                </label>
+                <button class="btn btn-ghost" data-send hidden>
+                  Enviar comprobante
+                </button>
+              </form>
+              <p class="pay-hint">¿Prefieres? También puedes enviarlo por WhatsApp.</p>
+            </>
+          )}
+          {hasReceipt && (
+            <p class="pay-wait">
+              <span class="dot" aria-hidden="true" /> Comprobante en revisión. No cierres esta página si quieres ver la confirmación al instante.
+            </p>
+          )}
+        </section>
+      )
+    }
 
     <article class:list={['ticket', { off: cancelled }]} aria-label="Resumen de tu cita">
       <div class="stub" aria-hidden="true">
@@ -99,7 +187,7 @@ const icsHref = `data:text/calendar;charset=utf-8,${encodeURIComponent(ics)}`;
           <div><dt>{appt.home_service ? 'Domicilio' : 'Lugar'}</dt><dd>{place}</dd></div>
           {appt.hair_length && <div><dt>Largo</dt><dd>{hairLabel(appt.hair_length)}</dd></div>}
           {price && <div><dt>{exact ? 'Valor' : 'Valor desde'}</dt><dd>{formatCOP(price)}</dd></div>}
-          {pending && <div><dt>Estado</dt><dd>Esperando comprobante del abono</dd></div>}
+          {pending && <div><dt>Estado</dt><dd>{hasReceipt ? 'Comprobante en revisión' : 'Esperando abono'}</dd></div>}
           <div><dt>A nombre de</dt><dd>{appt.customer_name}</dd></div>
         </dl>
       </div>
@@ -108,7 +196,7 @@ const icsHref = `data:text/calendar;charset=utf-8,${encodeURIComponent(ics)}`;
     {
       !cancelled && (
         <div class="cta">
-          <a class="btn btn-clay" href={wa} target="_blank" rel="noopener"><Icon name="whatsapp" /> {pending ? 'Enviar comprobante por WhatsApp' : 'Escribir por WhatsApp'}</a>
+          <a class="btn btn-clay" href={wa} target="_blank" rel="noopener"><Icon name="whatsapp" /> {pending && !hasReceipt ? 'Enviar comprobante por WhatsApp' : 'Escribir por WhatsApp'}</a>
           <a class="btn btn-ghost" href={gcal} target="_blank" rel="noopener"><Icon name="google" /> Google Calendar</a>
           <a class="btn btn-ghost" href={icsHref} download={`cita-betsy-${code.toLowerCase()}.ics`}><Icon name="calendar" /> Descargar .ics</a>
         </div>
@@ -125,6 +213,48 @@ const icsHref = `data:text/calendar;charset=utf-8,${encodeURIComponent(ics)}`;
     <p class="small">¿Necesitas cambiar la fecha? Escríbeme por WhatsApp con al menos 24 horas de anticipación.</p>
   </main>
 </Base>
+
+<script>
+  // Copiar la llave
+  const copy = document.querySelector<HTMLButtonElement>('[data-copy]');
+  copy?.addEventListener('click', async () => {
+    try {
+      await navigator.clipboard.writeText(document.querySelector('[data-key]')?.textContent?.trim() ?? '');
+      copy.textContent = '¡Copiada!';
+      setTimeout(() => (copy.textContent = 'Copiar'), 2000);
+    } catch {
+      /* sin portapapeles */
+    }
+  });
+  // Elegir archivo: muestra el nombre y el botón de enviar
+  const file = document.querySelector<HTMLInputElement>('[data-file]');
+  file?.addEventListener('change', () => {
+    const f = file.files?.[0];
+    if (!f) return;
+    document.querySelector('[data-file-label]')!.textContent = f.name.length > 28 ? `${f.name.slice(0, 25)}…` : f.name;
+    const send = document.querySelector<HTMLButtonElement>('[data-send]')!;
+    send.hidden = false;
+    send.classList.replace('btn-ghost', 'btn-clay');
+    file.closest('label')!.classList.replace('btn-clay', 'btn-ghost');
+  });
+  // Cuando Betsy confirme el abono, la página se actualiza sola.
+  const watch = document.querySelector<HTMLElement>('[data-status-watch]');
+  if (watch) {
+    const id = watch.dataset.statusWatch!;
+    const tick = async () => {
+      if (document.hidden) return;
+      try {
+        const r = await fetch(`/api/estado?id=${id}`, { headers: { Accept: 'application/json' }, cache: 'no-store' });
+        const j = await r.json();
+        if (j.status && j.status !== watch.dataset.status) location.replace(location.pathname);
+      } catch {
+        /* sin conexión: se reintenta */
+      }
+    };
+    setInterval(tick, 15000);
+    document.addEventListener('visibilitychange', tick);
+  }
+</script>
 
 <style>
   .ok {
@@ -148,6 +278,124 @@ const icsHref = `data:text/calendar;charset=utf-8,${encodeURIComponent(ics)}`;
   }
   .seal.wait {
     background: #c39a2e;
+  }
+  .pay {
+    max-width: 560px;
+    margin: 0 auto 1.8rem;
+    padding: 1.4rem;
+    border-radius: 24px;
+    background: var(--white, #fff);
+    box-shadow: var(--shadow);
+    text-align: left;
+  }
+  .pay .notice {
+    margin: 0 0 1rem;
+  }
+  .pay-step {
+    margin: 0 0 0.4rem;
+    font-size: 0.75rem;
+    font-weight: 800;
+    letter-spacing: 0.14em;
+    text-transform: uppercase;
+    color: var(--clay);
+  }
+  .pay-step + .pay-up,
+  .pay-grid + .pay-step {
+    margin-top: 1.3rem;
+  }
+  .pay-amount {
+    margin: 0;
+    font-size: clamp(1.9rem, 6vw, 2.4rem);
+  }
+  .pay-grid {
+    display: grid;
+    grid-template-columns: 150px 1fr;
+    gap: 1rem;
+    align-items: center;
+    margin-top: 1rem;
+  }
+  .pay-grid.noqr {
+    grid-template-columns: 1fr;
+  }
+  .pay-qr {
+    width: 150px;
+    height: 150px;
+    object-fit: contain;
+    padding: 6px;
+    border-radius: 16px;
+    background: #fff;
+    border: 1px solid var(--line, #eadccf);
+  }
+  .pay-data {
+    display: grid;
+    gap: 0.45rem;
+    min-width: 0;
+  }
+  .pay-lbl {
+    margin: 0;
+    font-size: 0.86rem;
+    color: var(--muted, #7a6a60);
+  }
+  .pay-key {
+    display: flex;
+    gap: 0.5rem;
+    align-items: center;
+    flex-wrap: wrap;
+  }
+  .pay-key code {
+    font-size: 1.15rem;
+    font-weight: 800;
+    word-break: break-all;
+  }
+  .pay-hint {
+    margin: 0.5rem 0 0;
+    font-size: 0.86rem;
+    color: var(--muted, #7a6a60);
+  }
+  .pay-up {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 0.5rem;
+  }
+  .pay-file {
+    position: relative;
+    cursor: pointer;
+  }
+  .pay-file input {
+    position: absolute;
+    inset: 0;
+    opacity: 0;
+    cursor: pointer;
+  }
+  .pay-wait {
+    display: flex;
+    gap: 0.6rem;
+    align-items: center;
+    margin: 0;
+    font-weight: 600;
+  }
+  .pay-wait .dot {
+    flex: none;
+    width: 10px;
+    height: 10px;
+    border-radius: 50%;
+    background: #c39a2e;
+    animation: blink 1.4s ease-in-out infinite;
+  }
+  @keyframes blink {
+    50% {
+      opacity: 0.25;
+    }
+  }
+  @media (max-width: 480px) {
+    .pay-grid {
+      grid-template-columns: 1fr;
+      justify-items: center;
+      text-align: center;
+    }
+    .pay-key {
+      justify-content: center;
+    }
   }
   .rules {
     max-width: 520px;

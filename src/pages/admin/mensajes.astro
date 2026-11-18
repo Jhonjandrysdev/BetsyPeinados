@@ -1,0 +1,149 @@
+---
+import Admin from '../../layouts/Admin.astro';
+import Icon from '../../components/Icon.astro';
+import { getSettings, getTemplates, saveTemplate } from '../../lib/db';
+import { back, str } from '../../lib/admin';
+import { DEFAULT_TEMPLATES, NOTICE_EVENTS, PLACEHOLDERS, fillTemplate, type NoticeEvent } from '../../lib/messages';
+import type { Appointment } from '../../lib/types';
+
+const HERE = '/admin/mensajes';
+if (Astro.request.method === 'POST') {
+  const fd = await Astro.request.formData();
+  const ev = str(fd, 'event', 20) as NoticeEvent;
+  if (!NOTICE_EVENTS.some((e) => e.id === ev)) return back(HERE, 'error', 'Algo salió mal. Recarga la página.');
+  const body = str(fd, 'body', 1500).trim() || DEFAULT_TEMPLATES[ev];
+  try {
+    await saveTemplate(ev, fd.get('reset') ? DEFAULT_TEMPLATES[ev] : body);
+  } catch (e) {
+    console.error(e);
+    return back(HERE, 'error', 'No se pudo guardar. Falta activar los mensajes en la base de datos.');
+  }
+  return back(HERE, 'ok', 'Mensaje guardado');
+}
+
+const [s, saved] = await Promise.all([getSettings(), getTemplates()]);
+const sample: Appointment = {
+  id: 'a1b2c3d4-0000-4000-8000-000000000000',
+  service_id: null,
+  service_name: 'Ondas',
+  customer_name: 'Laura Gómez',
+  customer_phone: '573001234567',
+  customer_email: null,
+  notes: '',
+  starts_at: new Date(Date.now() + 3 * 864e5).toISOString().slice(0, 10) + 'T15:00:00.000Z',
+  ends_at: new Date(Date.now() + 3 * 864e5).toISOString().slice(0, 10) + 'T16:00:00.000Z',
+  status: 'pendiente',
+  source: 'web',
+  google_event_id: null,
+  created_at: new Date().toISOString(),
+  home_service: false,
+  home_address: null,
+  hair_length: 'medio',
+  deposit_confirmed_at: null,
+};
+---
+
+<Admin title="Mensajes" subtitle="Lo que le escribes a tus clientas por WhatsApp en cada momento de la cita. En la agenda, el botón de WhatsApp ya trae el mensaje que toca con sus datos puestos.">
+  <div class="panel help">
+    <p>
+      Las palabras entre llaves se cambian solas por los datos de cada clienta:
+      {PLACEHOLDERS.map((p) => <code>{`{${p}}`}</code>)}
+    </p>
+  </div>
+  {
+    NOTICE_EVENTS.map((e) => {
+      const body = saved[e.id] ?? DEFAULT_TEMPLATES[e.id];
+      return (
+        <form method="post" class="panel tpl" id={`m-${e.id}`}>
+          <input type="hidden" name="event" value={e.id} />
+          <div class="tpl-h">
+            <h2>{e.label}</h2>
+            <p class="muted">{e.when}</p>
+          </div>
+          <div class="tpl-in">
+            <textarea name="body" rows="7" maxlength="1500" aria-label={`Mensaje: ${e.label}`}>{body}</textarea>
+            <div class="bubble" aria-label="Así lo verá la clienta">
+              <small>Vista previa</small>
+              <p>{fillTemplate(body, { a: sample, s, price: 80000, deposit: 40000 })}</p>
+            </div>
+          </div>
+          <div class="tpl-acts">
+            {body !== DEFAULT_TEMPLATES[e.id] && (
+              <button class="btn btn-soft btn-sm" name="reset" value="1">
+                Volver al original
+              </button>
+            )}
+            <button class="btn btn-clay">
+              <Icon name="check" /> Guardar
+            </button>
+          </div>
+        </form>
+      );
+    })
+  }
+</Admin>
+
+<style>
+  .help p {
+    margin: 0;
+    line-height: 1.9;
+  }
+  .help code {
+    margin: 0 0.15rem;
+    padding: 0.1rem 0.4rem;
+    border-radius: 6px;
+    background: color-mix(in oklab, var(--clay) 10%, transparent);
+    font-size: 0.85em;
+  }
+  .tpl {
+    display: grid;
+    gap: 0.9rem;
+  }
+  .tpl-h h2 {
+    margin: 0;
+    font-size: 1.25rem;
+  }
+  .tpl-h p {
+    margin: 0.2rem 0 0;
+  }
+  .tpl-in {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 1rem;
+  }
+  .tpl-in textarea {
+    width: 100%;
+    min-height: 11rem;
+    resize: vertical;
+    line-height: 1.5;
+  }
+  .bubble {
+    align-self: start;
+    padding: 0.8rem 1rem;
+    border-radius: 14px 14px 14px 4px;
+    background: #dcf8c6;
+    color: #1f2d1a;
+    font-size: 0.92rem;
+  }
+  .bubble small {
+    display: block;
+    margin-bottom: 0.3rem;
+    font-weight: 700;
+    opacity: 0.6;
+  }
+  .bubble p {
+    margin: 0;
+    white-space: pre-wrap;
+    word-break: break-word;
+  }
+  .tpl-acts {
+    display: flex;
+    justify-content: flex-end;
+    gap: 0.5rem;
+  }
+  @media (max-width: 760px) {
+    .tpl-in {
+      grid-template-columns: 1fr;
+    }
+  }
+</style>
