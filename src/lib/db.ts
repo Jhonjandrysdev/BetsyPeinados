@@ -206,6 +206,7 @@ export async function updateAppointment(
       | 'travel_fee'
       | 'receipt_rejected_reason'
       | 'receipt_rejected_at'
+      | 'cancel_reason'
     >
   >,
 ): Promise<void> {
@@ -226,6 +227,27 @@ export async function updateAppointmentIfReceipt(id: string, receiptPath: string
     return true;
   }
   const rows = check(await supabaseAdmin().from('appointments').update(patch).eq('id', id).eq('receipt_path', receiptPath).select('id'));
+  return (rows ?? []).length > 0;
+}
+
+/** Citas apartadas sin comprobante en revisión que aún no han pasado (candidatas a vencer). */
+export async function listPendingWithoutReceipt(): Promise<Appointment[]> {
+  if (demoMode) return demo.appointments.filter((a) => a.status === 'pendiente' && !a.receipt_path);
+  return check(
+    await supabaseAdmin().from('appointments').select('*').eq('status', 'pendiente').is('receipt_path', null).gt('ends_at', new Date(Date.now() - 864e5).toISOString()),
+  ) as Appointment[];
+}
+
+/** Cancela por falta de abono solo si la cita sigue apartada y sin comprobante. */
+export async function expireIfUnpaid(id: string): Promise<boolean> {
+  const patch = { status: 'cancelada' as const, cancel_reason: 'sin_abono' as const };
+  if (demoMode) {
+    const a = demo.appointments.find((x) => x.id === id);
+    if (!a || a.status !== 'pendiente' || a.receipt_path) return false;
+    Object.assign(a, patch);
+    return true;
+  }
+  const rows = check(await supabaseAdmin().from('appointments').update(patch).eq('id', id).eq('status', 'pendiente').is('receipt_path', null).select('id'));
   return (rows ?? []).length > 0;
 }
 

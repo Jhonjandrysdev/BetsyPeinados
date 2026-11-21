@@ -4,11 +4,12 @@ import type { Appointment, SiteSettings } from './types';
 import { DEPOSIT_PCT } from './defaults';
 import { formatCOP, prettyDate, prettyTime } from './time';
 
-export type NoticeEvent = 'apartada' | 'comprobante_rechazado' | 'abono' | 'recordatorio' | 'gracias' | 'cancelada';
+export type NoticeEvent = 'apartada' | 'comprobante_rechazado' | 'cupo_liberado' | 'abono' | 'recordatorio' | 'gracias' | 'cancelada';
 
 export const NOTICE_EVENTS: { id: NoticeEvent; label: string; when: string }[] = [
   { id: 'apartada', label: 'Cupo apartado', when: 'La clienta reservó y falta el comprobante del abono.' },
   { id: 'comprobante_rechazado', label: 'Comprobante rechazado', when: 'Rechazaste el comprobante: la clienta debe enviar uno nuevo.' },
+  { id: 'cupo_liberado', label: 'Cupo liberado', when: 'Pasó el plazo sin comprobante y el sistema liberó el horario.' },
   { id: 'abono', label: 'Abono recibido', when: 'Confirmaste el abono: la cita queda en firme.' },
   { id: 'recordatorio', label: 'Recordatorio', when: 'Unos días u horas antes de la cita.' },
   { id: 'gracias', label: 'Gracias', when: 'Después de marcar la cita como realizada.' },
@@ -20,6 +21,8 @@ export const DEFAULT_TEMPLATES: Record<NoticeEvent, string> = {
     'Hola {nombre} 👋 Te escribe Betsy Peinados. Tu cupo de {servicio} para el {fecha} a las {hora} está apartado ✨\n\nPara confirmarlo transfiere el abono del {porcentaje} ({abono}) a la llave {llave} y envíame el comprobante por aquí. Sin abono no se garantiza la reserva.',
   comprobante_rechazado:
     'Hola {nombre} 👋 Revisé el comprobante de tu cita de {servicio} del {fecha} a las {hora} y no lo pude validar: {motivo}.\n\nPor favor súbelo de nuevo en la página de tu reserva o envíamelo por aquí para confirmar tu cupo 💖',
+  cupo_liberado:
+    'Hola {nombre} 👋 Como no recibí el comprobante del abono a tiempo, liberé el cupo de {servicio} del {fecha} a las {hora}.\n\nSi aún quieres tu cita, escríbeme por aquí o reserva de nuevo en la web y lo miramos 💖',
   abono:
     '¡Hola {nombre}! ✅ Recibí tu abono. Tu cita de {servicio} quedó CONFIRMADA para el {fecha} a las {hora} 🎀\n\nRecuerda venir con el cabello limpio y seco (no realizamos blower). ¡Te espero! 💖',
   recordatorio: 'Hola {nombre} 👋 Te recuerdo tu cita de {servicio} el {fecha} a las {hora} ✨ Recuerda: cabello limpio y seco. ¡Te espero!',

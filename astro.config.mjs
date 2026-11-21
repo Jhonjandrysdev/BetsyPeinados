@@ -50,6 +50,7 @@ export default defineConfig({
       GOOGLE_CLIENT_SECRET: envField.string({ context: 'server', access: 'secret', optional: true }),
       TOKEN_ENCRYPTION_KEY: envField.string({ context: 'server', access: 'secret', optional: true }),
       RATE_LIMIT_SALT: envField.string({ context: 'server', access: 'secret', optional: true }),
+      CRON_SECRET: envField.string({ context: 'server', access: 'secret', optional: true }),
     },
     validateSecrets: false,
   },

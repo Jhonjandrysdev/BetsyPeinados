@@ -1,7 +1,7 @@
 ---
 import Admin from '../../layouts/Admin.astro';
 import Icon from '../../components/Icon.astro';
-import { deleteReceipt, getAppointment, getAppointments, updateAppointmentIfReceipt, getBlockedDates, getGoogleConnection, getHours, getServices, getSettings, getTemplates, receiptUrl, updateAppointment } from '../../lib/db';
+import { deleteReceipt, expireIfUnpaid, getAppointment, getAppointments, listPendingWithoutReceipt, updateAppointmentIfReceipt, getBlockedDates, getGoogleConnection, getHours, getServices, getSettings, getTemplates, receiptUrl, updateAppointment } from '../../lib/db';
 import { DEFAULT_TEMPLATES, fillTemplate, type NoticeEvent } from '../../lib/messages';
 import { book, BookingError, bookingSchema } from '../../lib/booking';
 import { cancelCalendarEvent, confirmCalendarEvent, createCalendarEvent } from '../../lib/google';
@@ -27,7 +27,7 @@ if (Astro.request.method === 'POST') {
       headers: { Location: `/admin?${isDate(week) ? `desde=${week}&` : ''}${open ? `abrir=${open}&` : ''}${kind}=${encodeURIComponent(msg)}` },
     });
   const OOPS = 'Algo salió mal. Recarga la página e intenta de nuevo.';
-  const citas = createCitas({ getAppointment, updateAppointment, updateAppointmentIfReceipt, deleteReceipt });
+  const citas = createCitas({ getAppointment, updateAppointment, updateAppointmentIfReceipt, deleteReceipt, listPendingWithoutReceipt, expireIfUnpaid });
 
   if (action === 'status') {
     const id = str(fd, 'id', 40);
@@ -37,7 +37,9 @@ if (Astro.request.method === 'POST') {
     if (!appt) return go('error', 'No encontramos esa cita. Recarga la página.');
     const prev = appt.status;
     const depositOk = status === 'confirmada' && prev === 'pendiente';
-    await updateAppointment(id, depositOk ? { status, deposit_confirmed_at: new Date().toISOString() } : { status });
+    // Si se reactiva una cita cancelada, ya no aplica el motivo de cancelación.
+    const reopen = prev === 'cancelada' ? { cancel_reason: null } : {};
+    await updateAppointment(id, depositOk ? { status, deposit_confirmed_at: new Date().toISOString(), ...reopen } : { status, ...reopen });
     if (depositOk) {
       // Abono recibido: la cita queda en firme también en Google Calendar.
       try {
@@ -244,11 +246,17 @@ type WaKind = NoticeEvent | 'hello';
 /** Abono confirmado y la clienta aún no sabe: se le ofrece el aviso. */
 const owesNotice = (a: Appointment) => a.status === 'confirmada' && Boolean(a.deposit_confirmed_at) && !a.notified?.abono && !started(a);
 const owesRejectNotice = (a: Appointment) => debeAvisarRechazo(a, now);
+/** El sistema liberó el cupo por falta de abono y la clienta aún no lo sabe. */
+const owesReleaseNotice = (a: Appointment) => a.status === 'cancelada' && a.cancel_reason === 'sin_abono' && !a.notified?.cupo_liberado && !started(a);
+/** Comprobantes por revisar en los próximos 90 días: el plazo no corre mientras esperan a Betsy. */
+const toReview = upcoming.filter((a) => a.status === 'pendiente' && a.receipt_path);
 const waKind = (a: Appointment): WaKind =>
   a.status === 'completada'
     ? 'gracias'
     : a.status === 'cancelada'
-      ? 'cancelada'
+      ? a.cancel_reason === 'sin_abono'
+        ? 'cupo_liberado'
+        : 'cancelada'
       : started(a)
         ? 'hello'
         : owesRejectNotice(a)
@@ -272,6 +280,7 @@ const waLabel = (a: Appointment) =>
     abono: 'Avisar: cita confirmada',
     gracias: 'Agradecer por WhatsApp',
     cancelada: 'Avisar cancelación',
+    cupo_liberado: 'Avisar: cupo liberado',
     hello: 'Escribir por WhatsApp',
   })[
     waKind(a)
@@ -323,6 +332,25 @@ const todayOff = offOf(today);
   <button type="button" class="btn btn-clay fab" data-open-new data-fab>
     <Icon name="plus" /> Nueva cita
   </button>
+
+  {
+    toReview.length > 0 && (
+      <section class="review panel" aria-labelledby="review-t">
+        <p class="review-t" id="review-t">
+          <Icon name="upload" size={16} /> {toReview.length === 1 ? '1 comprobante por revisar' : `${toReview.length} comprobantes por revisar`}
+        </p>
+        <ul>
+          {toReview.map((a) => (
+            <li>
+              <a href={`/admin?desde=${mondayOf(localDate(new Date(a.starts_at)))}&abrir=${a.id}`}>
+                {a.customer_name} · {shortWhen(a.starts_at)}
+              </a>
+            </li>
+          ))}
+        </ul>
+      </section>
+    )
+  }
 
   <!-- Hoy (escritorio y tableta) -->
   <section class="hoy panel" aria-labelledby="today-t">
@@ -536,7 +564,7 @@ const todayOff = offOf(today);
                             {a.status === 'confirmada' && <span class="sr-only">, Confirmada</span>}
                           </small>
                           {a.status === 'pendiente' && <span class="tag pendiente">{a.receipt_path ? 'Revisar comprobante' : 'Espera abono'}</span>}
-                          {(owesNotice(a) || owesRejectNotice(a)) && <span class="tag plain">Falta avisarle</span>}
+                          {(owesNotice(a) || owesRejectNotice(a) || owesReleaseNotice(a)) && <span class="tag plain">Falta avisarle</span>}
                         </span>
                       </button>
                       {a.status !== 'cancelada' && (
@@ -1040,6 +1068,35 @@ const todayOff = offOf(today);
     gap: 0.8rem;
     justify-items: center;
     text-align: center;
+  }
+  .review {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: 0.4rem 1rem;
+    border-left: 4px solid var(--clay);
+  }
+  .review-t {
+    display: flex;
+    align-items: center;
+    gap: 0.45rem;
+    margin: 0;
+    font-weight: 700;
+  }
+  .review ul {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 0.25rem 1rem;
+    margin: 0;
+    padding: 0;
+    list-style: none;
+  }
+  .review a {
+    display: inline-block;
+    padding-block: 0.6rem;
+    color: inherit;
+    text-decoration: underline;
+    text-underline-offset: 3px;
   }
   .ap-valor {
     margin-top: 0.75rem;

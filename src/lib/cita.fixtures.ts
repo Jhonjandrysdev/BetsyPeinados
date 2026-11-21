@@ -17,6 +17,13 @@ export function fakeStore(rows: Appointment[]): CitaStore & { get(id: string): A
       const a = m.get(id);
       if (a) Object.assign(a, patch);
     },
+    listPendingWithoutReceipt: async () => [...m.values()].filter((a) => a.status === 'pendiente' && !a.receipt_path).map((a) => ({ ...a })),
+    expireIfUnpaid: async (id) => {
+      const a = m.get(id);
+      if (!a || a.status !== 'pendiente' || a.receipt_path) return false;
+      Object.assign(a, { status: 'cancelada', cancel_reason: 'sin_abono' });
+      return true;
+    },
     updateAppointmentIfReceipt: async (id, receiptPath, patch) => {
       const a = m.get(id);
       if (!a || a.receipt_path !== receiptPath) return false;

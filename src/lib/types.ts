@@ -86,6 +86,8 @@ export interface Appointment {
   /** Último comprobante rechazado por Betsy: motivo y hora. */
   receipt_rejected_reason?: string | null;
   receipt_rejected_at?: string | null;
+  /** Por qué se canceló: 'sin_abono' si venció el plazo del comprobante; null si la canceló Betsy. */
+  cancel_reason?: 'sin_abono' | null;
   /** Avisos de WhatsApp ya enviados: { abono: fecha, ... } */
   notified?: Record<string, string> | null;
 }

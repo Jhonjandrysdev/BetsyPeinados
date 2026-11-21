@@ -69,12 +69,27 @@ export function debeAvisarRechazo(
   return !avisado || Date.parse(avisado) < Date.parse(a.receipt_rejected_at);
 }
 
+const HORA = 3_600_000;
+
+/** Hasta cuándo tiene la clienta para enviar el comprobante; null si el plazo no corre. */
+export function plazoDeAbono(a: Pick<Appointment, 'status' | 'created_at' | 'starts_at' | 'receipt_path' | 'receipt_rejected_at'>): Date | null {
+  if (a.status !== 'pendiente' || a.receipt_path) return null;
+  // El plazo corre desde la reserva o desde el último rechazo del comprobante.
+  const desde = Date.parse(a.receipt_rejected_at ?? a.created_at);
+  const inicio = Date.parse(a.starts_at);
+  const horas = inicio - desde < 24 * HORA ? 2 : 24;
+  return new Date(Math.min(desde + horas * HORA, inicio));
+}
+
 /** Error con un mensaje que se le puede mostrar a Betsy tal cual. */
 export class CitaError extends Error {}
 
 /** Campos de la cita que el dominio escribe. */
 export type CitaPatch = Partial<
-  Pick<Appointment, 'price' | 'deposit' | 'travel_fee' | 'receipt_path' | 'receipt_at' | 'receipt_rejected_reason' | 'receipt_rejected_at'>
+  Pick<
+    Appointment,
+    'price' | 'deposit' | 'travel_fee' | 'receipt_path' | 'receipt_at' | 'receipt_rejected_reason' | 'receipt_rejected_at' | 'google_event_id'
+  >
 >;
 
 /** Lo que el dominio necesita de la base de datos. */
@@ -83,6 +98,10 @@ export interface CitaStore {
   updateAppointment(id: string, patch: CitaPatch): Promise<void>;
   /** Actualiza solo si la cita sigue con ese comprobante; false si la clienta subió otro entretanto. */
   updateAppointmentIfReceipt(id: string, receiptPath: string, patch: CitaPatch): Promise<boolean>;
+  /** Citas apartadas sin comprobante en revisión (candidatas a vencer). */
+  listPendingWithoutReceipt(): Promise<Appointment[]>;
+  /** Cancela por falta de abono solo si sigue apartada y sin comprobante; false si la clienta alcanzó a subirlo. */
+  expireIfUnpaid(id: string): Promise<boolean>;
   /** Borra el archivo del comprobante del bucket privado. */
   deleteReceipt(path: string): Promise<void>;
 }
@@ -91,12 +110,14 @@ export interface CitaDeps {
   now: () => Date;
   /** Fallos que no impiden la operación (p. ej. no se pudo borrar un archivo). */
   reportar: (msg: string, e: unknown) => void;
+  /** Google Calendar de Betsy (si está conectado). */
+  calendario: { cancelar(eventId: string): Promise<void> } | null;
 }
 
-const DEPS: CitaDeps = { now: () => new Date(), reportar: (msg, e) => console.error(msg, e) };
+const DEPS: CitaDeps = { now: () => new Date(), reportar: (msg, e) => console.error(msg, e), calendario: null };
 
 export function createCitas(store: CitaStore, deps: Partial<CitaDeps> = {}) {
-  const { now, reportar } = { ...DEPS, ...deps };
+  const { now, reportar, calendario } = { ...DEPS, ...deps };
   return {
     /** Betsy ajusta el valor final (cm adicionales, paquete, desplazamiento). */
     async ajustarValor(id: string, { price, travelFee = null }: { price: number; travelFee?: number | null }): Promise<void> {
@@ -117,6 +138,26 @@ export function createCitas(store: CitaStore, deps: Partial<CitaDeps> = {}) {
     },
 
     /** Betsy rechaza un comprobante falso, borroso o por menos dinero: la cita vuelve a esperar abono. */
+    /** Tarea programada (cada 15 min): libera los cupos cuyo plazo para el comprobante ya pasó. Repetirla no cambia nada. */
+    async tick(): Promise<{ vencidas: string[] }> {
+      const vencidas: string[] = [];
+      for (const a of await store.listPendingWithoutReceipt()) {
+        const plazo = plazoDeAbono(a);
+        if (!plazo || plazo.getTime() > now().getTime()) continue;
+        if (!(await store.expireIfUnpaid(a.id))) continue;
+        vencidas.push(a.id);
+        if (a.google_event_id && calendario) {
+          try {
+            await calendario.cancelar(a.google_event_id);
+            await store.updateAppointment(a.id, { google_event_id: null });
+          } catch (e) {
+            reportar('No se pudo borrar de Google Calendar la cita vencida', e);
+          }
+        }
+      }
+      return { vencidas };
+    },
+
     /** @param comprobanteVisto ruta del comprobante que Betsy revisó (si la clienta subió otro después, no se rechaza). */
     async rechazarComprobante(id: string, motivo: string, comprobanteVisto?: string): Promise<void> {
       const motivoLimpio = motivo.replace(/\s+/g, ' ').trim();

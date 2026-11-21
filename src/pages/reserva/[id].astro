@@ -6,7 +6,7 @@ import { getAppointment, getService, getSettings, saveReceipt } from '../../lib/
 import { publicStorageUrl } from '../../lib/supabase';
 import { limited } from '../../lib/http';
 import { DEPOSIT_PCT, POLICIES, hairLabel } from '../../lib/defaults';
-import { resumenDeCita } from '../../lib/cita';
+import { plazoDeAbono, resumenDeCita } from '../../lib/cita';
 import { formatCOP, prettyDate, prettyTime } from '../../lib/time';
 
 const { id = '' } = Astro.params;
@@ -40,6 +40,8 @@ const [s, service] = await Promise.all([getSettings(), appt.service_id ? getServ
 const pending = appt.status === 'pendiente';
 const resumen = resumenDeCita(appt, service);
 const { price, deposit, saldo, travel } = resumen;
+const plazo = plazoDeAbono(appt);
+const released = appt.status === 'cancelada' && appt.cancel_reason === 'sin_abono';
 const place = appt.home_service && appt.home_address ? appt.home_address : s.address;
 const qr = s.pay_qr_path ? publicStorageUrl(s.pay_qr_path) : null;
 const hasReceipt = Boolean(appt.receipt_path);
@@ -97,7 +99,9 @@ const icsHref = `data:text/calendar;charset=utf-8,${encodeURIComponent(ics)}`;
       <p class="lead">
         {
           cancelled
-            ? 'Si quieres reprogramar, agenda un nuevo horario.'
+            ? released
+              ? 'Tu cupo se liberó porque no recibimos el comprobante del abono a tiempo. Si aún quieres tu cita, agenda un nuevo horario o escríbeme por WhatsApp.'
+              : 'Si quieres reprogramar, agenda un nuevo horario.'
             : pending
               ? hasReceipt
                 ? `Gracias, ${appt.customer_name.split(' ')[0]}. Ya recibimos tu comprobante: Betsy lo revisa y esta página cambia sola cuando confirme tu cita.`
@@ -123,6 +127,11 @@ const icsHref = `data:text/calendar;charset=utf-8,${encodeURIComponent(ics)}`;
           )}
           {!hasReceipt && (
             <>
+              {plazo && (
+                <p class="pay-deadline" role="note">
+                  <Icon name="clock" size={16} /> Tienes hasta el <b>{prettyDate(plazo.toISOString()).toLowerCase()} a las {prettyTime(plazo.toISOString())}</b> para enviar el comprobante. Después el cupo se libera.
+                </p>
+              )}
               <p class="pay-step">Paso 1 · Transfiere</p>
               <p class="pay-txt">
                 Escanea el QR o usa la llave desde Nequi, Bancolombia, Daviplata o tu banco. Escribe <b>{code}</b> en la descripción.
@@ -277,6 +286,13 @@ const icsHref = `data:text/calendar;charset=utf-8,${encodeURIComponent(ics)}`;
 </script>
 
 <style>
+  .pay-deadline {
+    display: flex;
+    align-items: flex-start;
+    gap: 0.45rem;
+    margin: 0 0 1rem;
+    text-align: left;
+  }
   .t-sub {
     display: block;
     font-size: 0.8em;
