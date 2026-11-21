@@ -192,7 +192,21 @@ export async function createAppointment(
 export async function updateAppointment(
   id: string,
   patch: Partial<
-    Pick<Appointment, 'status' | 'google_event_id' | 'notes' | 'deposit_confirmed_at' | 'receipt_path' | 'receipt_at' | 'notified' | 'price' | 'deposit' | 'travel_fee'>
+    Pick<
+      Appointment,
+      | 'status'
+      | 'google_event_id'
+      | 'notes'
+      | 'deposit_confirmed_at'
+      | 'receipt_path'
+      | 'receipt_at'
+      | 'notified'
+      | 'price'
+      | 'deposit'
+      | 'travel_fee'
+      | 'receipt_rejected_reason'
+      | 'receipt_rejected_at'
+    >
   >,
 ): Promise<void> {
   if (demoMode) {
@@ -255,6 +269,12 @@ export async function saveReceipt(a: Appointment, file: File): Promise<void> {
   }
   check(await supabaseAdmin().storage.from('comprobantes').upload(patch.receipt_path, file, { contentType: file.type, upsert: false }));
   check(await supabaseAdmin().from('appointments').update(patch).eq('id', a.id));
+}
+
+/** Borra un comprobante del bucket privado (al rechazarlo). */
+export async function deleteReceipt(path: string): Promise<void> {
+  if (demoMode) return;
+  check(await supabaseAdmin().storage.from('comprobantes').remove([path]));
 }
 
 /** Enlace temporal (10 min) para que Betsy vea el comprobante. */

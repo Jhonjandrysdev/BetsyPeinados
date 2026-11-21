@@ -4,10 +4,11 @@ import type { Appointment, SiteSettings } from './types';
 import { DEPOSIT_PCT } from './defaults';
 import { formatCOP, prettyDate, prettyTime } from './time';
 
-export type NoticeEvent = 'apartada' | 'abono' | 'recordatorio' | 'gracias' | 'cancelada';
+export type NoticeEvent = 'apartada' | 'comprobante_rechazado' | 'abono' | 'recordatorio' | 'gracias' | 'cancelada';
 
 export const NOTICE_EVENTS: { id: NoticeEvent; label: string; when: string }[] = [
   { id: 'apartada', label: 'Cupo apartado', when: 'La clienta reservó y falta el comprobante del abono.' },
+  { id: 'comprobante_rechazado', label: 'Comprobante rechazado', when: 'Rechazaste el comprobante: la clienta debe enviar uno nuevo.' },
   { id: 'abono', label: 'Abono recibido', when: 'Confirmaste el abono: la cita queda en firme.' },
   { id: 'recordatorio', label: 'Recordatorio', when: 'Unos días u horas antes de la cita.' },
   { id: 'gracias', label: 'Gracias', when: 'Después de marcar la cita como realizada.' },
@@ -17,6 +18,8 @@ export const NOTICE_EVENTS: { id: NoticeEvent; label: string; when: string }[] =
 export const DEFAULT_TEMPLATES: Record<NoticeEvent, string> = {
   apartada:
     'Hola {nombre} 👋 Te escribe Betsy Peinados. Tu cupo de {servicio} para el {fecha} a las {hora} está apartado ✨\n\nPara confirmarlo transfiere el abono del {porcentaje} ({abono}) a la llave {llave} y envíame el comprobante por aquí. Sin abono no se garantiza la reserva.',
+  comprobante_rechazado:
+    'Hola {nombre} 👋 Revisé el comprobante de tu cita de {servicio} del {fecha} a las {hora} y no lo pude validar: {motivo}.\n\nPor favor súbelo de nuevo en la página de tu reserva o envíamelo por aquí para confirmar tu cupo 💖',
   abono:
     '¡Hola {nombre}! ✅ Recibí tu abono. Tu cita de {servicio} quedó CONFIRMADA para el {fecha} a las {hora} 🎀\n\nRecuerda venir con el cabello limpio y seco (no realizamos blower). ¡Te espero! 💖',
   recordatorio: 'Hola {nombre} 👋 Te recuerdo tu cita de {servicio} el {fecha} a las {hora} ✨ Recuerda: cabello limpio y seco. ¡Te espero!',
@@ -24,7 +27,7 @@ export const DEFAULT_TEMPLATES: Record<NoticeEvent, string> = {
   cancelada: 'Hola {nombre}, tu cita de {servicio} del {fecha} a las {hora} quedó cancelada. Si quieres reprogramar, escríbeme por aquí 💖',
 };
 
-export const PLACEHOLDERS = ['nombre', 'servicio', 'fecha', 'hora', 'valor', 'abono', 'porcentaje', 'llave', 'codigo', 'direccion', 'instagram'];
+export const PLACEHOLDERS = ['nombre', 'servicio', 'fecha', 'hora', 'valor', 'abono', 'porcentaje', 'llave', 'codigo', 'direccion', 'instagram', 'motivo'];
 
 export interface FillData {
   a: Appointment;
@@ -46,6 +49,7 @@ export function fillTemplate(body: string, { a, s, price, deposit }: FillData): 
     codigo: a.id.slice(0, 8).toUpperCase(),
     direccion: a.home_service && a.home_address ? a.home_address : s.address,
     instagram: s.instagram,
+    motivo: a.receipt_rejected_reason || 'no se ve completo',
   };
   return body.replace(/\{(\w+)\}/g, (m, k: string) => v[k] ?? m);
 }

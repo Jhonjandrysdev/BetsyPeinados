@@ -116,6 +116,11 @@ const icsHref = `data:text/calendar;charset=utf-8,${encodeURIComponent(ics)}`;
               {upMsg}
             </p>
           )}
+          {!hasReceipt && appt.receipt_rejected_reason && (
+            <p class="notice error" role="alert">
+              Betsy no pudo validar tu comprobante: <b>{appt.receipt_rejected_reason}</b>. Súbelo de nuevo para confirmar tu cita.
+            </p>
+          )}
           {!hasReceipt && (
             <>
               <p class="pay-step">Paso 1 · Transfiere</p>

@@ -83,6 +83,9 @@ export interface Appointment {
   deposit_confirmed_at: string | null;
   receipt_path?: string | null;
   receipt_at?: string | null;
+  /** Último comprobante rechazado por Betsy: motivo y hora (reinicia el plazo del abono). */
+  receipt_rejected_reason?: string | null;
+  receipt_rejected_at?: string | null;
   /** Avisos de WhatsApp ya enviados: { abono: fecha, ... } */
   notified?: Record<string, string> | null;
 }

@@ -1,41 +1,6 @@
 import { beforeEach, describe, expect, it } from 'vitest';
-import { CitaError, createCitas, resumenDeCita, saldoDe, type CitaStore } from './cita';
-import type { Appointment } from './types';
-
-/** Almacén falso en memoria: el dominio solo lo ve a través de CitaStore. */
-function fakeStore(rows: Appointment[]): CitaStore & { get(id: string): Appointment | undefined } {
-  const m = new Map(rows.map((a) => [a.id, { ...a }]));
-  return {
-    get: (id) => m.get(id),
-    getAppointment: async (id) => m.get(id) ?? null,
-    updateAppointment: async (id, patch) => {
-      const a = m.get(id);
-      if (a) Object.assign(a, patch);
-    },
-  };
-}
-
-const base: Appointment = {
-  id: 'c1',
-  service_id: 's1',
-  service_name: 'Ondas',
-  customer_name: 'Ana Pérez',
-  customer_phone: '573001234567',
-  customer_email: null,
-  notes: '',
-  starts_at: '2026-12-01T15:00:00.000Z',
-  ends_at: '2026-12-01T16:30:00.000Z',
-  status: 'pendiente',
-  source: 'web',
-  google_event_id: null,
-  created_at: '2026-11-21T10:00:00.000Z',
-  home_service: false,
-  home_address: null,
-  hair_length: 'medio',
-  price: 80000,
-  deposit: 40000,
-  deposit_confirmed_at: null,
-};
+import { CitaError, createCitas, resumenDeCita, saldoDe } from './cita';
+import { base, fakeStore } from './cita.fixtures';
 
 describe('ajustar el valor final', () => {
   let store: ReturnType<typeof fakeStore>;

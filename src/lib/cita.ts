@@ -40,11 +40,11 @@ export interface ResumenCita extends Cotizacion {
   abono: 'por_pagar' | 'pagado' | null;
   /** Lo que se cobra el día de la cita; null si no aplica. */
   saldo: number | null;
-  /** Cambia cuando cambian el estado o los montos: la página de la clienta se recarga al verla distinta. */
+  /** Cambia con el estado, los montos o el comprobante: la página de la clienta se recarga al verla distinta. */
   firma: string;
 }
 
-type CitaVista = Pick<Appointment, 'status' | 'hair_length' | 'price' | 'deposit' | 'travel_fee' | 'deposit_confirmed_at'>;
+type CitaVista = Pick<Appointment, 'status' | 'hair_length' | 'price' | 'deposit' | 'travel_fee' | 'deposit_confirmed_at' | 'receipt_path' | 'receipt_rejected_at'>;
 
 /** Valor, abono y saldo tal como los ven Betsy en el panel y la clienta en su página. */
 export function resumenDeCita(a: CitaVista, sv: Tarifa | null | undefined): ResumenCita {
@@ -55,7 +55,7 @@ export function resumenDeCita(a: CitaVista, sv: Tarifa | null | undefined): Resu
   const abono = !exacto ? null : a.deposit_confirmed_at ? 'pagado' : a.status === 'pendiente' ? 'por_pagar' : null;
   // Sin abono de por medio (cita creada a mano) se cobra todo el valor el día de la cita.
   const saldo = cancelada || !exacto ? null : abono ? saldoDe(v) : v.price;
-  return { ...v, exacto, travel, abono: cancelada && abono === 'por_pagar' ? null : abono, saldo, firma: [a.status, v.price, v.deposit, travel].join('|') };
+  return { ...v, exacto, travel, abono: cancelada && abono === 'por_pagar' ? null : abono, saldo, firma: [a.status, v.price, v.deposit, travel, a.receipt_path ? 'rev' : '', a.receipt_rejected_at ?? ''].join('|') };
 }
 
 /** Error con un mensaje que se le puede mostrar a Betsy tal cual. */
@@ -64,10 +64,19 @@ export class CitaError extends Error {}
 /** Lo que el dominio necesita de la base de datos. */
 export interface CitaStore {
   getAppointment(id: string): Promise<Appointment | null>;
-  updateAppointment(id: string, patch: Partial<Pick<Appointment, 'price' | 'deposit' | 'travel_fee'>>): Promise<void>;
+  updateAppointment(
+    id: string,
+    patch: Partial<Pick<Appointment, 'price' | 'deposit' | 'travel_fee' | 'receipt_path' | 'receipt_at' | 'receipt_rejected_reason' | 'receipt_rejected_at'>>,
+  ): Promise<void>;
+  /** Borra el archivo del comprobante del bucket privado. */
+  deleteReceipt(path: string): Promise<void>;
 }
 
-export function createCitas(store: CitaStore) {
+export interface CitaDeps {
+  now: () => Date;
+}
+
+export function createCitas(store: CitaStore, { now }: CitaDeps = { now: () => new Date() }) {
   return {
     /** Betsy ajusta el valor final (cm adicionales, paquete, desplazamiento). */
     async ajustarValor(id: string, { price, travelFee = null }: { price: number; travelFee?: number | null }): Promise<void> {
@@ -85,6 +94,24 @@ export function createCitas(store: CitaStore) {
       // Abono ya confirmado: lo pagado no cambia, solo el saldo.
       if (!a.deposit_confirmed_at) patch.deposit = Math.min(depositOf(price) ?? price, price);
       await store.updateAppointment(id, patch);
+    },
+
+    /** Betsy rechaza un comprobante falso, borroso o por menos dinero: la cita vuelve a esperar abono. */
+    async rechazarComprobante(id: string, motivo: string): Promise<void> {
+      const reason = motivo.replace(/\s+/g, ' ').trim();
+      if (!reason) throw new CitaError('Escribe el motivo para que la clienta sepa qué corregir.');
+      if (reason.length > 200) throw new CitaError('El motivo es muy largo: máximo 200 caracteres.');
+      const a = await store.getAppointment(id);
+      if (!a) throw new CitaError('No encontramos esa cita. Recarga la página.');
+      if (a.status !== 'pendiente' || !a.receipt_path) throw new CitaError('Esta cita no tiene un comprobante en revisión.');
+      await store.updateAppointment(id, {
+        receipt_path: null,
+        receipt_at: null,
+        receipt_rejected_reason: reason,
+        receipt_rejected_at: now().toISOString(),
+      });
+      // Un archivo huérfano en el bucket privado no afecta a nadie: si falla el borrado, la cita igual queda rechazada.
+      await store.deleteReceipt(a.receipt_path).catch((e) => console.error('No se pudo borrar el comprobante', e));
     },
   };
 }

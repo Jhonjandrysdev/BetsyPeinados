@@ -1,7 +1,7 @@
 ---
 import Admin from '../../layouts/Admin.astro';
 import Icon from '../../components/Icon.astro';
-import { getAppointment, getAppointments, getBlockedDates, getGoogleConnection, getHours, getServices, getSettings, getTemplates, receiptUrl, updateAppointment } from '../../lib/db';
+import { deleteReceipt, getAppointment, getAppointments, getBlockedDates, getGoogleConnection, getHours, getServices, getSettings, getTemplates, receiptUrl, updateAppointment } from '../../lib/db';
 import { DEFAULT_TEMPLATES, fillTemplate, type NoticeEvent } from '../../lib/messages';
 import { book, BookingError, bookingSchema } from '../../lib/booking';
 import { cancelCalendarEvent, confirmCalendarEvent, createCalendarEvent } from '../../lib/google';
@@ -86,13 +86,26 @@ if (Astro.request.method === 'POST') {
     const price = pesos('price');
     if (price === null) return go('error', 'Escribe el valor de la cita.', desde, id);
     try {
-      await createCitas({ getAppointment, updateAppointment }).ajustarValor(id, { price, travelFee: pesos('travel_fee') });
+      await createCitas({ getAppointment, updateAppointment, deleteReceipt }).ajustarValor(id, { price, travelFee: pesos('travel_fee') });
     } catch (e) {
       if (e instanceof CitaError) return go('error', e.message, desde, id);
       console.error('Ajustar valor (¿faltan las migraciones precio_en_cita / valor_final?)', e);
       return go('error', 'No se pudo guardar el valor. Intenta de nuevo.', desde, id);
     }
     return go('ok', 'Valor actualizado. La clienta ya lo ve en su página.', desde, id);
+  }
+
+  if (action === 'rechazar') {
+    const id = str(fd, 'id', 40);
+    if (!isUuid(id)) return go('error', OOPS);
+    try {
+      await createCitas({ getAppointment, updateAppointment, deleteReceipt }).rechazarComprobante(id, str(fd, 'motivo', 300));
+    } catch (e) {
+      if (e instanceof CitaError) return go('error', e.message, desde, id);
+      console.error('Rechazar comprobante (¿falta la migración rechazo_comprobante?)', e);
+      return go('error', 'No se pudo rechazar el comprobante. Intenta de nuevo.', desde, id);
+    }
+    return go('ok', 'Comprobante rechazado. Avísale a la clienta por WhatsApp: el mensaje ya está escrito.', desde, id);
   }
 
   if (action === 'create') {
@@ -229,6 +242,13 @@ const shortWhen = (iso: string) => {
 type WaKind = NoticeEvent | 'hello';
 /** Abono confirmado y la clienta aún no sabe: se le ofrece el aviso. */
 const owesNotice = (a: Appointment) => a.status === 'confirmada' && Boolean(a.deposit_confirmed_at) && !a.notified?.abono && !started(a);
+/** Comprobante rechazado y la clienta aún no sabe (vale también para un segundo rechazo). */
+const owesRejectNotice = (a: Appointment) =>
+  a.status === 'pendiente' &&
+  !a.receipt_path &&
+  Boolean(a.receipt_rejected_at) &&
+  !((a.notified?.comprobante_rechazado ?? '') >= (a.receipt_rejected_at ?? '')) &&
+  !started(a);
 const waKind = (a: Appointment): WaKind =>
   a.status === 'completada'
     ? 'gracias'
@@ -236,11 +256,13 @@ const waKind = (a: Appointment): WaKind =>
       ? 'cancelada'
       : started(a)
         ? 'hello'
-        : a.status === 'pendiente'
-          ? 'apartada'
-          : owesNotice(a)
-            ? 'abono'
-            : 'recordatorio';
+        : owesRejectNotice(a)
+          ? 'comprobante_rechazado'
+          : a.status === 'pendiente'
+            ? 'apartada'
+            : owesNotice(a)
+              ? 'abono'
+              : 'recordatorio';
 const waText = (a: Appointment, kind: WaKind = waKind(a)) => {
   if (kind === 'hello') return `Hola ${firstName(a.customer_name)} 👋 Te escribe ${settings.business_name}.`;
   const { price, deposit } = valorOf(a);
@@ -248,7 +270,15 @@ const waText = (a: Appointment, kind: WaKind = waKind(a)) => {
 };
 const waLink = (a: Appointment, kind: WaKind = waKind(a)) => `https://wa.me/${a.customer_phone}?text=${encodeURIComponent(waText(a, kind))}`;
 const waLabel = (a: Appointment) =>
-  ({ recordatorio: 'Recordar por WhatsApp', apartada: 'Pedir abono', abono: 'Avisar: cita confirmada', gracias: 'Agradecer por WhatsApp', cancelada: 'Avisar cancelación', hello: 'Escribir por WhatsApp' })[
+  ({
+    recordatorio: 'Recordar por WhatsApp',
+    apartada: 'Pedir abono',
+    comprobante_rechazado: 'Avisar: comprobante rechazado',
+    abono: 'Avisar: cita confirmada',
+    gracias: 'Agradecer por WhatsApp',
+    cancelada: 'Avisar cancelación',
+    hello: 'Escribir por WhatsApp',
+  })[
     waKind(a)
   ];
 
@@ -511,7 +541,7 @@ const todayOff = offOf(today);
                             {a.status === 'confirmada' && <span class="sr-only">, Confirmada</span>}
                           </small>
                           {a.status === 'pendiente' && <span class="tag pendiente">{a.receipt_path ? 'Revisar comprobante' : 'Espera abono'}</span>}
-                          {owesNotice(a) && <span class="tag plain">Falta avisarle</span>}
+                          {(owesNotice(a) || owesRejectNotice(a)) && <span class="tag plain">Falta avisarle</span>}
                         </span>
                       </button>
                       {a.status !== 'cancelada' && (
@@ -700,8 +730,25 @@ const todayOff = offOf(today);
                 <Icon name="clock" size={16} />
                 {a.receipt_path
                   ? 'La clienta subió el comprobante. Revísalo y, si el abono llegó, confirma la cita.'
-                  : `Cupo apartado en espera del comprobante del abono del ${DEPOSIT_PCT}%. Cuando lo recibas, confírmala aquí.`}
+                  : a.receipt_rejected_reason
+                    ? `Rechazaste el comprobante («${a.receipt_rejected_reason}»). Esperando uno nuevo.`
+                    : `Cupo apartado en espera del comprobante del abono del ${DEPOSIT_PCT}%. Cuando lo recibas, confírmala aquí.`}
               </p>
+            )}
+            {a.status === 'pendiente' && a.receipt_path && (
+              <details class="ap-valor">
+                <summary>Rechazar comprobante</summary>
+                <form method="post" class="ap-valor-f" data-confirm={`¿Rechazar el comprobante de ${who}? Se borra y ella tendrá que enviar uno nuevo.`} data-confirm-yes="Sí, rechazar">
+                  <input type="hidden" name="action" value="rechazar" />
+                  <input type="hidden" name="id" value={a.id} />
+                  <input type="hidden" name="desde" value={start} />
+                  <div class="field">
+                    <label for={`r-${a.id}`}>Motivo (lo verá la clienta)</label>
+                    <input id={`r-${a.id}`} name="motivo" maxlength="200" required placeholder="La foto está borrosa · Llegó por menos dinero" />
+                  </div>
+                  <button class="btn btn-ghost">Rechazar comprobante</button>
+                </form>
+              </details>
             )}
             {owesNotice(a) && (
               <p class="ap-dep ok">
