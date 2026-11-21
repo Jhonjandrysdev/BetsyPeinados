@@ -51,7 +51,7 @@ const data = {
 
       <!-- Paso 1 -->
       <fieldset data-step="1">
-        <legend>¿Qué peinado quieres?</legend>
+        <legend><span class="step-title" tabindex="-1" data-step-title>¿Qué peinado quieres?</span></legend>
         <div class="options">
           {
             services.map((sv) => (
@@ -89,7 +89,7 @@ const data = {
 
       <!-- Paso 2 -->
       <fieldset data-step="2" hidden>
-        <legend>Elige el día y la hora</legend>
+        <legend><span class="step-title" tabindex="-1" data-step-title>Elige el día y la hora</span></legend>
         <div class="cal">
           <div class="cal-head">
             <button type="button" class="cal-nav" data-cal-prev aria-label="Mes anterior">‹</button>
@@ -103,7 +103,11 @@ const data = {
         </div>
         <div class="slots-wrap">
           <h2 class="slots-title" data-slots-title>Selecciona un día</h2>
-          <div class="slots" data-slots role="radiogroup" aria-label="Horas disponibles" aria-live="polite"></div>
+          <fieldset class="slots-set">
+            <legend class="sr-only">Horas disponibles</legend>
+            <div class="slots" data-slots></div>
+          </fieldset>
+          <p class="sr-only" data-slots-status aria-live="polite"></p>
         </div>
         <div class="actions">
           <button type="button" class="btn btn-ghost" data-prev>Atrás</button>
@@ -113,7 +117,7 @@ const data = {
 
       <!-- Paso 3 -->
       <fieldset data-step="3" hidden>
-        <legend>Tus datos</legend>
+        <legend><span class="step-title" tabindex="-1" data-step-title>Tus datos</span></legend>
         <div class="summary" data-summary></div>
         <div class="hair" data-hair hidden>
           <p class="hair-t">Largo de tu cabello</p>
@@ -179,11 +183,11 @@ const data = {
             <span>Acepto el tratamiento de mis datos para gestionar mi cita, según la <a href="/privacidad" target="_blank">política de privacidad</a>.</span>
           </label>
         </div>
-        <p class="notice error" data-error hidden role="alert"></p>
+        <div class="notice error" data-error hidden role="alert" tabindex="-1"><span data-error-text></span></div>
         <p class="dep-line"><Icon name="money" size={18} /> <span data-dep-line>Tu cupo queda apartado y lo aseguras con el abono del {DEPOSIT_PCT}%. Te muestro cómo pagar al reservar.</span></p>
         <div class="actions">
           <button type="button" class="btn btn-ghost" data-prev>Atrás</button>
-          <button type="submit" class="btn btn-clay" data-submit><Icon name="check" /> Apartar mi cupo</button>
+          <button type="submit" class="btn btn-clay" data-submit><span class="spin" aria-hidden="true"></span><Icon name="check" /> <span data-submit-label>Apartar mi cupo</span></button>
         </div>
       </fieldset>
     </form>
@@ -464,8 +468,9 @@ const data = {
     margin-bottom: 0.4rem;
   }
   .cal-grid :global(button) {
+    min-height: 44px;
     aspect-ratio: 1;
-    border-radius: 50%;
+    border-radius: 999px;
     border: 0;
     background: transparent;
     font: 600 0.95rem var(--font-body);
@@ -504,6 +509,51 @@ const data = {
     grid-template-columns: repeat(auto-fill, minmax(104px, 1fr));
     gap: 0.5rem;
     min-height: 52px;
+  }
+  .slots-set {
+    border: 0;
+    margin: 0;
+    padding: 0;
+  }
+  .step-title:focus {
+    outline: none;
+  }
+  .step-title:focus-visible {
+    outline: 2.5px solid var(--clay);
+    outline-offset: 4px;
+  }
+  .slots :global(label) {
+    position: relative;
+  }
+  .slots :global(input) {
+    position: absolute;
+    inset: 0;
+    opacity: 0;
+    margin: 0;
+    cursor: pointer;
+  }
+  .slots :global(label span) {
+    display: grid;
+    place-items: center;
+    min-height: 48px;
+    border-radius: 14px;
+    border: 1.5px solid var(--line);
+    background: var(--cream);
+    font: 650 0.95rem var(--font-body);
+    color: var(--cocoa);
+    transition: background-color 0.2s, border-color 0.2s;
+  }
+  .slots :global(label:hover span) {
+    border-color: var(--clay);
+  }
+  .slots :global(input:checked + span) {
+    background: var(--cocoa);
+    border-color: var(--cocoa);
+    color: var(--white);
+  }
+  .slots :global(input:focus-visible + span) {
+    outline: 2.5px solid var(--clay);
+    outline-offset: 2px;
   }
   .slots :global(button) {
     min-height: 48px;
@@ -671,6 +721,30 @@ const data = {
   [data-error] {
     margin-top: 1rem;
   }
+  [data-error] :global(button) {
+    display: block;
+    margin-top: 0.6rem;
+  }
+  .spin {
+    display: none;
+    width: 16px;
+    height: 16px;
+    border: 2px solid currentColor;
+    border-right-color: transparent;
+    border-radius: 50%;
+    animation: spin 0.7s linear infinite;
+  }
+  [data-submit][aria-busy='true'] .spin {
+    display: inline-block;
+  }
+  [data-submit][aria-busy='true'] :global(svg) {
+    display: none;
+  }
+  @keyframes spin {
+    to {
+      transform: rotate(1turn);
+    }
+  }
   .help {
     text-align: center;
     margin-top: 1.5rem;
@@ -729,10 +803,17 @@ const data = {
   const today = new Intl.DateTimeFormat('en-CA', { timeZone: 'America/Bogota' }).format(new Date());
   const reduceMotion = window.matchMedia('(prefers-reduced-motion: reduce)').matches;
 
-  function showError(msg: string) {
+  function showError(msg: string, action?: { label: string; run: () => void }) {
     const el = $<HTMLElement>('[data-error]');
-    el.textContent = msg;
+    $('[data-error-text]').textContent = msg;
+    el.querySelector('button')?.remove();
+    if (action) {
+      const b = Object.assign(document.createElement('button'), { type: 'button', className: 'btn btn-ghost', textContent: action.label });
+      b.addEventListener('click', action.run);
+      el.append(b);
+    }
     el.hidden = !msg;
+    if (msg) el.focus();
   }
 
   function go(step: number) {
@@ -747,9 +828,11 @@ const data = {
       d.querySelector<HTMLButtonElement>('button')!.disabled = n >= step;
     });
     showError('');
+    clearStepAlert();
     if (step === 2) renderCal();
     if (step === 3) renderSummary();
-    form.scrollIntoView({ behavior: 'smooth', block: 'start' });
+    form.scrollIntoView({ behavior: reduceMotion ? 'auto' : 'smooth', block: 'start' });
+    form.querySelector<HTMLElement>(`[data-step="${step}"] [data-step-title]`)?.focus({ preventScroll: true });
   }
 
   const serviceId = () => (new FormData(form).get('service_id') as string) || '';
@@ -808,21 +891,22 @@ const data = {
       box.removeAttribute('aria-busy');
       if (!res.ok) throw new Error(j.error);
       box.replaceChildren();
+      const status = $('[data-slots-status]');
       if (!j.slots.length) {
         box.append(Object.assign(document.createElement('p'), { textContent: 'No quedan espacios este día. Prueba con otra fecha 🌿' }));
+        status.textContent = 'No quedan horarios este día.';
         return;
       }
+      status.textContent = `${j.slots.length} ${j.slots.length === 1 ? 'horario disponible' : 'horarios disponibles'}.`;
       for (const t of j.slots as string[]) {
-        const b = document.createElement('button');
-        b.type = 'button';
-        b.textContent = pretty12(t);
-        b.setAttribute('role', 'radio');
-        b.setAttribute('aria-checked', 'false');
-        b.addEventListener('click', () => {
+        const label = document.createElement('label');
+        const input = Object.assign(document.createElement('input'), { type: 'radio', name: 'slot', value: t });
+        input.addEventListener('change', () => {
           state.time = t;
-          box.querySelectorAll('button').forEach((x) => x.setAttribute('aria-checked', String(x === b)));
+          clearStepAlert();
         });
-        box.append(b);
+        label.append(input, Object.assign(document.createElement('span'), { textContent: pretty12(t) }));
+        box.append(label);
       }
     } catch (e) {
       if (mine !== reqId) return;
@@ -870,7 +954,10 @@ const data = {
   form.addEventListener('change', (e) => {
     const t = e.target as HTMLInputElement;
     if (t.name === 'hair_length') renderSummary();
-    if (t.name === 'service_id') renderPick();
+    if (t.name === 'service_id') {
+      renderPick();
+      clearStepAlert();
+    }
     if (t.matches('[data-home-toggle]')) {
       const f = $<HTMLElement>('[data-home-field]');
       f.hidden = !t.checked;
@@ -904,16 +991,20 @@ const data = {
     renderCal();
   }
 
+  // El aviso se queda hasta que se corrige (elegir servicio u hora, o cambiar de paso).
   function alertStep(msg: string) {
     let el = form.querySelector<HTMLElement>(`[data-step="${state.step}"] .step-alert`);
     if (!el) {
-      el = Object.assign(document.createElement('p'), { className: 'notice error step-alert' });
+      el = Object.assign(document.createElement('p'), { className: 'notice error step-alert', tabIndex: -1 });
       el.setAttribute('role', 'alert');
       el.style.marginTop = '1rem';
       form.querySelector(`[data-step="${state.step}"] .actions`)!.before(el);
     }
     el.textContent = msg;
-    setTimeout(() => el?.remove(), 4000);
+    el.focus();
+  }
+  function clearStepAlert() {
+    form.querySelectorAll('.step-alert').forEach((x) => x.remove());
   }
 
   form.addEventListener('submit', async (ev) => {
@@ -922,7 +1013,10 @@ const data = {
     if (!form.reportValidity()) return;
     const fd = new FormData(form);
     const btn = $<HTMLButtonElement>('[data-submit]');
+    const label = $('[data-submit-label]');
     btn.disabled = true;
+    btn.setAttribute('aria-busy', 'true');
+    label.textContent = 'Apartando…';
     showError('');
     try {
       const res = await fetch('/api/book', {
@@ -951,14 +1045,16 @@ const data = {
       });
       const j = await res.json();
       if (!res.ok) {
-        showError(j.error || 'No pudimos guardar tu cita.');
         if (res.status === 409) {
           state.time = '';
-          setTimeout(() => {
-            go(2);
-            pickDate(state.date);
-          }, 1800);
-        }
+          showError(j.error || 'Esa hora acaba de ocuparse.', {
+            label: 'Elegir otra hora',
+            run: () => {
+              go(2);
+              pickDate(state.date);
+            },
+          });
+        } else showError(j.error || 'No pudimos guardar tu cita.');
         return;
       }
       location.assign(`/reserva/${j.id}`);
@@ -966,6 +1062,8 @@ const data = {
       showError('Sin conexión. Revisa tu internet e intenta de nuevo.');
     } finally {
       btn.disabled = false;
+      btn.removeAttribute('aria-busy');
+      label.textContent = 'Apartar mi cupo';
     }
   });
 
