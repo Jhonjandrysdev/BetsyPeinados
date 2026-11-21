@@ -118,7 +118,9 @@ async function sendToMeta(payload: Record<string, unknown>): Promise<string | un
               : e.code === 131030
                 ? ' (con el número de prueba de Meta solo puedes escribir a números agregados en la lista de prueba)'
                 : '';
-    throw new Error(`${e.error_data?.details || e.message || `Error ${r.status}`}${hint}`.slice(0, 480));
+    // Con pista conocida, se explica en español; si no, se deja el detalle de Meta como referencia técnica.
+    const detail = e.error_data?.details || e.message || `Error ${r.status}`;
+    throw new Error((hint ? `WhatsApp no aceptó el mensaje${hint}` : `WhatsApp no aceptó el mensaje (detalle de Meta: ${detail})`).slice(0, 480));
   }
   return data.messages?.[0]?.id;
 }
@@ -234,7 +236,8 @@ export function waErrorText(r: SendResult): string {
   if (r.ok) return '';
   if (r.reason === 'not_configured') return 'el WhatsApp automático no está conectado';
   if (r.reason === 'window_closed') return 'la clienta no te ha escrito en las últimas 24 horas';
-  return r.error ?? 'error desconocido';
+  // Sin punto final: quien lo muestra decide cómo cerrar la frase.
+  return (r.error ?? 'error desconocido').replace(/[.\s]+$/, '');
 }
 
 export const verifyToken = () => env('WHATSAPP_VERIFY_TOKEN');
