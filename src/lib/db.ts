@@ -184,14 +184,33 @@ export async function createAppointment(
 
 export async function updateAppointment(
   id: string,
-  patch: Partial<Pick<Appointment, 'status' | 'google_event_id' | 'notes' | 'deposit_confirmed_at' | 'receipt_path' | 'receipt_at' | 'notified'>>,
+  patch: Partial<
+    Pick<
+      Appointment,
+      | 'status'
+      | 'google_event_id'
+      | 'notes'
+      | 'deposit_confirmed_at'
+      | 'receipt_path'
+      | 'receipt_at'
+      | 'notified'
+      | 'starts_at'
+      | 'ends_at'
+      | 'client_confirmed_at'
+      | 'change_requested_at'
+      | 'rescheduled_at'
+    >
+  >,
 ): Promise<void> {
   if (demoMode) {
     const a = demo.appointments.find((x) => x.id === id);
     if (a) Object.assign(a, patch);
     return;
   }
-  check(await supabaseAdmin().from('appointments').update(patch).eq('id', id));
+  const res = await supabaseAdmin().from('appointments').update(patch).eq('id', id);
+  // 23P01 = cruce con otra cita activa (al cambiar la hora)
+  if (res.error?.code === '23P01') throw new SlotTakenError('Horario ocupado');
+  check(res);
 }
 
 export type { AppointmentStatus };

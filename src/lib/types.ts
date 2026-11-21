@@ -23,6 +23,10 @@ export interface SiteSettings {
   pay_holder?: string | null;
   pay_bank?: string | null;
   pay_qr_path?: string | null;
+  /** Precio en pesos de cada mensaje que Meta cobra (para el costo en el panel). */
+  wa_rate_cop?: number | null;
+  /** El recordatorio "¿Confirmas tu cita?" sale solo el día anterior. */
+  wa_auto_reminder?: boolean | null;
 }
 
 export interface Service {
@@ -79,6 +83,30 @@ export interface Appointment {
   receipt_at?: string | null;
   /** Avisos de WhatsApp ya enviados: { abono: fecha, ... } */
   notified?: Record<string, string> | null;
+  /** La clienta tocó "Confirmo" en WhatsApp. */
+  client_confirmed_at?: string | null;
+  /** La clienta tocó "Cambiar hora" en WhatsApp y espera otra hora. */
+  change_requested_at?: string | null;
+  /** Última vez que Betsy le cambió la fecha u hora. */
+  rescheduled_at?: string | null;
+}
+
+export type WaStatus = 'enviando' | 'enviado' | 'entregado' | 'leido' | 'fallido' | 'recibido' | 'manual';
+
+export interface WaMessage {
+  id: number;
+  appointment_id: string | null;
+  phone: string;
+  direction: 'out' | 'in';
+  event: string | null;
+  body: string;
+  kind: string;
+  status: WaStatus;
+  error: string | null;
+  wa_message_id: string | null;
+  billable: boolean | null;
+  category: string | null;
+  created_at: string;
 }
 
 export interface GalleryImage {

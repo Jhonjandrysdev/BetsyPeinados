@@ -2,6 +2,7 @@ import { z } from 'zod';
 import { createAppointment, getService, getSettings, updateAppointment, SlotTakenError } from './db';
 import { createCalendarEvent } from './google';
 import { availableSlots } from './slots';
+import { sendNotice, waConfigured } from './whatsapp';
 import { fromLocal, isDate, isTime } from './time';
 import type { Appointment } from './types';
 
@@ -84,6 +85,15 @@ export async function book(input: BookingInput, source: 'web' | 'admin'): Promis
     }
   } catch (e) {
     console.error('No se pudo crear el evento en Google Calendar', e);
+  }
+
+  // Reserva web: el aviso de "cupo apartado" con los datos del abono le llega solo por WhatsApp.
+  if (source === 'web' && waConfigured()) {
+    try {
+      await sendNotice(appt, 'apartada');
+    } catch (e) {
+      console.error('No se pudo enviar el aviso de WhatsApp', e);
+    }
   }
   return appt;
 }
