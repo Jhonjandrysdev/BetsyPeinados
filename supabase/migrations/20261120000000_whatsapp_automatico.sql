@@ -38,10 +38,11 @@ alter table public.appointments
   add column if not exists change_requested_at timestamptz,
   add column if not exists rescheduled_at timestamptz;
 
--- Nuevo aviso editable: cita reagendada.
+-- Nuevo aviso editable: cita reagendada. Incluye también los avisos de comprobante rechazado
+-- y cupo liberado (migraciones del 2026-11-21) para que volver a correr esta no los borre.
 alter table public.message_templates drop constraint if exists message_templates_event_check;
 alter table public.message_templates add constraint message_templates_event_check
-  check (event in ('apartada', 'abono', 'recordatorio', 'reagendada', 'gracias', 'cancelada'));
+  check (event in ('apartada', 'abono', 'recordatorio', 'reagendada', 'gracias', 'cancelada', 'comprobante_rechazado', 'cupo_liberado'));
 
 -- Precio de un mensaje cobrado por Meta, en pesos (para calcular el costo en el panel),
 -- y si el recordatorio de confirmación sale solo el día antes.
