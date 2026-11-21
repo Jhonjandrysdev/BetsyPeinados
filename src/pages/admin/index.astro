@@ -1,12 +1,13 @@
 ---
 import Admin from '../../layouts/Admin.astro';
 import Icon from '../../components/Icon.astro';
-import { SlotTakenError, getAppointment, getAppointments, getBlockedDates, getGoogleConnection, getHours, getServices, getSettings, getTemplates, receiptUrl, updateAppointment } from '../../lib/db';
+import { SlotTakenError, citaStore, getAppointment, getAppointments, getBlockedDates, getGoogleConnection, getHours, getServices, getSettings, getTemplates, receiptUrl, updateAppointment } from '../../lib/db';
 import { DEFAULT_TEMPLATES, NOTICE_EVENTS, fillTemplate, type NoticeEvent } from '../../lib/messages';
-import { sendFree, sendNotice, waConfigured, waErrorText, waMessagesForPhones, waNumber, windowOpen, type SendResult } from '../../lib/whatsapp';
+import { sendFree, sendNotice, sendNoticeSafe, waConfigured, waErrorText, waMessagesForPhones, waNumber, windowOpen, type SendResult } from '../../lib/whatsapp';
 import { book, BookingError, bookingSchema } from '../../lib/booking';
 import { cancelCalendarEvent, confirmCalendarEvent, createCalendarEvent, moveCalendarEvent } from '../../lib/google';
-import { DEPOSIT_PCT, HAIR_LENGTHS, depositOf, hairLabel, priceFor } from '../../lib/defaults';
+import { DEPOSIT_PCT, HAIR_LENGTHS, hairLabel } from '../../lib/defaults';
+import { CitaError, createCitas, cupoLiberado, debeAvisarRechazo, resumenDeCita, valorDeCita } from '../../lib/cita';
 import { addDays, formatCOP, fromLocal, isDate, localDate, localTime, minutesOf, prettyDate, prettyTime as prettyTimeRaw, weekdayOf } from '../../lib/time';
 import { isUuid, str } from '../../lib/admin';
 import type { Appointment, AppointmentStatus } from '../../lib/types';
@@ -27,6 +28,7 @@ if (Astro.request.method === 'POST') {
       headers: { Location: `/admin?${isDate(week) ? `desde=${week}&` : ''}${open ? `abrir=${open}&` : ''}${kind}=${encodeURIComponent(msg)}` },
     });
   const OOPS = 'Algo salió mal. Recarga la página e intenta de nuevo.';
+  const citas = createCitas(citaStore);
   const waOn = waConfigured();
   /** Frase para el aviso flotante según cómo salió el WhatsApp. */
   const waSay = (r: SendResult | null, who: string) =>
@@ -44,7 +46,9 @@ if (Astro.request.method === 'POST') {
     if (!appt) return go('error', 'No encontramos esa cita. Recarga la página.');
     const prev = appt.status;
     const depositOk = status === 'confirmada' && prev === 'pendiente';
-    await updateAppointment(id, depositOk ? { status, deposit_confirmed_at: new Date().toISOString() } : { status });
+    // Si se reactiva una cita cancelada, ya no aplica el motivo de cancelación.
+    const reopen = prev === 'cancelada' ? { cancel_reason: null } : {};
+    await updateAppointment(id, depositOk ? { status, deposit_confirmed_at: new Date().toISOString(), ...reopen } : { status, ...reopen });
     if (depositOk) {
       // Abono recibido: la cita queda en firme también en Google Calendar.
       try {
@@ -99,6 +103,43 @@ if (Astro.request.method === 'POST') {
     );
   }
 
+  if (action === 'valor') {
+    const id = str(fd, 'id', 40);
+    if (!isUuid(id)) return go('error', OOPS);
+    // Pesos sin puntos: "95.000" o "95000" valen lo mismo.
+    const pesos = (k: string) => {
+      const raw = str(fd, k, 20).replace(/[\s.$]/g, '');
+      return raw === '' ? null : /^\d+$/.test(raw) ? Number(raw) : Number.NaN;
+    };
+    const price = pesos('price');
+    if (price === null) return go('error', 'Escribe el valor de la cita.', desde, id);
+    try {
+      await citas.ajustarValor(id, { price, travelFee: pesos('travel_fee') });
+    } catch (e) {
+      if (e instanceof CitaError) return go('error', e.message, desde, id);
+      console.error('Ajustar valor (¿faltan las migraciones precio_en_cita / valor_final?)', e);
+      return go('error', 'No se pudo guardar el valor. Intenta de nuevo.', desde, id);
+    }
+    return go('ok', 'Valor actualizado. La clienta ya lo ve en su página.', desde, id);
+  }
+
+  if (action === 'rechazar') {
+    const id = str(fd, 'id', 40);
+    if (!isUuid(id)) return go('error', OOPS);
+    try {
+      await citas.rechazarComprobante(id, str(fd, 'motivo', 300), str(fd, 'receipt', 200) || undefined);
+    } catch (e) {
+      if (e instanceof CitaError) return go('error', e.message, desde, id);
+      console.error('Rechazar comprobante (¿falta la migración rechazo_comprobante?)', e);
+      return go('error', 'No se pudo rechazar el comprobante. Intenta de nuevo.', desde, id);
+    }
+    // Con el WhatsApp automático conectado, el aviso con el motivo le llega solo.
+    const rejected = waOn ? await getAppointment(id) : null;
+    if (!rejected) return go('ok', 'Comprobante rechazado. Avísale a la clienta por WhatsApp: el mensaje ya está escrito.', desde, id);
+    const wa = await sendNoticeSafe(rejected, 'comprobante_rechazado');
+    return go(wa.ok ? 'ok' : 'warn', `Comprobante rechazado.${waSay(wa, firstName(rejected.customer_name))}`, desde, id);
+  }
+
   // Enviar por WhatsApp (API) el aviso que toca, o pedirle a la clienta que confirme.
   if (action === 'notice') {
     const id = str(fd, 'id', 40);
@@ -108,7 +149,7 @@ if (Astro.request.method === 'POST') {
     if (!appt) return go('error', 'No encontramos esa cita. Recarga la página.');
     const who = firstName(appt.customer_name);
     if (!waOn) return go('error', 'El WhatsApp automático aún no está conectado. Usa «Abrir en mi WhatsApp».', desde, id);
-    const r = await sendNotice(appt, ev).catch((e) => ({ ok: false, reason: 'error', error: String(e?.message ?? e) }) as SendResult);
+    const r = await sendNoticeSafe(appt, ev);
     if (!r.ok) return go('error', `No se pudo enviar a ${who}: ${waErrorText(r)}.`, desde, id);
     return go('ok', ev === 'recordatorio' ? `Listo: le preguntamos a ${who} si confirma. Verás su respuesta aquí.` : `Mensaje enviado a ${who}${r.kind === 'plantilla' ? ' (plantilla de Meta)' : ''}.`, desde, id);
   }
@@ -170,7 +211,7 @@ if (Astro.request.method === 'POST') {
       }
     }
     let wa: SendResult | null = null;
-    if (notify && waOn) wa = await sendNotice({ ...moved, notified }, 'reagendada').catch((e) => ({ ok: false, reason: 'error', error: String(e?.message ?? e) }) as SendResult);
+    if (notify && waOn) wa = await sendNoticeSafe({ ...moved, notified }, 'reagendada');
     const msg = `Cita de ${who} movida al ${prettyDate(moved.starts_at).toLowerCase()} a las ${prettyTimeRaw(moved.starts_at)}.${gcalFail ? ' No se pudo mover en tu Google Calendar: cámbiala a mano allá.' : ''}${waSay(wa, who)}${notify && !waOn ? ' Avísale con el botón de WhatsApp.' : ''}`;
     return go(gcalFail || (wa && !wa.ok) ? 'warn' : 'ok', msg, mondayOf(date), id);
   }
@@ -228,7 +269,7 @@ const end = addDays(start, 7);
 const weekDays = Array.from({ length: 7 }, (_, i) => addDays(start, i));
 const thisWeek = weekDays.includes(today);
 
-const [appts, services, hours, blocked, upcoming, todayAll, google, settings, templates] = await Promise.all([
+const [appts, services, hours, blocked, upcoming, todayAll, google, settings, templates, upcomingAll] = await Promise.all([
   getAppointments({ from: fromLocal(start, '00:00'), to: fromLocal(end, '00:00') }),
   getServices(false),
   getHours(),
@@ -238,6 +279,8 @@ const [appts, services, hours, blocked, upcoming, todayAll, google, settings, te
   getGoogleConnection(),
   getSettings(),
   getTemplates(),
+  // Incluye canceladas: para avisar de los cupos que el sistema liberó por falta de abono.
+  getAppointments({ from: now, to: new Date(now.getTime() + 90 * 864e5) }),
 ]);
 
 const isActive = (a: Appointment) => a.status === 'confirmada' || a.status === 'pendiente';
@@ -266,9 +309,10 @@ const offsetOf = (iso: string) => minutesOf(localTime(new Date(iso))) - dayStart
 const durOf = (a: Appointment) => Math.max(20, (new Date(a.ends_at).getTime() - new Date(a.starts_at).getTime()) / 60000);
 
 // Indicadores (cifras reales de la semana mostrada)
-const priceOf = new Map(services.map((s) => [s.id, s.price_from ?? 0]));
+const svcOf = new Map(services.map((x) => [x.id, x]));
+const valorOf = (a: Appointment) => valorDeCita(a, svcOf.get(a.service_id ?? ''));
 const weekActive = appts.filter(isActive);
-const income = appts.filter((a) => a.status !== 'cancelada').reduce((t, a) => t + (a.service_id ? (priceOf.get(a.service_id) ?? 0) : 0), 0);
+const income = appts.filter((a) => a.status !== 'cancelada').reduce((t, a) => t + (valorOf(a).price ?? 0), 0);
 const next = upcoming.find((a) => new Date(a.starts_at) > now);
 const emptyWeek = weekActive.length === 0 && income === 0;
 const present = new Set(appts.filter((a) => a.status !== 'cancelada').map((a) => a.status));
@@ -306,33 +350,53 @@ const shortWhen = (iso: string) => {
 
 // WhatsApp: el mensaje depende del estado (plantillas editables en Mensajes).
 type WaKind = NoticeEvent | 'hello';
-const svcOf = new Map(services.map((x) => [x.id, x]));
-/** Valor de la cita: por largo de cabello si el servicio tiene tarifas, si no el "desde" del servicio. */
-const priceOfAppt = (a: Appointment) => priceFor(svcOf.get(a.service_id ?? ''), a.hair_length) ?? (a.service_id ? (priceOf.get(a.service_id) ?? 0) : 0);
 /** Abono confirmado y la clienta aún no sabe: se le ofrece el aviso. */
 const owesNotice = (a: Appointment) => a.status === 'confirmada' && Boolean(a.deposit_confirmed_at) && !a.notified?.abono && !started(a);
+const owesRejectNotice = (a: Appointment) => debeAvisarRechazo(a, now);
+/** El sistema liberó el cupo por falta de abono y la clienta aún no lo sabe. */
+const owesReleaseNotice = (a: Appointment) => cupoLiberado(a) && !a.notified?.cupo_liberado && !started(a);
+/** Comprobantes por revisar entre las citas próximas: el plazo no corre mientras esperan a Betsy. */
+const toReview = upcoming.filter((a) => a.status === 'pendiente' && a.receipt_path);
+/** Cupos liberados por falta de abono a los que aún no se les avisó (las canceladas no salen en la agenda). */
+const toNotifyReleased = upcomingAll.filter(owesReleaseNotice);
 const waKind = (a: Appointment): WaKind =>
   a.status === 'completada'
     ? 'gracias'
     : a.status === 'cancelada'
-      ? 'cancelada'
+      ? cupoLiberado(a)
+        ? 'cupo_liberado'
+        : 'cancelada'
       : started(a)
         ? 'hello'
-        : a.status === 'pendiente'
-          ? 'apartada'
-          : owesNotice(a)
-            ? 'abono'
-            : a.rescheduled_at && !a.notified?.reagendada
+        : owesRejectNotice(a)
+          ? 'comprobante_rechazado'
+          : a.status === 'pendiente'
+            ? a.rescheduled_at && !a.notified?.reagendada
               ? 'reagendada'
-              : 'recordatorio';
+              : 'apartada'
+            : owesNotice(a)
+              ? 'abono'
+              : a.rescheduled_at && !a.notified?.reagendada
+                ? 'reagendada'
+                : 'recordatorio';
 const waText = (a: Appointment, kind: WaKind = waKind(a)) => {
   if (kind === 'hello') return `Hola ${firstName(a.customer_name)} 👋 Te escribe ${settings.business_name}.`;
-  const exact = priceFor(svcOf.get(a.service_id ?? ''), a.hair_length);
-  return fillTemplate(templates[kind] ?? DEFAULT_TEMPLATES[kind], { a, s: settings, price: priceOfAppt(a) || null, deposit: exact ? depositOf(exact) : null });
+  const { price, deposit } = valorOf(a);
+  return fillTemplate(templates[kind] ?? DEFAULT_TEMPLATES[kind], { a, s: settings, price, deposit });
 };
 const waLink = (a: Appointment, kind: WaKind = waKind(a)) => `https://wa.me/${a.customer_phone}?text=${encodeURIComponent(waText(a, kind))}`;
 const waLabel = (a: Appointment) =>
-  ({ recordatorio: 'Pedir confirmación', reagendada: 'Avisar nueva hora', apartada: 'Pedir abono', abono: 'Avisar: cita confirmada', gracias: 'Agradecer por WhatsApp', cancelada: 'Avisar cancelación', hello: 'Escribir por WhatsApp' })[
+  ({
+    recordatorio: 'Pedir confirmación',
+    reagendada: 'Avisar nueva hora',
+    apartada: 'Pedir abono',
+    comprobante_rechazado: 'Avisar: comprobante rechazado',
+    abono: 'Avisar: cita confirmada',
+    gracias: 'Agradecer por WhatsApp',
+    cancelada: 'Avisar cancelación',
+    cupo_liberado: 'Avisar: cupo liberado',
+    hello: 'Escribir por WhatsApp',
+  })[
     waKind(a)
   ];
 
@@ -392,6 +456,44 @@ const todayOff = offOf(today);
   <button type="button" class="btn btn-clay fab" data-open-new data-fab>
     <Icon name="plus" /> Nueva cita
   </button>
+
+  {
+    toReview.length > 0 && (
+      <section class="review panel" aria-labelledby="review-t">
+        <p class="review-t" id="review-t">
+          <Icon name="upload" size={16} /> {toReview.length === 1 ? '1 comprobante por revisar' : `${toReview.length} comprobantes por revisar`}
+        </p>
+        <ul>
+          {toReview.map((a) => (
+            <li>
+              <a href={`/admin?desde=${mondayOf(localDate(new Date(a.starts_at)))}&abrir=${a.id}`}>
+                {a.customer_name} · {shortWhen(a.starts_at)}
+              </a>
+            </li>
+          ))}
+        </ul>
+      </section>
+    )
+  }
+
+  {
+    toNotifyReleased.length > 0 && (
+      <section class="review panel" aria-labelledby="released-t">
+        <p class="review-t" id="released-t">
+          <Icon name="clock" size={16} /> {toNotifyReleased.length === 1 ? '1 cupo liberado por falta de abono' : `${toNotifyReleased.length} cupos liberados por falta de abono`}
+        </p>
+        <ul>
+          {toNotifyReleased.map((a) => (
+            <li>
+              <a class="btn btn-wa" data-notice={`${a.id}:cupo_liberado`} href={waLink(a)} target="_blank" rel="noopener">
+                <Icon name="whatsapp" /> Avisar a {a.customer_name} · {shortWhen(a.starts_at)}
+              </a>
+            </li>
+          ))}
+        </ul>
+      </section>
+    )
+  }
 
   <!-- Hoy (escritorio y tableta) -->
   <section class="hoy panel" aria-labelledby="today-t">
@@ -607,7 +709,7 @@ const todayOff = offOf(today);
                             {a.status === 'confirmada' && <span class="sr-only">, Confirmada</span>}
                           </small>
                           {a.status === 'pendiente' && <span class="tag pendiente">{a.receipt_path ? 'Revisar comprobante' : 'Espera abono'}</span>}
-                          {owesNotice(a) && <span class="tag plain">Falta avisarle</span>}
+                          {(owesNotice(a) || owesRejectNotice(a) || owesReleaseNotice(a)) && <span class="tag plain">Falta avisarle</span>}
                           {isActive(a) && a.change_requested_at && <span class="tag ask-wa">Pide otra hora</span>}
                           {isActive(a) && !a.change_requested_at && a.client_confirmed_at && <span class="tag ok-wa">Confirmó</span>}
                         </span>
@@ -726,17 +828,38 @@ const todayOff = offOf(today);
                   <dd>{hairLabel(a.hair_length)}</dd>
                 </div>
               )}
-              {priceOfAppt(a) > 0 && (
-                <div>
-                  <dt>
-                    <Icon name="money" size={16} /> {priceFor(svcOf.get(a.service_id ?? ''), a.hair_length) ? 'Valor' : 'Valor desde'}
-                  </dt>
-                  <dd>
-                    {formatCOP(priceOfAppt(a))}
-                    <small class="muted"> · abono {DEPOSIT_PCT}%: {formatCOP(depositOf(priceOfAppt(a)))}</small>
-                  </dd>
-                </div>
-              )}
+              {(() => {
+                const r = resumenDeCita(a, svcOf.get(a.service_id ?? ''));
+                return (
+                  <>
+                    <div>
+                      <dt>
+                        <Icon name="money" size={16} /> {r.price == null || r.exacto ? 'Valor' : 'Valor desde'}
+                      </dt>
+                      <dd>
+                        {r.price == null ? 'Por definir' : formatCOP(r.price)}
+                        {r.travel > 0 && <small class="muted"> · incluye desplazamiento {formatCOP(r.travel)}</small>}
+                      </dd>
+                    </div>
+                    {r.abono && (
+                      <div>
+                        <dt>
+                          <Icon name="check" size={16} /> {r.abono === 'pagado' ? 'Abono pagado' : `Abono (${DEPOSIT_PCT}%)`}
+                        </dt>
+                        <dd>{formatCOP(r.deposit)}</dd>
+                      </div>
+                    )}
+                    {r.saldo != null && (
+                      <div>
+                        <dt>
+                          <Icon name="money" size={16} /> Saldo el día de la cita
+                        </dt>
+                        <dd>{formatCOP(r.saldo)}</dd>
+                      </div>
+                    )}
+                  </>
+                );
+              })()}
               {a.home_service && (
                 <div>
                   <dt>
@@ -787,8 +910,26 @@ const todayOff = offOf(today);
                 <Icon name="clock" size={16} />
                 {a.receipt_path
                   ? 'La clienta subió el comprobante. Revísalo y, si el abono llegó, confirma la cita.'
-                  : `Cupo apartado en espera del comprobante del abono del ${DEPOSIT_PCT}%. Cuando lo recibas, confírmala aquí.`}
+                  : a.receipt_rejected_reason
+                    ? `Rechazaste el comprobante («${a.receipt_rejected_reason}»). Esperando uno nuevo.`
+                    : `Cupo apartado en espera del comprobante del abono del ${DEPOSIT_PCT}%. Cuando lo recibas, confírmala aquí.`}
               </p>
+            )}
+            {a.status === 'pendiente' && a.receipt_path && (
+              <details class="ap-valor">
+                <summary>Rechazar comprobante</summary>
+                <form method="post" class="ap-valor-f" data-confirm={`¿Rechazar el comprobante de ${who}? Se borra y ella tendrá que enviar uno nuevo.`} data-confirm-yes="Sí, rechazar">
+                  <input type="hidden" name="action" value="rechazar" />
+                  <input type="hidden" name="id" value={a.id} />
+                  <input type="hidden" name="receipt" value={a.receipt_path} />
+                  <input type="hidden" name="desde" value={start} />
+                  <div class="field">
+                    <label for={`r-${a.id}`}>Motivo (lo verá la clienta)</label>
+                    <input id={`r-${a.id}`} name="motivo" maxlength="200" required placeholder="La foto está borrosa · Llegó por menos dinero" />
+                  </div>
+                  <button class="btn btn-ghost">Rechazar comprobante</button>
+                </form>
+              </details>
             )}
             {a.change_requested_at && isActive(a) && !started(a) && (
               <p class="ap-dep">
@@ -799,6 +940,32 @@ const todayOff = offOf(today);
               <p class="ap-dep ok">
                 <Icon name="check" size={16} /> Abono confirmado. Avísale a {who} que su cita quedó en firme: el mensaje ya está escrito.
               </p>
+            )}
+            {a.status !== 'cancelada' && (
+              <details class="ap-valor">
+                <summary>{valorOf(a).price == null ? 'Fijar el valor' : 'Ajustar el valor final'}</summary>
+                <form method="post" class="ap-valor-f">
+                  <input type="hidden" name="action" value="valor" />
+                  <input type="hidden" name="id" value={a.id} />
+                  <input type="hidden" name="desde" value={start} />
+                  <div class="field">
+                    <label for={`v-${a.id}`}>Valor total (COP)</label>
+                    <input id={`v-${a.id}`} name="price" inputmode="numeric" maxlength="12" required value={valorOf(a).price ?? ''} placeholder="95000" />
+                  </div>
+                  {a.home_service && (
+                    <div class="field">
+                      <label for={`t-${a.id}`}>Incluye desplazamiento</label>
+                      <input id={`t-${a.id}`} name="travel_fee" inputmode="numeric" maxlength="12" value={a.travel_fee ?? ''} placeholder="0" />
+                    </div>
+                  )}
+                  <small class="hint">
+                    {a.deposit_confirmed_at
+                      ? 'El abono ya está pagado: solo cambia el saldo.'
+                      : `El abono se recalcula al ${DEPOSIT_PCT}% del nuevo valor.`}
+                  </small>
+                  <button class="btn btn-ghost">Guardar valor</button>
+                </form>
+              </details>
             )}
             <div class="ap-acts">
               {a.status === 'pendiente' && (
@@ -1153,6 +1320,54 @@ const todayOff = offOf(today);
     gap: 0.8rem;
     justify-items: center;
     text-align: center;
+  }
+  .review {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: 0.4rem 1rem;
+    border-left: 4px solid var(--clay);
+  }
+  .review-t {
+    display: flex;
+    align-items: center;
+    gap: 0.45rem;
+    margin: 0;
+    font-weight: 700;
+  }
+  .review ul {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 0.25rem 1rem;
+    margin: 0;
+    padding: 0;
+    list-style: none;
+  }
+  .review a:not(.btn) {
+    display: inline-block;
+    padding-block: 0.6rem;
+    color: inherit;
+    text-decoration: underline;
+    text-underline-offset: 3px;
+  }
+  .ap-valor {
+    margin-top: 0.75rem;
+  }
+  .ap-valor summary {
+    cursor: pointer;
+    min-height: 44px;
+    display: flex;
+    align-items: center;
+    font-weight: 600;
+    color: var(--accent-text);
+  }
+  .ap-valor-f {
+    display: grid;
+    gap: 0.6rem;
+    padding-top: 0.25rem;
+  }
+  .ap-valor-f .btn {
+    justify-self: start;
   }
   .ap-dep.ok {
     background: #e6eadb;

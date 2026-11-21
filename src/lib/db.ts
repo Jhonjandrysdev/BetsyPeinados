@@ -176,7 +176,14 @@ export async function createAppointment(
     demo.appointments.push(row);
     return row;
   }
-  const res = await supabaseAdmin().from('appointments').insert(a).select('*').single();
+  const insert = (row: Partial<Appointment>) => supabaseAdmin().from('appointments').insert(row).select('*').single();
+  let res = await insert(a);
+  // Si la base aún no tiene las columnas de valor y abono, reserva igual.
+  if (res.error?.code === 'PGRST204') {
+    console.warn('Falta aplicar la migración precio_en_cita: la cita se guarda sin valor ni abono.');
+    const { price: _p, deposit: _d, ...base } = a;
+    res = await insert(base);
+  }
   // 23P01 = exclusion_violation (cruce de horarios)
   if (res.error?.code === '23P01') throw new SlotTakenError('Horario ocupado');
   return check(res) as Appointment;
@@ -194,6 +201,12 @@ export async function updateAppointment(
       | 'receipt_path'
       | 'receipt_at'
       | 'notified'
+      | 'price'
+      | 'deposit'
+      | 'travel_fee'
+      | 'receipt_rejected_reason'
+      | 'receipt_rejected_at'
+      | 'cancel_reason'
       | 'starts_at'
       | 'ends_at'
       | 'client_confirmed_at'
@@ -212,6 +225,40 @@ export async function updateAppointment(
   if (res.error?.code === '23P01') throw new SlotTakenError('Horario ocupado');
   check(res);
 }
+
+/** Actualiza solo si la cita sigue con ese comprobante (evita pisar uno que la clienta acaba de subir). */
+export async function updateAppointmentIfReceipt(id: string, receiptPath: string, patch: Parameters<typeof updateAppointment>[1]): Promise<boolean> {
+  if (demoMode) {
+    const a = demo.appointments.find((x) => x.id === id);
+    if (!a || a.receipt_path !== receiptPath) return false;
+    Object.assign(a, patch);
+    return true;
+  }
+  const rows = check(await supabaseAdmin().from('appointments').update(patch).eq('id', id).eq('receipt_path', receiptPath).select('id'));
+  return (rows ?? []).length > 0;
+}
+
+/** Citas apartadas sin comprobante en revisión (candidatas a vencer). */
+export async function listPendingWithoutReceipt(): Promise<Appointment[]> {
+  if (demoMode) return demo.appointments.filter((a) => a.status === 'pendiente' && !a.receipt_path).map((a) => ({ ...a }));
+  return check(await supabaseAdmin().from('appointments').select('*').eq('status', 'pendiente').is('receipt_path', null)) as Appointment[];
+}
+
+/** Cancela por falta de abono solo si la cita sigue apartada y sin comprobante. */
+export async function expireIfUnpaid(id: string): Promise<boolean> {
+  const patch = { status: 'cancelada' as const, cancel_reason: 'sin_abono' as const };
+  if (demoMode) {
+    const a = demo.appointments.find((x) => x.id === id);
+    if (!a || a.status !== 'pendiente' || a.receipt_path) return false;
+    Object.assign(a, patch);
+    return true;
+  }
+  const rows = check(await supabaseAdmin().from('appointments').update(patch).eq('id', id).eq('status', 'pendiente').is('receipt_path', null).select('id'));
+  return (rows ?? []).length > 0;
+}
+
+/** Todo lo que el dominio de la cita necesita de la base (ver CitaStore en cita.ts). */
+export const citaStore = { getAppointment, updateAppointment, updateAppointmentIfReceipt, deleteReceipt, listPendingWithoutReceipt, expireIfUnpaid };
 
 export type { AppointmentStatus };
 
@@ -254,17 +301,31 @@ export async function uploadPayQr(file: File): Promise<string> {
   return path;
 }
 
-/** Guarda el comprobante del abono en el bucket privado y lo asocia a la cita. */
-export async function saveReceipt(a: Appointment, file: File): Promise<void> {
+/**
+ * Guarda el comprobante del abono en el bucket privado y lo asocia a la cita.
+ * Devuelve false si la cita dejó de esperar abono mientras subía (p. ej. venció el plazo).
+ */
+export async function saveReceipt(a: Appointment, file: File): Promise<boolean> {
   const ext = IMG_EXT[file.type];
   if (!ext) throw new Error('Formato no permitido');
   const patch = { receipt_at: new Date().toISOString(), receipt_path: `${a.id}/${Date.now()}.${ext}` };
   if (demoMode) {
-    Object.assign(a, patch);
-    return;
+    const row = demo.appointments.find((x) => x.id === a.id);
+    if (!row || row.status !== 'pendiente') return false;
+    Object.assign(row, patch);
+    return true;
   }
   check(await supabaseAdmin().storage.from('comprobantes').upload(patch.receipt_path, file, { contentType: file.type, upsert: false }));
-  check(await supabaseAdmin().from('appointments').update(patch).eq('id', a.id));
+  const rows = check(await supabaseAdmin().from('appointments').update(patch).eq('id', a.id).eq('status', 'pendiente').select('id'));
+  if ((rows ?? []).length > 0) return true;
+  await supabaseAdmin().storage.from('comprobantes').remove([patch.receipt_path]);
+  return false;
+}
+
+/** Borra un comprobante del bucket privado (al rechazarlo). */
+export async function deleteReceipt(path: string): Promise<void> {
+  if (demoMode) return;
+  check(await supabaseAdmin().storage.from('comprobantes').remove([path]));
 }
 
 /** Enlace temporal (10 min) para que Betsy vea el comprobante. */

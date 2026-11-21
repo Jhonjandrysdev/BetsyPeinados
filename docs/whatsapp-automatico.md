@@ -47,7 +47,7 @@ Betsy usa **su propio número y su propia app de Meta**, aparte de UNDRWEAR, par
 3. **Generar token** → caducidad **Nunca** → permisos `whatsapp_business_messaging` y `whatsapp_business_management` → copia el token (`EAA…`).
 4. App → **Configuración → Básica** → copia la **Clave secreta de la app**.
 
-## Paso 4. Las 6 plantillas (todas en **Español (COL)**, categoría **Utilidad**)
+## Paso 4. Las 8 plantillas (todas en **Español (COL)**, categoría **Utilidad**)
 
 **WhatsApp Manager → Plantillas de mensajes → Crear plantilla.** El nombre y el texto deben ser exactos. Todas en el **mismo idioma** que `WHATSAPP_LANG` (`es_CO` = Español (COL)); si una queda en otro idioma, Meta la rechaza al enviar.
 
@@ -58,6 +58,8 @@ Betsy usa **su propio número y su propia app de Meta**, aparte de UNDRWEAR, par
 | `betsy_recordatorio` | Hola {{1}}, te recordamos tu cita de {{2}} el {{3}} a las {{4}} en Betsy Peinados. ¿Nos confirmas tu asistencia? | Laura · Ondas · sábado 22 de noviembre · 3:00 p. m. |
 | `betsy_reagendada` | Hola {{1}}, tu cita de {{2}} cambió para el {{3}} a las {{4}}. Si no te queda bien, respóndenos por este chat. | Laura · Ondas · domingo 23 de noviembre · 10:00 a. m. |
 | `betsy_gracias` | Hola {{1}}, gracias por tu cita de {{2}} en Betsy Peinados. Si tienes alguna duda sobre tu peinado, respóndenos por este chat. | Laura · Ondas |
+| `betsy_comprobante_rechazado` | Hola {{1}}, revisamos el comprobante de tu cita de {{2}} del {{3}} a las {{4}} y no lo pudimos validar: {{5}}. Por favor envíalo de nuevo desde la página de tu reserva o por este chat. | Laura · Ondas · sábado 22 de noviembre · 3:00 p. m. · la foto está borrosa |
+| `betsy_cupo_liberado` | Hola {{1}}, como no recibimos el comprobante del abono a tiempo, liberamos el cupo de {{2}} del {{3}} a las {{4}}. Si aún quieres tu cita, respóndenos por este chat o reserva de nuevo en la web. | Laura · Ondas · sábado 22 de noviembre · 3:00 p. m. |
 | `betsy_cancelada` | Hola {{1}}, tu cita de {{2}} del {{3}} a las {{4}} fue cancelada. Si quieres reprogramarla, respóndenos por este chat. | Laura · Ondas · sábado 22 de noviembre · 3:00 p. m. |
 
 En **`betsy_recordatorio`** agrega **Botones → Respuesta rápida** con dos botones, exactamente: **`Confirmo`** y **`Cambiar hora`**.

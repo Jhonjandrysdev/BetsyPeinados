@@ -4,6 +4,7 @@ import { createCalendarEvent } from './google';
 import { availableSlots } from './slots';
 import { sendNotice, waConfigured } from './whatsapp';
 import { fromLocal, isDate, isTime } from './time';
+import { cotizar } from './cita';
 import type { Appointment } from './types';
 
 const clean = (s: string) => s.replace(/[\u0000-\u001f\u007f<>]/g, '').replace(/\s+/g, ' ').trim();
@@ -70,6 +71,7 @@ export async function book(input: BookingInput, source: 'web' | 'admin'): Promis
       home_service: input.home_service,
       home_address: input.home_service ? input.home_address : null,
       hair_length: input.hair_length || null,
+      ...cotizar(service, input.hair_length),
     });
   } catch (e) {
     if (e instanceof SlotTakenError) throw new BookingError('Ese horario se acaba de ocupar. Elige otro, por favor.', 409);

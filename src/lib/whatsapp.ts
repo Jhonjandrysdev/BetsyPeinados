@@ -14,7 +14,7 @@ import { getSecret } from 'astro:env/server';
 import { demoMode, getService, getSettings, getTemplates, markNotified } from './db';
 import { supabaseAdmin } from './supabase';
 import { safeEqual } from './crypto';
-import { depositOf, priceFor } from './defaults';
+import { valorDeCita } from './cita';
 import { DEFAULT_TEMPLATES, META_TEMPLATES, fillTemplate, valuesFor, type NoticeEvent } from './messages';
 import type { Appointment, WaMessage, WaStatus } from './types';
 
@@ -164,12 +164,10 @@ async function deliver(a: Appointment | null, phone: string, event: string, body
   return { ok: true, kind, message };
 }
 
-/** Datos de precio y abono de la cita, para llenar los mensajes. */
+/** Datos de precio y abono de la cita (los guardados al reservar), para llenar los mensajes. */
 async function fillData(a: Appointment) {
-  const [s, svc] = await Promise.all([getSettings(), a.service_id ? getService(a.service_id) : Promise.resolve(null)]);
-  const exact = priceFor(svc ?? undefined, a.hair_length);
-  const price = exact ?? svc?.price_from ?? null;
-  return { a, s, price, deposit: exact ? depositOf(exact) : null };
+  const [s, svc] = await Promise.all([getSettings(), a.price === undefined && a.service_id ? getService(a.service_id) : Promise.resolve(null)]);
+  return { a, s, ...valorDeCita(a, svc) };
 }
 
 /**
@@ -231,6 +229,15 @@ export async function validSignature(raw: string, header: string | null): Promis
   const sig = new Uint8Array(await crypto.subtle.sign('HMAC', key, new TextEncoder().encode(raw)));
   const hex = Array.from(sig, (b) => b.toString(16).padStart(2, '0')).join('');
   return safeEqual(hex, header.slice(7));
+}
+
+/** Como sendNotice, pero un error inesperado vuelve como resultado fallido en vez de lanzarse. */
+export async function sendNoticeSafe(a: Appointment, event: NoticeEvent, customText = ''): Promise<SendResult> {
+  try {
+    return await sendNotice(a, event, customText);
+  } catch (e) {
+    return { ok: false, reason: 'error', error: String((e as Error)?.message ?? e) };
+  }
 }
 
 /** Por qué no salió un mensaje, en palabras para Betsy. */
