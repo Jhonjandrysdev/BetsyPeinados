@@ -5,10 +5,9 @@ interface Props {
 }
 const { minimal = false } = Astro.props;
 const links = [
-  { href: '/#paquetes', label: 'Paquetes' },
-  { href: '/#servicios', label: 'Servicios' },
-  { href: '/#domicilio', label: 'A domicilio' },
-  { href: '/#galeria', label: 'Galería' },
+  { href: '/#galeria', label: 'Trabajos' },
+  { href: '/#servicios', label: 'Servicios y precios' },
+  { href: '/#sobre-mi', label: 'Sobre mí' },
   { href: '/#contacto', label: 'Contacto' },
 ];
 ---
@@ -119,7 +118,7 @@ const links = [
     font-weight: 700;
     letter-spacing: 0.32em;
     text-transform: uppercase;
-    color: var(--clay);
+    color: var(--clay-deep);
   }
   .nav {
     display: flex;
@@ -173,6 +172,9 @@ const links = [
     transform: rotate(90deg);
   }
   .back {
+    display: inline-flex;
+    align-items: center;
+    min-height: 44px;
     font-weight: 600;
     text-decoration: none;
     color: var(--cocoa-2);
@@ -242,7 +244,7 @@ const links = [
     }
     .nav ul a.active {
       font-style: italic;
-      color: var(--clay);
+      color: var(--clay-deep);
     }
   }
   @media (max-width: 420px) {

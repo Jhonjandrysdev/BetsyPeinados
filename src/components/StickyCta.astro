@@ -20,15 +20,28 @@ const { href, label = 'Apartar mi fecha', whatsapp } = Astro.props;
 </div>
 
 <script>
-  // Aparece al bajar del hero y se esconde cuando el pie de página está a la vista.
+  // Aparece cuando los botones de la página ([data-sticky-anchor]) salen de la pantalla y se
+  // esconde cuando el pie de página está a la vista. Sin ancla, aparece al bajar 60 % de pantalla.
   const bar = document.querySelector<HTMLElement>('[data-sticky-cta]');
   if (bar) {
+    const anchor = document.querySelector('[data-sticky-anchor]');
+    const footer = document.querySelector('footer');
+    let anchorVisible = Boolean(anchor);
+    let footerVisible = false;
     const update = () => {
-      const footer = document.querySelector('footer');
-      const nearEnd = footer ? footer.getBoundingClientRect().top < window.innerHeight : false;
-      bar.classList.toggle('on', window.scrollY > window.innerHeight * 0.6 && !nearEnd);
+      const past = anchor ? !anchorVisible : window.scrollY > window.innerHeight * 0.6;
+      bar.classList.toggle('on', past && !footerVisible);
     };
-    addEventListener('scroll', update, { passive: true });
+    const io = new IntersectionObserver((entries) => {
+      for (const e of entries) {
+        if (e.target === anchor) anchorVisible = e.isIntersecting;
+        if (e.target === footer) footerVisible = e.isIntersecting;
+      }
+      update();
+    });
+    if (anchor) io.observe(anchor);
+    else addEventListener('scroll', update, { passive: true });
+    if (footer) io.observe(footer);
     update();
   }
 </script>

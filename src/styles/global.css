@@ -51,13 +51,15 @@
   --sand: #e6d3bd;
   --clay: #b8603f;
   --clay-deep: #8f4429;
+  /* Arcilla para fondos de botón con texto claro: 5.33:1 con --white (la arcilla base da 4.23:1). */
+  --clay-ink: #a4512f;
   --blush: #ebbfa9;
   --sage: #7d8a68;
   --sage-soft: #d9dccb;
   --gold: #c39a52;
   --cocoa: #2a1c16;
   --cocoa-2: #4a372e;
-  --muted: #7a665b;
+  --muted: #6b584e;
   --white: #fffaf4;
 
   --bg: var(--cream);
@@ -176,10 +178,10 @@ p {
   gap: 0.6rem;
   font-size: 0.78rem;
   font-weight: 700;
-  letter-spacing: 0.18em;
+  letter-spacing: 0.12em;
   text-transform: uppercase;
-  color: var(--clay);
-  margin-bottom: 1.1rem;
+  color: var(--clay-deep);
+  margin-bottom: 0.75rem;
 }
 .eyebrow::before {
   content: '';
@@ -196,7 +198,7 @@ p {
 }
 
 ::selection {
-  background: var(--clay);
+  background: var(--clay-ink);
   color: var(--white);
 }
 
@@ -219,7 +221,7 @@ section {
 }
 
 .section {
-  padding-block: clamp(4.5rem, 10vw, 8.5rem);
+  padding-block: clamp(3rem, 8vw, 6rem);
 }
 
 /* ───────── Botones ───────── */
@@ -235,34 +237,25 @@ section {
   border-radius: 999px;
   border: 1.5px solid var(--b-bg);
   background-color: var(--b-bg);
-  background-image: linear-gradient(110deg, transparent 38%, rgb(255 255 255 / 0.24) 50%, transparent 62%);
-  background-size: 260% 100%;
-  background-position: 130% 0;
-  background-repeat: no-repeat;
   color: var(--b-fg);
   font: 650 0.98rem/1 var(--font-body);
   letter-spacing: 0.01em;
   text-decoration: none;
   cursor: pointer;
-  transition: transform 0.35s var(--ease), background-color 0.25s, background-position 0.7s var(--ease), color 0.25s,
-    border-color 0.25s, box-shadow 0.35s var(--ease);
-}
-.btn:hover {
-  transform: translateY(-2px);
-  background-position: -30% 0;
-  box-shadow: 0 14px 30px -14px rgb(42 28 22 / 0.55);
+  transition: transform 0.15s var(--ease), background-color 0.2s, color 0.2s, border-color 0.2s, box-shadow 0.3s var(--ease);
 }
 .btn svg {
   transition: transform 0.35s var(--ease);
 }
-.btn:hover svg:last-child:not(:first-child) {
-  transform: translateX(4px);
+.btn:hover {
+  transform: translateY(-2px);
+  box-shadow: 0 14px 30px -14px rgb(42 28 22 / 0.55);
 }
 .btn:active {
-  transform: translateY(0);
+  transform: scale(0.97);
 }
 .btn-clay {
-  --b-bg: var(--clay);
+  --b-bg: var(--clay-ink);
   box-shadow: 0 10px 24px -14px rgb(143 68 41 / 0.9);
 }
 .btn-clay:hover {
@@ -324,70 +317,23 @@ section {
 }
 
 /* ───────── Aparición al hacer scroll ─────────
-   Suave y corta. Si el script no corre (o tarda), todo aparece solo a los 2.5 s. */
+   Solo los títulos de sección entran (opacidad + 8px, 300 ms). El resto del contenido está
+   siempre visible. Si el script no corre, el título aparece solo a los 2.5 s. */
 .reveal {
+  opacity: 1;
+}
+h2.reveal {
   opacity: 0;
-  transform: translate3d(0, 16px, 0);
-  transition: opacity 0.6s var(--ease), transform 0.6s var(--ease);
+  transform: translate3d(0, 8px, 0);
+  transition: opacity 0.3s var(--ease), transform 0.3s var(--ease);
   animation: reveal-safety 0.01s linear 2.5s forwards;
 }
-.reveal.in {
+h2.reveal.in {
   opacity: 1;
   transform: none;
   animation: none;
 }
 @keyframes reveal-safety {
-  to {
-    opacity: 1;
-    transform: none;
-  }
-}
-.reveal[data-fx='zoom'] {
-  transform: scale(0.94);
-}
-.reveal[data-fx='left'] {
-  transform: translate3d(-28px, 0, 0);
-}
-.reveal[data-fx='right'] {
-  transform: translate3d(28px, 0, 0);
-}
-.reveal[data-fx].in {
-  transform: none;
-}
-.reveal[data-delay='1'] {
-  transition-delay: 0.06s;
-}
-.reveal[data-delay='2'] {
-  transition-delay: 0.12s;
-}
-.reveal[data-delay='3'] {
-  transition-delay: 0.18s;
-}
-.reveal[data-delay='4'] {
-  transition-delay: 0.24s;
-}
-.reveal[data-delay='5'] {
-  transition-delay: 0.3s;
-}
-/* El hero entra al cargar, sin esperar al scroll */
-.hero .reveal {
-  animation: hero-in 0.7s var(--ease) both;
-  transition: none;
-}
-.hero .reveal[data-delay='1'] {
-  animation-delay: 0.08s;
-}
-.hero .reveal[data-delay='2'] {
-  animation-delay: 0.16s;
-}
-.hero .reveal[data-delay='3'] {
-  animation-delay: 0.24s;
-}
-@keyframes hero-in {
-  from {
-    opacity: 0;
-    transform: translate3d(0, 14px, 0);
-  }
   to {
     opacity: 1;
     transform: none;
@@ -405,7 +351,7 @@ section {
     animation-iteration-count: 1 !important;
     transition-duration: 0.01ms !important;
   }
-  .reveal {
+  h2.reveal {
     opacity: 1;
     transform: none;
   }

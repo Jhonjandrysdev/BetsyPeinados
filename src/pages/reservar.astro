@@ -44,14 +44,14 @@ const data = {
 
     <form class="card" id="booking" novalidate>
       <ol class="progress" aria-label="Pasos">
-        <li data-step-dot="1" class="on"><span>1</span> Servicio</li>
-        <li data-step-dot="2"><span>2</span> Fecha y hora</li>
-        <li data-step-dot="3"><span>3</span> Tus datos</li>
+        <li data-step-dot="1" class="on current" aria-current="step"><button type="button" data-goto="1" disabled><span>1</span> <b>Servicio</b></button></li>
+        <li data-step-dot="2"><button type="button" data-goto="2" disabled><span>2</span> <b>Fecha y hora</b></button></li>
+        <li data-step-dot="3"><button type="button" data-goto="3" disabled><span>3</span> <b>Tus datos</b></button></li>
       </ol>
 
       <!-- Paso 1 -->
       <fieldset data-step="1">
-        <legend>¿Qué peinado quieres?</legend>
+        <legend><span class="step-title" tabindex="-1" data-step-title>¿Qué peinado quieres?</span></legend>
         <div class="options">
           {
             services.map((sv) => (
@@ -74,7 +74,7 @@ const data = {
                     <span>
                       <Icon name="clock" size={15} /> {formatDuration(sv.duration_min)}
                     </span>
-                    <strong>{sv.price_from != null ? `desde ${formatCOP(sv.price_from)}` : 'A convenir'}</strong>
+                    <strong>{sv.price_from != null ? `desde ${formatCOP(sv.price_from)}` : 'Valor a cotizar'}</strong>
                   </span>
                 </span>
               </label>
@@ -82,14 +82,14 @@ const data = {
           }
         </div>
         <div class="actions">
-          <span></span>
+          <p class="pick" data-pick aria-live="polite">Elige un servicio</p>
           <button type="button" class="btn btn-clay" data-next>Continuar <Icon name="arrow" /></button>
         </div>
       </fieldset>
 
       <!-- Paso 2 -->
       <fieldset data-step="2" hidden>
-        <legend>Elige el día y la hora</legend>
+        <legend><span class="step-title" tabindex="-1" data-step-title>Elige el día y la hora</span></legend>
         <div class="cal">
           <div class="cal-head">
             <button type="button" class="cal-nav" data-cal-prev aria-label="Mes anterior">‹</button>
@@ -103,7 +103,11 @@ const data = {
         </div>
         <div class="slots-wrap">
           <h2 class="slots-title" data-slots-title>Selecciona un día</h2>
-          <div class="slots" data-slots role="radiogroup" aria-label="Horas disponibles" aria-live="polite"></div>
+          <fieldset class="slots-set">
+            <legend class="sr-only">Horas disponibles</legend>
+            <div class="slots" data-slots></div>
+          </fieldset>
+          <p class="sr-only" data-slots-status aria-live="polite"></p>
         </div>
         <div class="actions">
           <button type="button" class="btn btn-ghost" data-prev>Atrás</button>
@@ -113,7 +117,7 @@ const data = {
 
       <!-- Paso 3 -->
       <fieldset data-step="3" hidden>
-        <legend>Tus datos</legend>
+        <legend><span class="step-title" tabindex="-1" data-step-title>Tus datos</span></legend>
         <div class="summary" data-summary></div>
         <div class="hair" data-hair hidden>
           <p class="hair-t">Largo de tu cabello</p>
@@ -179,10 +183,11 @@ const data = {
             <span>Acepto el tratamiento de mis datos para gestionar mi cita, según la <a href="/privacidad" target="_blank">política de privacidad</a>.</span>
           </label>
         </div>
-        <p class="notice error" data-error hidden role="alert"></p>
+        <div class="notice error" data-error hidden role="alert" tabindex="-1"><span data-error-text></span></div>
+        <p class="dep-line"><Icon name="money" size={18} /> <span data-dep-line>Tu cupo queda apartado y lo aseguras con el abono del {DEPOSIT_PCT}%. Te muestro cómo pagar al reservar.</span></p>
         <div class="actions">
           <button type="button" class="btn btn-ghost" data-prev>Atrás</button>
-          <button type="submit" class="btn btn-clay" data-submit><Icon name="check" /> Apartar mi cupo</button>
+          <button type="submit" class="btn btn-clay" data-submit><span class="spin" aria-hidden="true"></span><Icon name="check" /> <span data-submit-label>Apartar mi cupo</span></button>
         </div>
       </fieldset>
     </form>
@@ -228,15 +233,31 @@ const data = {
   }
   .progress li {
     flex: 1;
+    border-bottom: 3px solid var(--line);
+    transition: border-color 0.3s;
+  }
+  .progress button {
     display: flex;
     align-items: center;
     gap: 0.5rem;
-    padding-bottom: 0.8rem;
-    border-bottom: 3px solid var(--line);
-    font-size: 0.85rem;
-    font-weight: 700;
+    width: 100%;
+    min-height: 44px;
+    padding: 0 0 0.5rem;
+    border: 0;
+    background: none;
+    font: 700 0.85rem var(--font-body);
     color: var(--muted);
-    transition: all 0.4s var(--ease);
+    text-align: left;
+  }
+  .progress button:not(:disabled) {
+    cursor: pointer;
+  }
+  .progress button:not(:disabled) b {
+    text-decoration: underline;
+    text-underline-offset: 3px;
+  }
+  .progress li.on button {
+    color: var(--cocoa);
   }
   .progress span {
     display: grid;
@@ -252,7 +273,7 @@ const data = {
     border-color: var(--clay);
   }
   .progress li.on span {
-    background: var(--clay);
+    background: var(--clay-ink);
     color: var(--white);
   }
   fieldset {
@@ -260,12 +281,13 @@ const data = {
     padding: 0;
     margin: 0;
     min-width: 0;
-    animation: stepIn 0.5s var(--ease);
+  }
+  fieldset[data-step] {
+    animation: stepIn 0.3s var(--ease);
   }
   @keyframes stepIn {
     from {
       opacity: 0;
-      transform: translateY(14px);
     }
   }
   legend {
@@ -288,7 +310,7 @@ const data = {
   .options {
     display: grid;
     grid-template-columns: repeat(auto-fill, minmax(min(100%, 300px), 1fr));
-    gap: 0.8rem;
+    gap: 0.6rem;
   }
   .option-body {
     position: relative;
@@ -296,7 +318,7 @@ const data = {
     gap: 0.3rem;
     align-content: start;
     height: 100%;
-    padding: 1.15rem 3.4rem 1.1rem 1.25rem;
+    padding: 0.9rem 3.4rem 0.9rem 1.1rem;
     border-radius: 20px;
     border: 1.5px solid var(--line);
     background: var(--cream);
@@ -327,7 +349,7 @@ const data = {
   }
   .option input:checked + .option-body::after {
     border-color: var(--clay);
-    background-color: var(--clay);
+    background-color: var(--clay-ink);
     background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='white' stroke-width='3' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='m5 12.5 4.5 4.5L19 7.5'/%3E%3C/svg%3E");
     transform: scale(1.08);
   }
@@ -337,7 +359,7 @@ const data = {
   }
   .option-title {
     font-family: var(--font-display);
-    font-size: 1.35rem;
+    font-size: 1.2rem;
     font-weight: 560;
     line-height: 1.15;
   }
@@ -345,11 +367,14 @@ const data = {
     font-size: 0.92rem;
     color: var(--cocoa-2);
   }
+  .option input:not(:checked) + .option-body :is(.option-desc, .option-tiers, .option-cm) {
+    display: none;
+  }
   .option-meta {
     display: flex;
     justify-content: space-between;
     gap: 1rem;
-    margin-top: 0.3rem;
+    margin-top: 0.1rem;
     font-size: 0.88rem;
     color: var(--muted);
   }
@@ -362,10 +387,43 @@ const data = {
     color: var(--cocoa);
   }
   .actions {
+    position: sticky;
+    bottom: 0;
+    z-index: 5;
     display: flex;
     justify-content: space-between;
+    align-items: center;
     gap: 0.75rem;
-    margin-top: 1.8rem;
+    margin: 1.5rem calc(-1 * clamp(1.25rem, 4vw, 2.5rem)) calc(-1 * clamp(1.25rem, 4vw, 2.5rem));
+    padding: 0.85rem clamp(1.25rem, 4vw, 2.5rem) max(0.85rem, env(safe-area-inset-bottom));
+    border-top: 1px solid var(--line);
+    border-radius: 0 0 var(--radius-lg) var(--radius-lg);
+    background: color-mix(in oklab, var(--white) 94%, transparent);
+    backdrop-filter: blur(8px);
+  }
+  .pick {
+    margin: 0;
+    min-width: 0;
+    font-size: 0.9rem;
+    line-height: 1.3;
+    color: var(--muted);
+  }
+  .pick b {
+    display: block;
+    color: var(--cocoa);
+  }
+  .dep-line {
+    display: flex;
+    gap: 0.5rem;
+    align-items: flex-start;
+    margin: 1.2rem 0 0;
+    font-size: 0.9rem;
+    color: var(--cocoa-2);
+  }
+  .dep-line :global(svg) {
+    flex: none;
+    margin-top: 0.1rem;
+    color: var(--clay-deep);
   }
 
   /* Calendario */
@@ -410,8 +468,9 @@ const data = {
     margin-bottom: 0.4rem;
   }
   .cal-grid :global(button) {
+    min-height: 44px;
     aspect-ratio: 1;
-    border-radius: 50%;
+    border-radius: 999px;
     border: 0;
     background: transparent;
     font: 600 0.95rem var(--font-body);
@@ -429,7 +488,7 @@ const data = {
     text-decoration-color: transparent;
   }
   .cal-grid :global(button[aria-pressed='true']) {
-    background: var(--clay);
+    background: var(--clay-ink);
     color: var(--white);
   }
   .cal-grid :global(button.today) {
@@ -451,28 +510,67 @@ const data = {
     gap: 0.5rem;
     min-height: 52px;
   }
-  .slots :global(button) {
+  .slots-set {
+    border: 0;
+    margin: 0;
+    padding: 0;
+  }
+  .step-title:focus {
+    outline: none;
+  }
+  .step-title:focus-visible {
+    outline: 2.5px solid var(--clay);
+    outline-offset: 4px;
+  }
+  .slots :global(label) {
+    position: relative;
+  }
+  .slots :global(input) {
+    position: absolute;
+    inset: 0;
+    opacity: 0;
+    margin: 0;
+    cursor: pointer;
+  }
+  .slots :global(label span) {
+    display: grid;
+    place-items: center;
     min-height: 48px;
     border-radius: 14px;
     border: 1.5px solid var(--line);
     background: var(--cream);
     font: 650 0.95rem var(--font-body);
     color: var(--cocoa);
-    cursor: pointer;
-    transition: all 0.2s;
+    transition: background-color 0.2s, border-color 0.2s;
   }
-  .slots :global(button:hover) {
+  .slots :global(label:hover span) {
     border-color: var(--clay);
   }
-  .slots :global(button[aria-checked='true']) {
+  .slots :global(input:checked + span) {
     background: var(--cocoa);
     border-color: var(--cocoa);
     color: var(--white);
+  }
+  .slots :global(input:focus-visible + span) {
+    outline: 2.5px solid var(--clay);
+    outline-offset: 2px;
   }
   .slots :global(p) {
     grid-column: 1 / -1;
     color: var(--muted);
     margin: 0;
+  }
+  .slots :global(.ph) {
+    min-height: 48px;
+    border-radius: 14px;
+    background: linear-gradient(90deg, var(--cream-2), var(--cream), var(--cream-2));
+    background-size: 200% 100%;
+    animation: shimmer 1.2s linear infinite;
+  }
+  @keyframes shimmer {
+    to {
+      background-position: -200% 0;
+    }
   }
 
   .summary {
@@ -516,7 +614,7 @@ const data = {
     background: color-mix(in oklab, var(--clay) 9%, transparent);
   }
   .option-tiers b {
-    color: var(--clay);
+    color: var(--clay-deep);
   }
   .option-cm {
     display: block;
@@ -557,7 +655,7 @@ const data = {
     transition: border-color 0.2s, background-color 0.2s;
   }
   .hair-opt small {
-    color: var(--clay);
+    color: var(--clay-deep);
     font-weight: 700;
   }
   .hair-opt input:checked + span {
@@ -586,7 +684,7 @@ const data = {
   .policies .dep {
     margin: 0.6rem 0 0;
     font-weight: 700;
-    color: var(--clay);
+    color: var(--clay-deep);
   }
   .consent {
     display: flex;
@@ -605,30 +703,65 @@ const data = {
   [data-error] {
     margin-top: 1rem;
   }
+  [data-error] :global(button) {
+    display: block;
+    margin-top: 0.6rem;
+  }
+  .spin {
+    display: none;
+    width: 16px;
+    height: 16px;
+    border: 2px solid currentColor;
+    border-right-color: transparent;
+    border-radius: 50%;
+    animation: bp-spin 0.7s linear infinite;
+  }
+  [data-submit][aria-busy='true'] .spin {
+    display: inline-block;
+  }
+  [data-submit][aria-busy='true'] :global(svg) {
+    display: none;
+  }
+  @keyframes bp-spin {
+    to {
+      transform: rotate(1turn);
+    }
+  }
   .help {
     text-align: center;
     margin-top: 1.5rem;
     color: var(--muted);
   }
   .help a {
-    color: var(--clay);
+    color: var(--clay-deep);
     font-weight: 700;
   }
   @media (max-width: 620px) {
     .fields {
       grid-template-columns: 1fr;
     }
-    .progress li {
-      font-size: 0;
-      gap: 0;
+    .progress li:not(.current) b {
+      position: absolute;
+      width: 1px;
+      height: 1px;
+      overflow: hidden;
+      clip: rect(0, 0, 0, 0);
+    }
+    .progress li.current {
+      flex: 2.4;
     }
     .actions .btn {
       flex: 1;
+    }
+    .actions .pick + .btn {
+      flex: none;
     }
   }
 </style>
 
 <script>
+  import { depositOf } from '../lib/defaults';
+
   interface Data {
     ft: string;
     days: string[];
@@ -652,24 +785,53 @@ const data = {
     return `${((h + 11) % 12) + 1}:${String(m).padStart(2, '0')} ${h < 12 ? 'a. m.' : 'p. m.'}`;
   };
   const today = new Intl.DateTimeFormat('en-CA', { timeZone: 'America/Bogota' }).format(new Date());
+  const reduceMotion = window.matchMedia('(prefers-reduced-motion: reduce)').matches;
 
-  function showError(msg: string) {
+  function showError(msg: string, action?: { label: string; run: () => void }) {
     const el = $<HTMLElement>('[data-error]');
-    el.textContent = msg;
+    $('[data-error-text]').textContent = msg;
+    el.querySelector('button')?.remove();
+    if (action) {
+      const b = Object.assign(document.createElement('button'), { type: 'button', className: 'btn btn-ghost', textContent: action.label });
+      b.addEventListener('click', action.run);
+      el.append(b);
+    }
     el.hidden = !msg;
+    if (msg) el.focus();
   }
 
   function go(step: number) {
     state.step = step;
     form.querySelectorAll<HTMLElement>('[data-step]').forEach((f) => (f.hidden = Number(f.dataset.step) !== step));
-    form.querySelectorAll<HTMLElement>('[data-step-dot]').forEach((d) => d.classList.toggle('on', Number(d.dataset.stepDot) <= step));
+    form.querySelectorAll<HTMLElement>('[data-step-dot]').forEach((d) => {
+      const n = Number(d.dataset.stepDot);
+      d.classList.toggle('on', n <= step);
+      d.classList.toggle('current', n === step);
+      if (n === step) d.setAttribute('aria-current', 'step');
+      else d.removeAttribute('aria-current');
+      d.querySelector<HTMLButtonElement>('button')!.disabled = n >= step;
+    });
     showError('');
+    clearStepAlert();
     if (step === 2) renderCal();
     if (step === 3) renderSummary();
-    form.scrollIntoView({ behavior: 'smooth', block: 'start' });
+    form.scrollIntoView({ behavior: reduceMotion ? 'auto' : 'smooth', block: 'start' });
+    form.querySelector<HTMLElement>(`[data-step="${step}"] [data-step-title]`)?.focus({ preventScroll: true });
   }
 
   const serviceId = () => (new FormData(form).get('service_id') as string) || '';
+  /** Servicio para el que se cargaron el día y la hora actuales. */
+  let slotsFor = data.preselect;
+
+  function renderPick() {
+    const sv = data.services.find((x) => x.id === serviceId());
+    const el = $('[data-pick]');
+    if (!sv) {
+      el.textContent = 'Elige un servicio';
+      return;
+    }
+    el.replaceChildren(Object.assign(document.createElement('b'), { textContent: sv.name }), document.createTextNode(sv.from != null ? `desde ${sv.price}` : 'Valor a cotizar'));
+  }
 
   function renderCal() {
     const [y, m] = state.month.split('-').map(Number);
@@ -704,32 +866,37 @@ const data = {
     const title = $('[data-slots-title]');
     const box = $('[data-slots]');
     title.textContent = `Horas libres · ${fmtDay.format(new Date(`${iso}T12:00:00Z`))}`;
-    box.replaceChildren(Object.assign(document.createElement('p'), { textContent: 'Buscando horarios…' }));
+    box.replaceChildren(...Array.from({ length: 6 }, () => Object.assign(document.createElement('span'), { className: 'ph' })));
+    box.setAttribute('aria-busy', 'true');
+    $('.slots-wrap').scrollIntoView({ behavior: reduceMotion ? 'auto' : 'smooth', block: 'nearest' });
     const mine = ++reqId;
     try {
       const res = await fetch(`/api/slots?date=${iso}&service=${serviceId()}`, { headers: { Accept: 'application/json' } });
       const j = await res.json();
       if (mine !== reqId) return;
+      box.removeAttribute('aria-busy');
       if (!res.ok) throw new Error(j.error);
       box.replaceChildren();
+      const status = $('[data-slots-status]');
       if (!j.slots.length) {
         box.append(Object.assign(document.createElement('p'), { textContent: 'No quedan espacios este día. Prueba con otra fecha 🌿' }));
+        status.textContent = 'No quedan horarios este día.';
         return;
       }
+      status.textContent = `${j.slots.length} ${j.slots.length === 1 ? 'horario disponible' : 'horarios disponibles'}.`;
       for (const t of j.slots as string[]) {
-        const b = document.createElement('button');
-        b.type = 'button';
-        b.textContent = pretty12(t);
-        b.setAttribute('role', 'radio');
-        b.setAttribute('aria-checked', 'false');
-        b.addEventListener('click', () => {
+        const label = document.createElement('label');
+        const input = Object.assign(document.createElement('input'), { type: 'radio', name: 'slot', value: t });
+        input.addEventListener('change', () => {
           state.time = t;
-          box.querySelectorAll('button').forEach((x) => x.setAttribute('aria-checked', String(x === b)));
+          clearStepAlert();
         });
-        box.append(b);
+        label.append(input, Object.assign(document.createElement('span'), { textContent: pretty12(t) }));
+        box.append(label);
       }
     } catch (e) {
       if (mine !== reqId) return;
+      box.removeAttribute('aria-busy');
       box.replaceChildren(Object.assign(document.createElement('p'), { textContent: (e as Error).message || 'No pudimos cargar los horarios. Intenta de nuevo.' }));
     }
   }
@@ -755,7 +922,7 @@ const data = {
         : `desde ${cop(Math.min(...Object.values(tiers)))}`
       : sv?.from != null
         ? `desde ${sv.price}`
-        : 'Valor a convenir';
+        : 'Valor a cotizar';
     const el = $('[data-summary]');
     el.replaceChildren(
       document.createTextNode(`${sv?.name ?? ''} · ${pretty12(state.time)}`),
@@ -765,11 +932,19 @@ const data = {
     );
     const dep = $<HTMLElement>('[data-deposit]');
     dep.hidden = !price;
-    if (price) dep.textContent = `Abono para asegurar tu cupo (${data.pct}%): ${cop(Math.round((price * data.pct) / 100 / 1000) * 1000)}`;
+    const deposit = depositOf(price);
+    if (deposit) dep.textContent = `Abono para asegurar tu cupo (${data.pct}%): ${cop(deposit)}`;
+    $('[data-dep-line]').textContent = deposit
+      ? `Apartas con ${cop(deposit)} (${data.pct}%) y el resto lo pagas el día del peinado. Te muestro cómo pagar al reservar.`
+      : `Tu cupo queda apartado y lo aseguras con el abono del ${data.pct}%. Te muestro cómo pagar al reservar.`;
   }
   form.addEventListener('change', (e) => {
     const t = e.target as HTMLInputElement;
     if (t.name === 'hair_length') renderSummary();
+    if (t.name === 'service_id') {
+      renderPick();
+      clearStepAlert();
+    }
     if (t.matches('[data-home-toggle]')) {
       const f = $<HTMLElement>('[data-home-field]');
       f.hidden = !t.checked;
@@ -781,10 +956,14 @@ const data = {
     b.addEventListener('click', () => {
       if (state.step === 1) {
         if (!serviceId()) return alertStep('Elige un servicio para continuar.');
-        state.date = '';
-        state.time = '';
-        $('[data-slots]').replaceChildren();
-        $('[data-slots-title]').textContent = 'Selecciona un día';
+        // Si vuelve al paso 1 y no cambia de servicio, conserva el día y la hora elegidos.
+        if (serviceId() !== slotsFor) {
+          slotsFor = serviceId();
+          state.date = '';
+          state.time = '';
+          $('[data-slots]').replaceChildren();
+          $('[data-slots-title]').textContent = 'Selecciona un día';
+        }
         go(2);
       } else if (state.step === 2) {
         if (!state.date || !state.time) return alertStep('Elige un día y una hora.');
@@ -793,6 +972,7 @@ const data = {
     }),
   );
   form.querySelectorAll('[data-prev]').forEach((b) => b.addEventListener('click', () => go(state.step - 1)));
+  form.querySelectorAll<HTMLButtonElement>('[data-goto]').forEach((b) => b.addEventListener('click', () => go(Number(b.dataset.goto))));
   $('[data-cal-prev]').addEventListener('click', () => shiftMonth(-1));
   $('[data-cal-next]').addEventListener('click', () => shiftMonth(1));
 
@@ -802,16 +982,20 @@ const data = {
     renderCal();
   }
 
+  // El aviso se queda hasta que se corrige (elegir servicio u hora, o cambiar de paso).
   function alertStep(msg: string) {
     let el = form.querySelector<HTMLElement>(`[data-step="${state.step}"] .step-alert`);
     if (!el) {
-      el = Object.assign(document.createElement('p'), { className: 'notice error step-alert' });
+      el = Object.assign(document.createElement('p'), { className: 'notice error step-alert', tabIndex: -1 });
       el.setAttribute('role', 'alert');
       el.style.marginTop = '1rem';
       form.querySelector(`[data-step="${state.step}"] .actions`)!.before(el);
     }
     el.textContent = msg;
-    setTimeout(() => el?.remove(), 4000);
+    el.focus();
+  }
+  function clearStepAlert() {
+    form.querySelectorAll('.step-alert').forEach((x) => x.remove());
   }
 
   form.addEventListener('submit', async (ev) => {
@@ -820,7 +1004,10 @@ const data = {
     if (!form.reportValidity()) return;
     const fd = new FormData(form);
     const btn = $<HTMLButtonElement>('[data-submit]');
+    const label = $('[data-submit-label]');
     btn.disabled = true;
+    btn.setAttribute('aria-busy', 'true');
+    label.textContent = 'Apartando…';
     showError('');
     try {
       const res = await fetch('/api/book', {
@@ -849,14 +1036,16 @@ const data = {
       });
       const j = await res.json();
       if (!res.ok) {
-        showError(j.error || 'No pudimos guardar tu cita.');
         if (res.status === 409) {
           state.time = '';
-          setTimeout(() => {
-            go(2);
-            pickDate(state.date);
-          }, 1800);
-        }
+          showError(j.error || 'Esa hora acaba de ocuparse.', {
+            label: 'Elegir otra hora',
+            run: () => {
+              go(2);
+              pickDate(state.date);
+            },
+          });
+        } else showError(j.error || 'No pudimos guardar tu cita.');
         return;
       }
       location.assign(`/reserva/${j.id}`);
@@ -864,8 +1053,11 @@ const data = {
       showError('Sin conexión. Revisa tu internet e intenta de nuevo.');
     } finally {
       btn.disabled = false;
+      btn.removeAttribute('aria-busy');
+      label.textContent = 'Apartar mi cupo';
     }
   });
 
+  renderPick();
   if (data.preselect) go(2);
 </script>

@@ -8,7 +8,7 @@ const { s } = Astro.props;
 const year = new Date().getFullYear();
 ---
 
-<footer class="footer">
+<footer class="footer" id="contacto">
   <div class="wrap grid">
     <div>
       <a href="/" class="logo"><img src="/logo.webp" alt="" width="44" height="44" class="flogo" /> Betsy <span>peinados</span></a>
@@ -17,11 +17,25 @@ const year = new Date().getFullYear();
     <div>
       <h2 class="h">Visítame</h2>
       <p><Icon name="pin" size={16} /> {s.address}</p>
+      <p>
+        <a href={`https://www.google.com/maps/search/?api=1&query=${encodeURIComponent(s.maps_query)}`} rel="noopener" target="_blank" class="maps"
+          ><Icon name="external" size={16} /> Cómo llegar</a
+        >
+      </p>
     </div>
     <div>
       <h2 class="h">Escríbeme</h2>
       <p><a href={`https://wa.me/${s.whatsapp}`} rel="noopener" target="_blank"><Icon name="whatsapp" size={16} /> {s.phone}</a></p>
       <p><a href={`https://www.instagram.com/${s.instagram}`} rel="noopener" target="_blank"><Icon name="instagram" size={16} /> @{s.instagram}</a></p>
+      {
+        s.email && (
+          <p>
+            <a href={`mailto:${s.email}`}>
+              <Icon name="mail" size={16} /> <span class="email">{s.email}</span>
+            </a>
+          </p>
+        )
+      }
     </div>
   </div>
   <p class="wordmark" aria-hidden="true">Betsy <em>peinados</em></p>
@@ -89,7 +103,22 @@ const year = new Date().getFullYear();
     display: inline-flex;
     align-items: center;
     gap: 0.55rem;
+    min-height: 44px;
+    min-width: 0;
     text-decoration: none;
+  }
+  .email {
+    overflow-wrap: anywhere;
+  }
+  .maps {
+    color: var(--cream);
+    text-decoration: underline;
+    text-underline-offset: 3px;
+  }
+  .legal a {
+    display: inline-flex;
+    align-items: center;
+    min-height: 44px;
   }
   p a:hover {
     color: var(--cream);
@@ -135,6 +164,18 @@ const year = new Date().getFullYear();
   @media (max-width: 760px) {
     .grid {
       grid-template-columns: 1fr;
+      gap: 1.25rem;
+    }
+    /* espacio para la barra fija inferior */
+    .footer {
+      padding-top: 3rem;
+      padding-bottom: calc(1.5rem + 76px + env(safe-area-inset-bottom));
+    }
+    .wordmark {
+      display: none;
+    }
+    .legal {
+      margin-top: 2rem;
     }
   }
 </style>
