@@ -370,12 +370,14 @@ const waKind = (a: Appointment): WaKind =>
         ? 'hello'
         : owesRejectNotice(a)
           ? 'comprobante_rechazado'
-          : a.rescheduled_at && !a.notified?.reagendada
-            ? 'reagendada'
-            : a.status === 'pendiente'
-              ? 'apartada'
-              : owesNotice(a)
-                ? 'abono'
+          : a.status === 'pendiente'
+            ? a.rescheduled_at && !a.notified?.reagendada
+              ? 'reagendada'
+              : 'apartada'
+            : owesNotice(a)
+              ? 'abono'
+              : a.rescheduled_at && !a.notified?.reagendada
+                ? 'reagendada'
                 : 'recordatorio';
 const waText = (a: Appointment, kind: WaKind = waKind(a)) => {
   if (kind === 'hello') return `Hola ${firstName(a.customer_name)} 👋 Te escribe ${settings.business_name}.`;
