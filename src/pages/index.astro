@@ -7,6 +7,7 @@ import Testimonials from '../components/Testimonials.astro';
 import StickyCta from '../components/StickyCta.astro';
 import { getGallery, getHours, getServices, getSettings } from '../lib/db';
 import { DEPOSIT_PCT, FAQ, PACKAGES } from '../lib/defaults';
+// La FAQ visible y la del JSON-LD son la misma lista (Google exige que coincidan).
 import { faqDelHome, horarioDeHoy, opcionesDeOcasion, serviciosDelHome } from '../lib/catalogo';
 import { formatCOP, formatDuration } from '../lib/time';
 import { businessJsonLd, faqJsonLd } from '../lib/seo';
@@ -31,7 +32,7 @@ const title = `${s.business_name} · Peinados para grados, bodas y eventos en ${
 const description = `Peinados profesionales en ${s.city}: ondas, peinados sociales, quinceañeras, novias y peinado + maquillaje. Agenda tu cita online en segundos con ${s.business_name}.`;
 ---
 
-<Base title={title} description={description} image={hero?.url} jsonLd={[businessJsonLd(s, services, hours, Astro.site), faqJsonLd(FAQ)]} bodyClass="home">
+<Base title={title} description={description} image={hero?.url} jsonLd={[businessJsonLd(s, services, hours, Astro.site), faqJsonLd(faq)]} bodyClass="home">
   <Header />
   <main id="contenido">
     <!-- ───────── HERO: una pantalla, una acción ───────── -->
@@ -208,17 +209,30 @@ const description = `Peinados profesionales en ${s.city}: ondas, peinados social
     <section id="sobre-mi" class="section about">
       <div class="wrap about-grid">
         <img src="/betsy.webp" alt={`Betsy, estilista de ${s.business_name} en ${s.city}`} width="360" height="450" loading="lazy" decoding="async" />
-        <div>
+        <div class="about-copy">
+          <p class="eyebrow">Sobre mí</p>
           <h2 class="reveal">Hola, soy <em>Betsy</em></h2>
-          <p>{s.about}</p>
+          <p class="about-text">{s.about}</p>
         </div>
+        <ul class="values">
+          <li><Icon name="check" size={18} /> Atención personalizada y sin afán</li>
+          <li><Icon name="check" size={18} /> Productos profesionales y fijación duradera</li>
+          <li><Icon name="check" size={18} /> Alianzas con maquilladoras para tu look completo</li>
+        </ul>
       </div>
     </section>
 
     <!-- ───────── FAQ ───────── -->
     <section class="section faq-sec">
-      <div class="wrap">
-        <h2 class="reveal">Preguntas <em>frecuentes</em></h2>
+      <div class="wrap faq-grid">
+        <div class="faq-aside">
+          <p class="eyebrow">Preguntas frecuentes</p>
+          <h2 class="reveal">Todo lo que necesitas <em>saber</em></h2>
+          <p class="faq-lead">Cómo apartar, el abono, cómo llegar y el servicio a domicilio. Si no encuentras tu respuesta, escríbeme.</p>
+          <a href={wa('¡Hola Betsy! Tengo una pregunta 💬')} class="btn btn-ghost faq-more" target="_blank" rel="noopener">
+            <Icon name="whatsapp" size={18} /> Preguntar por WhatsApp
+          </a>
+        </div>
         <div class="faq" data-faq>
           {
             faq.map((f) => (
@@ -234,9 +248,6 @@ const description = `Peinados profesionales en ${s.city}: ondas, peinados social
             ))
           }
         </div>
-        <a href={wa('¡Hola Betsy! Tengo una pregunta 💬')} class="faq-more" target="_blank" rel="noopener">
-          <Icon name="whatsapp" size={18} /> ¿Otra duda? Pregúntame por WhatsApp
-        </a>
       </div>
     </section>
 
@@ -747,49 +758,108 @@ const description = `Peinados profesionales en ${s.city}: ondas, peinados social
   }
 
   /* ───────── SOBRE MÍ ───────── */
-  .about {
-    padding-bottom: 2.5rem;
-  }
   .about-grid {
     display: grid;
     grid-template-columns: 112px 1fr;
-    gap: 1.1rem;
+    grid-template-areas:
+      'photo copy'
+      'values values';
+    gap: 1.1rem 1.1rem;
     align-items: start;
   }
   .about img {
+    grid-area: photo;
     width: 112px;
     height: 140px;
     object-fit: cover;
     border-radius: 18px;
   }
+  .about-copy {
+    grid-area: copy;
+  }
   .about h2 {
     margin: 0 0 0.5rem;
   }
-  .about p {
+  .about-text {
     margin: 0;
-    max-width: 58ch;
+    max-width: 52ch;
     color: var(--cocoa-2);
   }
-  @media (min-width: 800px) {
+  .values {
+    grid-area: values;
+    display: grid;
+    gap: 0.5rem;
+    margin: 0;
+    padding: 0;
+    list-style: none;
+    font-size: 0.95rem;
+  }
+  .values li {
+    display: flex;
+    align-items: center;
+    gap: 0.55rem;
+  }
+  .values :global(svg) {
+    flex: none;
+    color: var(--sage);
+  }
+  @media (min-width: 900px) {
     .about-grid {
-      grid-template-columns: 220px 1fr;
-      gap: 2.5rem;
+      grid-template-columns: minmax(280px, 380px) 1fr;
+      grid-template-areas:
+        'photo copy'
+        'photo values';
+      /* dos filas iguales: el texto queda en la mitad superior y los valores en la inferior → bloque centrado junto a la foto */
+      grid-template-rows: 1fr 1fr;
+      gap: 1.5rem 4rem;
       align-items: center;
     }
     .about img {
-      width: 220px;
-      height: 275px;
+      width: 100%;
+      height: auto;
+      aspect-ratio: 4 / 5;
+      border-radius: var(--radius-lg);
+      align-self: stretch;
+    }
+    .about-copy {
+      align-self: end;
+    }
+    .values {
+      align-self: start;
+      font-size: 1rem;
     }
   }
 
   /* ───────── FAQ ───────── */
   .faq-sec {
-    padding-top: 0;
+    border-top: 1px solid var(--line);
+  }
+  .faq-aside h2 {
+    margin: 0 0 0.6rem;
+  }
+  .faq-lead {
+    margin: 0 0 1rem;
+    max-width: 40ch;
+    color: var(--cocoa-2);
   }
   .faq {
-    margin-top: 1.25rem;
-    max-width: 760px;
+    margin-top: 1.5rem;
     border-top: 1px solid var(--line);
+  }
+  @media (min-width: 900px) {
+    .faq-grid {
+      display: grid;
+      grid-template-columns: minmax(280px, 1fr) 1.5fr;
+      gap: 4rem;
+      align-items: start;
+    }
+    .faq-aside {
+      position: sticky;
+      top: 100px;
+    }
+    .faq {
+      margin-top: 0;
+    }
   }
   .faq details {
     border-bottom: 1px solid var(--line);
@@ -836,14 +906,8 @@ const description = `Peinados profesionales en ${s.city}: ondas, peinados social
     margin: 0 0 1.1rem;
     color: var(--cocoa-2);
   }
-  .faq-more {
-    display: inline-flex;
-    align-items: center;
-    gap: 0.45rem;
-    min-height: 44px;
-    margin-top: 1rem;
-    color: var(--clay-deep);
-    font-weight: 500;
+  .faq summary:focus-visible {
+    outline-offset: 2px;
   }
 
   /* ───────── CIERRE ───────── */

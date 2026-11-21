@@ -83,7 +83,10 @@ export function horarioDeHoy(hours: BusinessHour[], now: Date): string {
   return h?.enabled ? `Hoy atiendo de ${h.open_time.slice(0, 5)} a ${h.close_time.slice(0, 5)}` : 'Hoy no atiendo';
 }
 
-/** Preguntas del home: sin la de precios (ya están en "Servicios y precios"), máximo cuatro. */
+/**
+ * Preguntas del home: todas menos la de precios (ya están en "Servicios y precios").
+ * Es la misma lista que se muestra y que va al JSON-LD: Google exige que coincidan.
+ */
 export function faqDelHome<T extends { q: string }>(faq: T[]): T[] {
-  return faq.filter((f) => !/cu[aá]nto cuesta/i.test(f.q)).slice(0, 4);
+  return faq.filter((f) => !/cu[aá]nto cuesta/i.test(f.q));
 }

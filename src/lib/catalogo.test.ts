@@ -109,8 +109,8 @@ describe('faqDelHome', () => {
     expect(faqDelHome(faq).map((f) => f.q)).toEqual(['¿Cómo aparto mi cita?', '¿Atiendes a domicilio?']);
   });
 
-  it('muestra como mucho cuatro preguntas', () => {
+  it('no recorta: las preguntas visibles son las mismas que van al JSON-LD', () => {
     const faq = Array.from({ length: 6 }, (_, i) => ({ q: `P${i}`, a: '' }));
-    expect(faqDelHome(faq).map((f) => f.q)).toEqual(['P0', 'P1', 'P2', 'P3']);
+    expect(faqDelHome(faq).map((f) => f.q)).toEqual(['P0', 'P1', 'P2', 'P3', 'P4', 'P5']);
   });
 });
