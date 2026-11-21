@@ -231,6 +231,15 @@ export async function validSignature(raw: string, header: string | null): Promis
   return safeEqual(hex, header.slice(7));
 }
 
+/** Como sendNotice, pero un error inesperado vuelve como resultado fallido en vez de lanzarse. */
+export async function sendNoticeSafe(a: Appointment, event: NoticeEvent, customText = ''): Promise<SendResult> {
+  try {
+    return await sendNotice(a, event, customText);
+  } catch (e) {
+    return { ok: false, reason: 'error', error: String((e as Error)?.message ?? e) };
+  }
+}
+
 /** Por qué no salió un mensaje, en palabras para Betsy. */
 export function waErrorText(r: SendResult): string {
   if (r.ok) return '';

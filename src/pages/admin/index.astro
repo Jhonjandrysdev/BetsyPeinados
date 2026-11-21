@@ -3,7 +3,7 @@ import Admin from '../../layouts/Admin.astro';
 import Icon from '../../components/Icon.astro';
 import { SlotTakenError, citaStore, getAppointment, getAppointments, getBlockedDates, getGoogleConnection, getHours, getServices, getSettings, getTemplates, receiptUrl, updateAppointment } from '../../lib/db';
 import { DEFAULT_TEMPLATES, NOTICE_EVENTS, fillTemplate, type NoticeEvent } from '../../lib/messages';
-import { sendFree, sendNotice, waConfigured, waErrorText, waMessagesForPhones, waNumber, windowOpen, type SendResult } from '../../lib/whatsapp';
+import { sendFree, sendNotice, sendNoticeSafe, waConfigured, waErrorText, waMessagesForPhones, waNumber, windowOpen, type SendResult } from '../../lib/whatsapp';
 import { book, BookingError, bookingSchema } from '../../lib/booking';
 import { cancelCalendarEvent, confirmCalendarEvent, createCalendarEvent, moveCalendarEvent } from '../../lib/google';
 import { DEPOSIT_PCT, HAIR_LENGTHS, hairLabel } from '../../lib/defaults';
@@ -136,7 +136,7 @@ if (Astro.request.method === 'POST') {
     // Con el WhatsApp automático conectado, el aviso con el motivo le llega solo.
     const rejected = waOn ? await getAppointment(id) : null;
     if (!rejected) return go('ok', 'Comprobante rechazado. Avísale a la clienta por WhatsApp: el mensaje ya está escrito.', desde, id);
-    const wa = await sendNotice(rejected, 'comprobante_rechazado').catch((e) => ({ ok: false, reason: 'error', error: String(e?.message ?? e) }) as SendResult);
+    const wa = await sendNoticeSafe(rejected, 'comprobante_rechazado');
     return go(wa.ok ? 'ok' : 'warn', `Comprobante rechazado.${waSay(wa, firstName(rejected.customer_name))}`, desde, id);
   }
 
@@ -149,7 +149,7 @@ if (Astro.request.method === 'POST') {
     if (!appt) return go('error', 'No encontramos esa cita. Recarga la página.');
     const who = firstName(appt.customer_name);
     if (!waOn) return go('error', 'El WhatsApp automático aún no está conectado. Usa «Abrir en mi WhatsApp».', desde, id);
-    const r = await sendNotice(appt, ev).catch((e) => ({ ok: false, reason: 'error', error: String(e?.message ?? e) }) as SendResult);
+    const r = await sendNoticeSafe(appt, ev);
     if (!r.ok) return go('error', `No se pudo enviar a ${who}: ${waErrorText(r)}.`, desde, id);
     return go('ok', ev === 'recordatorio' ? `Listo: le preguntamos a ${who} si confirma. Verás su respuesta aquí.` : `Mensaje enviado a ${who}${r.kind === 'plantilla' ? ' (plantilla de Meta)' : ''}.`, desde, id);
   }
@@ -211,7 +211,7 @@ if (Astro.request.method === 'POST') {
       }
     }
     let wa: SendResult | null = null;
-    if (notify && waOn) wa = await sendNotice({ ...moved, notified }, 'reagendada').catch((e) => ({ ok: false, reason: 'error', error: String(e?.message ?? e) }) as SendResult);
+    if (notify && waOn) wa = await sendNoticeSafe({ ...moved, notified }, 'reagendada');
     const msg = `Cita de ${who} movida al ${prettyDate(moved.starts_at).toLowerCase()} a las ${prettyTimeRaw(moved.starts_at)}.${gcalFail ? ' No se pudo mover en tu Google Calendar: cámbiala a mano allá.' : ''}${waSay(wa, who)}${notify && !waOn ? ' Avísale con el botón de WhatsApp.' : ''}`;
     return go(gcalFail || (wa && !wa.ok) ? 'warn' : 'ok', msg, mondayOf(date), id);
   }
@@ -370,12 +370,12 @@ const waKind = (a: Appointment): WaKind =>
         ? 'hello'
         : owesRejectNotice(a)
           ? 'comprobante_rechazado'
-          : a.status === 'pendiente'
-            ? 'apartada'
-            : owesNotice(a)
-              ? 'abono'
-              : a.rescheduled_at && !a.notified?.reagendada
-                ? 'reagendada'
+          : a.rescheduled_at && !a.notified?.reagendada
+            ? 'reagendada'
+            : a.status === 'pendiente'
+              ? 'apartada'
+              : owesNotice(a)
+                ? 'abono'
                 : 'recordatorio';
 const waText = (a: Appointment, kind: WaKind = waKind(a)) => {
   if (kind === 'hello') return `Hola ${firstName(a.customer_name)} 👋 Te escribe ${settings.business_name}.`;

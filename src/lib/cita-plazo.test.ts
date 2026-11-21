@@ -31,6 +31,23 @@ describe('plazo para enviar el comprobante', () => {
     expect(plazoDeAbono(a)?.toISOString()).toBe('2026-11-25T03:00:00.000Z');
   });
 
+  it('vuelve a empezar cuando Betsy mueve la cita', () => {
+    // Reservada a las 10:00 para dentro de 3 días; a las 14:00 la pasan a mañana 9:00 (19 h después del cambio).
+    const a = { ...base, created_at: '2026-11-21T10:00:00.000Z', rescheduled_at: '2026-11-21T14:00:00.000Z', starts_at: '2026-11-22T09:00:00.000Z' };
+    expect(plazoDeAbono(a)?.toISOString()).toBe('2026-11-21T16:00:00.000Z');
+  });
+
+  it('cuenta desde lo más reciente entre la reserva, el último rechazo y el último cambio de hora', () => {
+    const a = {
+      ...base,
+      created_at: '2026-11-21T10:00:00.000Z',
+      receipt_rejected_at: '2026-11-23T09:00:00.000Z',
+      rescheduled_at: '2026-11-22T09:00:00.000Z',
+      starts_at: '2026-12-01T15:00:00.000Z',
+    };
+    expect(plazoDeAbono(a)?.toISOString()).toBe('2026-11-24T09:00:00.000Z');
+  });
+
   it('no corre mientras haya un comprobante en revisión', () => {
     expect(plazoDeAbono({ ...base, receipt_path: 'c1/1.jpg' })).toBeNull();
   });

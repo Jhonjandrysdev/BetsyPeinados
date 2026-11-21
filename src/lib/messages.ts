@@ -101,6 +101,7 @@ export function valuesFor({ a, s, price, deposit }: FillData): Record<string, st
     codigo: a.id.slice(0, 8).toUpperCase(),
     direccion: a.home_service && a.home_address ? a.home_address : s.address,
     instagram: s.instagram,
-    motivo: a.receipt_rejected_reason || 'no se ve completo',
+    // Sin punto final: la plantilla ya cierra la frase.
+    motivo: (a.receipt_rejected_reason || 'no se ve completo').replace(/[.\s]+$/, ''),
   };
 }

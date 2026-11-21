@@ -110,6 +110,7 @@ describe('resumen de la cita (lo que ven Betsy y la clienta)', () => {
     expect(resumenDeCita({ ...base, price: 90000 }, sv).firma).not.toBe(f);
     expect(resumenDeCita({ ...base, status: 'confirmada' }, sv).firma).not.toBe(f);
     expect(resumenDeCita({ ...base, travel_fee: 5000 }, sv).firma).not.toBe(f);
+    expect(resumenDeCita({ ...base, starts_at: '2026-12-02T15:00:00.000Z' }, sv).firma).not.toBe(f);
     expect(resumenDeCita({ ...base }, sv).firma).toBe(f);
   });
 });

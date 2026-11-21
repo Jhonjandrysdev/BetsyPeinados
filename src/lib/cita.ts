@@ -40,11 +40,14 @@ export interface ResumenCita extends Cotizacion {
   abono: 'por_pagar' | 'pagado' | null;
   /** Lo que se cobra el día de la cita; null si no aplica. */
   saldo: number | null;
-  /** Cambia con el estado, los montos o el comprobante: la página de la clienta se recarga al verla distinta. */
+  /** Cambia con el estado, la hora, los montos o el comprobante: la página de la clienta se recarga al verla distinta. */
   firma: string;
 }
 
-type CitaVista = Pick<Appointment, 'status' | 'hair_length' | 'price' | 'deposit' | 'travel_fee' | 'deposit_confirmed_at' | 'receipt_path' | 'receipt_rejected_at'>;
+type CitaVista = Pick<
+  Appointment,
+  'status' | 'starts_at' | 'hair_length' | 'price' | 'deposit' | 'travel_fee' | 'deposit_confirmed_at' | 'receipt_path' | 'receipt_rejected_at'
+>;
 
 /** Valor, abono y saldo tal como los ven Betsy en el panel y la clienta en su página. */
 export function resumenDeCita(a: CitaVista, sv: Tarifa | null | undefined): ResumenCita {
@@ -55,7 +58,7 @@ export function resumenDeCita(a: CitaVista, sv: Tarifa | null | undefined): Resu
   const abono = !exacto ? null : a.deposit_confirmed_at ? 'pagado' : a.status === 'pendiente' ? 'por_pagar' : null;
   // Sin abono de por medio (cita creada a mano) se cobra todo el valor el día de la cita.
   const saldo = cancelada || !exacto ? null : abono ? saldoDe(v) : v.price;
-  return { ...v, exacto, travel, abono: cancelada && abono === 'por_pagar' ? null : abono, saldo, firma: [a.status, v.price, v.deposit, travel, a.receipt_path ? 'rev' : '', a.receipt_rejected_at ?? ''].join('|') };
+  return { ...v, exacto, travel, abono: cancelada && abono === 'por_pagar' ? null : abono, saldo, firma: [a.status, a.starts_at, v.price, v.deposit, travel, a.receipt_path ? 'rev' : '', a.receipt_rejected_at ?? ''].join('|') };
 }
 
 /** Comprobante rechazado y la clienta aún no lo sabe (vale también para un segundo rechazo). */
@@ -75,10 +78,12 @@ const HORA = 3_600_000;
 export const cupoLiberado = (a: Pick<Appointment, 'status' | 'cancel_reason'>) => a.status === 'cancelada' && a.cancel_reason === 'sin_abono';
 
 /** Hasta cuándo tiene la clienta para enviar el comprobante; null si el plazo no corre. */
-export function plazoDeAbono(a: Pick<Appointment, 'status' | 'created_at' | 'starts_at' | 'receipt_path' | 'receipt_rejected_at'>): Date | null {
+export function plazoDeAbono(
+  a: Pick<Appointment, 'status' | 'created_at' | 'starts_at' | 'receipt_path' | 'receipt_rejected_at' | 'rescheduled_at'>,
+): Date | null {
   if (a.status !== 'pendiente' || a.receipt_path) return null;
-  // El plazo corre desde la reserva o desde el último rechazo del comprobante.
-  const desde = Date.parse(a.receipt_rejected_at ?? a.created_at);
+  // El plazo corre desde lo más reciente: la reserva, el último rechazo del comprobante o el último cambio de hora.
+  const desde = Math.max(...[a.created_at, a.receipt_rejected_at, a.rescheduled_at].filter((d): d is string => Boolean(d)).map(Date.parse));
   const inicio = Date.parse(a.starts_at);
   const horas = inicio - desde < 24 * HORA ? 2 : 24;
   return new Date(Math.min(desde + horas * HORA, inicio));
@@ -127,12 +132,17 @@ export interface CitaDeps {
   reportar: (msg: string, e: unknown) => void;
   /** Google Calendar de Betsy (si está conectado). */
   calendario: { cancelar(eventId: string): Promise<void> } | null;
+  /** WhatsApp automático (si está conectado): envía el aviso y devuelve si salió. */
+  avisar: ((a: Appointment, aviso: 'cupo_liberado') => Promise<boolean>) | null;
 }
 
-const DEPS: CitaDeps = { now: () => new Date(), reportar: (msg, e) => console.error(msg, e), calendario: null };
+const DEPS: CitaDeps = { now: () => new Date(), reportar: (msg, e) => console.error(msg, e), calendario: null, avisar: null };
+
+/** Avisos por corrida de la tarea programada: cada envío a Meta puede tardar segundos y la función tiene 15 s. */
+const MAX_AVISOS_POR_CORRIDA = 2;
 
 export function createCitas(store: CitaStore, deps: Partial<CitaDeps> = {}) {
-  const { now, reportar, calendario } = { ...DEPS, ...deps };
+  const { now, reportar, calendario, avisar } = { ...DEPS, ...deps };
   return {
     /** Betsy ajusta el valor final (cm adicionales, paquete, desplazamiento). */
     async ajustarValor(id: string, { price, travelFee = null }: { price: number; travelFee?: number | null }): Promise<void> {
@@ -153,8 +163,10 @@ export function createCitas(store: CitaStore, deps: Partial<CitaDeps> = {}) {
     },
 
     /** Tarea programada (cada 15 min): libera los cupos cuyo plazo para el comprobante ya pasó. Repetirla no cambia nada. */
-    async vencerCuposSinAbono(): Promise<{ vencidas: string[] }> {
+    async vencerCuposSinAbono(): Promise<{ vencidas: string[]; avisadas: number }> {
       const vencidas: string[] = [];
+      let avisadas = 0;
+      let intentos = 0;
       for (const a of await store.listPendingWithoutReceipt()) {
         const plazo = plazoDeAbono(a);
         if (!plazo || plazo.getTime() > now().getTime()) continue;
@@ -168,8 +180,17 @@ export function createCitas(store: CitaStore, deps: Partial<CitaDeps> = {}) {
             reportar('No se pudo borrar de Google Calendar la cita vencida', e);
           }
         }
+        // Solo si la cita aún no empieza; los avisos que no salgan aquí quedan en el panel para enviarlos a mano.
+        if (avisar && intentos < MAX_AVISOS_POR_CORRIDA && Date.parse(a.starts_at) > now().getTime()) {
+          intentos++;
+          try {
+            if (await avisar({ ...a, status: 'cancelada', cancel_reason: 'sin_abono' }, 'cupo_liberado')) avisadas++;
+          } catch (e) {
+            reportar('No se pudo enviar el aviso de cupo liberado', e);
+          }
+        }
       }
-      return { vencidas };
+      return { vencidas, avisadas };
     },
 
     /**
