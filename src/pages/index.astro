@@ -798,6 +798,11 @@ const description = `Peinados profesionales en ${s.city}: ondas, peinados social
   }
 
   /* ───────── SERVICIOS ───────── */
+  /* Paquetes y Servicios van seguidas y con el mismo fondo: sin esto se suman los dos
+     paddings (hasta ~270 px de vacío). Queda un solo espacio de sección entre ambas. */
+  #servicios {
+    padding-top: 0;
+  }
   .services {
     display: grid;
     grid-template-columns: repeat(auto-fill, minmax(min(100%, 330px), 1fr));
