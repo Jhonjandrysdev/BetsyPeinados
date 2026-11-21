@@ -580,6 +580,7 @@ const description = `Peinados profesionales en ${s.city}: ondas, peinados social
   .hero-pk {
     display: inline-flex;
     align-items: center;
+    min-height: 44px;
     gap: 0.35rem;
     margin-top: 1rem;
     font-weight: 700;
@@ -1786,8 +1787,16 @@ const description = `Peinados profesionales en ${s.city}: ondas, peinados social
     transform: rotate(-8deg) scale(1.05);
   }
   .contact-list a {
+    display: inline-flex;
+    align-items: center;
+    min-height: 44px;
     text-decoration: none;
     font-weight: 600;
+  }
+  /* el correo largo se parte en vez de desbordar la tarjeta en celular */
+  .contact-list li > :last-child {
+    min-width: 0;
+    overflow-wrap: anywhere;
   }
   .contact-list a:hover {
     color: var(--clay);
