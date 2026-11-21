@@ -71,6 +71,9 @@ export function debeAvisarRechazo(
 
 const HORA = 3_600_000;
 
+/** El sistema liberó el cupo porque venció el plazo del comprobante. */
+export const cupoLiberado = (a: Pick<Appointment, 'status' | 'cancel_reason'>) => a.status === 'cancelada' && a.cancel_reason === 'sin_abono';
+
 /** Hasta cuándo tiene la clienta para enviar el comprobante; null si el plazo no corre. */
 export function plazoDeAbono(a: Pick<Appointment, 'status' | 'created_at' | 'starts_at' | 'receipt_path' | 'receipt_rejected_at'>): Date | null {
   if (a.status !== 'pendiente' || a.receipt_path) return null;
@@ -79,6 +82,18 @@ export function plazoDeAbono(a: Pick<Appointment, 'status' | 'created_at' | 'sta
   const inicio = Date.parse(a.starts_at);
   const horas = inicio - desde < 24 * HORA ? 2 : 24;
   return new Date(Math.min(desde + horas * HORA, inicio));
+}
+
+/** "2 horas y 30 minutos": lo que le queda a la clienta; null si el plazo ya pasó. */
+export function tiempoRestante(plazo: Date, now: Date): string | null {
+  const ms = plazo.getTime() - now.getTime();
+  if (ms <= 0) return null;
+  const min = Math.max(1, Math.ceil(ms / 60_000));
+  const h = Math.floor(min / 60);
+  const m = min % 60;
+  const horas = h === 1 ? '1 hora' : `${h} horas`;
+  const minutos = m === 1 ? '1 minuto' : `${m} minutos`;
+  return h && m ? `${horas} y ${minutos}` : h ? horas : minutos;
 }
 
 /** Error con un mensaje que se le puede mostrar a Betsy tal cual. */
@@ -137,9 +152,8 @@ export function createCitas(store: CitaStore, deps: Partial<CitaDeps> = {}) {
       await store.updateAppointment(id, patch);
     },
 
-    /** Betsy rechaza un comprobante falso, borroso o por menos dinero: la cita vuelve a esperar abono. */
     /** Tarea programada (cada 15 min): libera los cupos cuyo plazo para el comprobante ya pasó. Repetirla no cambia nada. */
-    async tick(): Promise<{ vencidas: string[] }> {
+    async vencerCuposSinAbono(): Promise<{ vencidas: string[] }> {
       const vencidas: string[] = [];
       for (const a of await store.listPendingWithoutReceipt()) {
         const plazo = plazoDeAbono(a);
@@ -158,7 +172,9 @@ export function createCitas(store: CitaStore, deps: Partial<CitaDeps> = {}) {
       return { vencidas };
     },
 
-    /** @param comprobanteVisto ruta del comprobante que Betsy revisó (si la clienta subió otro después, no se rechaza). */
+    /**
+     * Betsy rechaza un comprobante falso, borroso o por menos dinero: la cita vuelve a esperar abono.
+     * @param comprobanteVisto ruta del comprobante que Betsy revisó (si la clienta subió otro después, no se rechaza). */
     async rechazarComprobante(id: string, motivo: string, comprobanteVisto?: string): Promise<void> {
       const motivoLimpio = motivo.replace(/\s+/g, ' ').trim();
       if (!motivoLimpio) throw new CitaError('Escribe el motivo para que la clienta sepa qué corregir.');

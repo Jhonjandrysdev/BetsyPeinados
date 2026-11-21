@@ -7,11 +7,11 @@ const apartada = { ...base, created_at: '2026-11-21T10:00:00.000Z' };
 const ANTES = new Date('2026-11-22T09:59:00.000Z');
 const DESPUES = new Date('2026-11-22T10:01:00.000Z');
 
-describe('tick: vencimiento de cupos sin abono', () => {
+describe('vencimiento automático de cupos sin abono', () => {
   let store: ReturnType<typeof fakeStore>;
   let canceladosEnGoogle: string[];
   const tick = (now: Date) =>
-    createCitas(store, { now: () => now, reportar: () => {}, calendario: { cancelar: async (id) => void canceladosEnGoogle.push(id) } }).tick();
+    createCitas(store, { now: () => now, reportar: () => {}, calendario: { cancelar: async (id) => void canceladosEnGoogle.push(id) } }).vencerCuposSinAbono();
 
   beforeEach(() => {
     canceladosEnGoogle = [];
@@ -68,7 +68,7 @@ describe('tick: vencimiento de cupos sin abono', () => {
           throw new Error('google caído');
         },
       },
-    }).tick();
+    }).vencerCuposSinAbono();
     expect(r).toEqual({ vencidas: ['c1'] });
     expect(store.get('c1')).toMatchObject({ status: 'cancelada', google_event_id: 'g1' });
   });

@@ -9,7 +9,8 @@ alter table public.message_templates drop constraint if exists message_templates
 alter table public.message_templates add constraint message_templates_event_check
   check (event in ('apartada', 'abono', 'recordatorio', 'reagendada', 'gracias', 'cancelada', 'comprobante_rechazado', 'cupo_liberado'));
 
--- Tarea programada: cada 15 min llama al endpoint del sitio.
+-- Tarea programada: cada 15 min llama al endpoint del sitio, solo si existen los secretos
+-- (en una base local o una rama sin secretos no hace nada). Quitarla: select cron.unschedule('betsy-tick');
 -- La URL y el secreto viven en Vault (no en el código):
 --   select vault.create_secret('https://TU-DOMINIO', 'site_url');
 --   select vault.create_secret('<mismo valor que CRON_SECRET en Vercel>', 'cron_secret');
@@ -20,13 +21,16 @@ select cron.schedule(
   '*/15 * * * *',
   $$
   select net.http_post(
-    url := (select decrypted_secret from vault.decrypted_secrets where name = 'site_url') || '/api/cron/tick',
-    headers := jsonb_build_object(
-      'Content-Type', 'application/json',
-      'Authorization', 'Bearer ' || (select decrypted_secret from vault.decrypted_secrets where name = 'cron_secret')
-    ),
+    url := s.url || '/api/cron/tick',
+    headers := jsonb_build_object('Content-Type', 'application/json', 'Authorization', 'Bearer ' || s.secret),
     body := '{}'::jsonb,
     timeout_milliseconds := 10000
-  );
+  )
+  from (
+    select
+      (select decrypted_secret from vault.decrypted_secrets where name = 'site_url') as url,
+      (select decrypted_secret from vault.decrypted_secrets where name = 'cron_secret') as secret
+  ) s
+  where s.url is not null and s.secret is not null;
   $$
 );

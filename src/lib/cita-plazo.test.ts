@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { plazoDeAbono } from './cita';
+import { plazoDeAbono, tiempoRestante } from './cita';
 import { base } from './cita.fixtures';
 
 const h = (n: number) => n * 3_600_000;
@@ -43,5 +43,22 @@ describe('plazo para enviar el comprobante', () => {
   it('el límite de 24 h es exacto: a 24 h justas ya son 24 h completas', () => {
     const a = { ...base, created_at: '2026-11-21T10:00:00.000Z', starts_at: '2026-11-22T10:00:00.000Z' };
     expect(at(plazoDeAbono(a)!.toISOString()) - at(a.created_at)).toBe(h(24));
+  });
+});
+
+describe('tiempo que le queda a la clienta', () => {
+  const plazo = new Date('2026-11-22T10:00:00.000Z');
+  it.each([
+    ['2026-11-21T10:00:00.000Z', '24 horas'],
+    ['2026-11-22T07:30:00.000Z', '2 horas y 30 minutos'],
+    ['2026-11-22T09:00:00.000Z', '1 hora'],
+    ['2026-11-22T09:15:00.000Z', '45 minutos'],
+    ['2026-11-22T09:59:30.000Z', '1 minuto'],
+  ])('a las %s le quedan %s', (now, texto) => {
+    expect(tiempoRestante(plazo, new Date(now))).toBe(texto);
+  });
+
+  it('si ya pasó el plazo no le queda tiempo', () => {
+    expect(tiempoRestante(plazo, new Date('2026-11-22T10:00:01.000Z'))).toBeNull();
   });
 });

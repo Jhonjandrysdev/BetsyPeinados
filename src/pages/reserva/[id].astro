@@ -6,7 +6,7 @@ import { getAppointment, getService, getSettings, saveReceipt } from '../../lib/
 import { publicStorageUrl } from '../../lib/supabase';
 import { limited } from '../../lib/http';
 import { DEPOSIT_PCT, POLICIES, hairLabel } from '../../lib/defaults';
-import { plazoDeAbono, resumenDeCita } from '../../lib/cita';
+import { cupoLiberado, plazoDeAbono, resumenDeCita, tiempoRestante } from '../../lib/cita';
 import { formatCOP, prettyDate, prettyTime } from '../../lib/time';
 
 const { id = '' } = Astro.params;
@@ -27,8 +27,8 @@ if (Astro.request.method === 'POST') {
     else if (!['image/jpeg', 'image/png', 'image/webp', 'image/heic', 'application/pdf'].includes(f.type)) upMsg = 'Sube una foto (JPG, PNG) o un PDF.';
     else {
       try {
-        await saveReceipt(appt, f);
-        return Astro.redirect(`${Astro.url.pathname}?subido=1`, 303);
+        if (await saveReceipt(appt, f)) return Astro.redirect(`${Astro.url.pathname}?subido=1`, 303);
+        upMsg = 'Esta cita ya no está esperando abono. Escríbeme por WhatsApp y lo miramos.';
       } catch (e) {
         console.error('Comprobante', e);
         upMsg = 'No pudimos subir el archivo. Envíalo por WhatsApp, por favor.';
@@ -41,7 +41,8 @@ const pending = appt.status === 'pendiente';
 const resumen = resumenDeCita(appt, service);
 const { price, deposit, saldo, travel } = resumen;
 const plazo = plazoDeAbono(appt);
-const released = appt.status === 'cancelada' && appt.cancel_reason === 'sin_abono';
+const queda = plazo ? tiempoRestante(plazo, new Date()) : null;
+const released = cupoLiberado(appt);
 const place = appt.home_service && appt.home_address ? appt.home_address : s.address;
 const qr = s.pay_qr_path ? publicStorageUrl(s.pay_qr_path) : null;
 const hasReceipt = Boolean(appt.receipt_path);
@@ -129,7 +130,14 @@ const icsHref = `data:text/calendar;charset=utf-8,${encodeURIComponent(ics)}`;
             <>
               {plazo && (
                 <p class="pay-deadline" role="note">
-                  <Icon name="clock" size={16} /> Tienes hasta el <b>{prettyDate(plazo.toISOString()).toLowerCase()} a las {prettyTime(plazo.toISOString())}</b> para enviar el comprobante. Después el cupo se libera.
+                  <Icon name="clock" size={16} />
+                  {queda ? (
+                    <span>
+                      Te quedan <b>{queda}</b> para enviar el comprobante (hasta el {prettyDate(plazo.toISOString()).toLowerCase()} a las {prettyTime(plazo.toISOString())}). Después el cupo se libera.
+                    </span>
+                  ) : (
+                    <span>El plazo para enviar el comprobante ya venció y el cupo se liberará en unos minutos. Si ya transferiste, súbelo ahora o escríbeme por WhatsApp.</span>
+                  )}
                 </p>
               )}
               <p class="pay-step">Paso 1 · Transfiere</p>

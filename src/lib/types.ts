@@ -1,4 +1,6 @@
 export type AppointmentStatus = 'pendiente' | 'confirmada' | 'cancelada' | 'completada';
+/** Motivo de cancelación que registra el sistema (las que cancela Betsy quedan sin motivo). */
+export type CancelReason = 'sin_abono';
 
 export interface SiteSettings {
   business_name: string;
@@ -87,7 +89,7 @@ export interface Appointment {
   receipt_rejected_reason?: string | null;
   receipt_rejected_at?: string | null;
   /** Por qué se canceló: 'sin_abono' si venció el plazo del comprobante; null si la canceló Betsy. */
-  cancel_reason?: 'sin_abono' | null;
+  cancel_reason?: CancelReason | null;
   /** Avisos de WhatsApp ya enviados: { abono: fecha, ... } */
   notified?: Record<string, string> | null;
 }
