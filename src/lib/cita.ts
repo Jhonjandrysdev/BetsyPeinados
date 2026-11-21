@@ -1,9 +1,9 @@
 /**
- * Dominio de la cita: valor, abono y (en próximos tickets) ciclo del abono y avisos.
- * No importa Supabase ni hace HTTP; lo que necesite de fuera se le inyecta.
+ * Dominio de la cita: valor y abono.
+ * No importa Supabase ni hace HTTP.
  */
 import { depositOf, priceFor } from './defaults';
-import type { Service } from './types';
+import type { Appointment, Service } from './types';
 
 export type Tarifa = Pick<Service, 'price_from' | 'price_short' | 'price_medium' | 'price_long'>;
 
@@ -19,4 +19,9 @@ export function cotizar(sv: Tarifa | null | undefined, hairLength: string | null
   const exact = priceFor(sv, hairLength);
   if (exact != null) return { price: exact, deposit: depositOf(exact) };
   return { price: sv?.price_from ?? null, deposit: null };
+}
+
+/** Valor y abono de una cita: los guardados al reservar; si la base aún no tiene esas columnas, se calculan como antes. */
+export function valorDeCita(a: Pick<Appointment, 'hair_length' | 'price' | 'deposit'>, sv: Tarifa | null | undefined): Cotizacion {
+  return a.price !== undefined ? { price: a.price, deposit: a.deposit ?? null } : cotizar(sv, a.hair_length);
 }

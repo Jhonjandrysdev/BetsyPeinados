@@ -3,8 +3,8 @@ import { createAppointment, getService, getSettings, updateAppointment, SlotTake
 import { createCalendarEvent } from './google';
 import { availableSlots } from './slots';
 import { fromLocal, isDate, isTime } from './time';
-import type { Appointment } from './types';
 import { cotizar } from './cita';
+import type { Appointment } from './types';
 
 const clean = (s: string) => s.replace(/[\u0000-\u001f\u007f<>]/g, '').replace(/\s+/g, ' ').trim();
 

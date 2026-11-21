@@ -6,7 +6,7 @@ import { getAppointment, getService, getSettings, saveReceipt } from '../../lib/
 import { publicStorageUrl } from '../../lib/supabase';
 import { limited } from '../../lib/http';
 import { DEPOSIT_PCT, POLICIES, hairLabel } from '../../lib/defaults';
-import { cotizar } from '../../lib/cita';
+import { valorDeCita } from '../../lib/cita';
 import { formatCOP, prettyDate, prettyTime } from '../../lib/time';
 
 const { id = '' } = Astro.params;
@@ -38,8 +38,7 @@ if (Astro.request.method === 'POST') {
 }
 const [s, service] = await Promise.all([getSettings(), appt.service_id ? getService(appt.service_id) : null]);
 const pending = appt.status === 'pendiente';
-// Valor y abono fijados al reservar; si la base aún no tiene esas columnas, se calculan como antes.
-const { price, deposit } = appt.price !== undefined ? { price: appt.price, deposit: appt.deposit ?? null } : cotizar(service, appt.hair_length);
+const { price, deposit } = valorDeCita(appt, service);
 const place = appt.home_service && appt.home_address ? appt.home_address : s.address;
 const qr = s.pay_qr_path ? publicStorageUrl(s.pay_qr_path) : null;
 const hasReceipt = Boolean(appt.receipt_path);

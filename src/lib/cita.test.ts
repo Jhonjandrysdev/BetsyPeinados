@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { cotizar } from './cita';
+import { cotizar, valorDeCita } from './cita';
 
 const ondas = { price_from: 70000, price_short: 70000, price_medium: 80000, price_long: 90000 };
 
@@ -26,5 +26,22 @@ describe('cotizar al reservar', () => {
   it('si falta la tarifa de un largo usa la del largo anterior', () => {
     const solo = { price_from: 60000, price_short: 60000, price_medium: null, price_long: null };
     expect(cotizar(solo, 'extra')).toEqual({ price: 60000, deposit: 30000 });
+  });
+});
+
+describe('valor de una cita', () => {
+  const cita = { hair_length: 'medio' };
+
+  it('usa el valor guardado aunque los precios del servicio hayan cambiado', () => {
+    const subio = { ...ondas, price_medium: 95000 };
+    expect(valorDeCita({ ...cita, price: 80000, deposit: 40000 }, subio)).toEqual({ price: 80000, deposit: 40000 });
+  });
+
+  it('una cita guardada sin valor sigue sin valor', () => {
+    expect(valorDeCita({ ...cita, price: null, deposit: null }, ondas)).toEqual({ price: null, deposit: null });
+  });
+
+  it('si la base aún no tiene las columnas, calcula como antes', () => {
+    expect(valorDeCita(cita, ondas)).toEqual({ price: 80000, deposit: 40000 });
   });
 });

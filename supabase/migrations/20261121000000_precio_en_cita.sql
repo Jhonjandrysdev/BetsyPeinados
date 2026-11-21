@@ -22,6 +22,6 @@ with t as (
 update public.appointments a
 set
   price = coalesce(nullif(t.tier, 0), t.price_from),
-  deposit = case when nullif(t.tier, 0) is not null then (round(t.tier * 50 / 100.0 / 1000.0) * 1000)::integer end
+  deposit = case when nullif(t.tier, 0) is not null then (round(t.tier * 50.0 / 100.0 / 1000.0) * 1000)::integer end
 from t
 where a.id = t.id;

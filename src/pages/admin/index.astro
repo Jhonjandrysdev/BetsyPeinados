@@ -6,7 +6,7 @@ import { DEFAULT_TEMPLATES, fillTemplate, type NoticeEvent } from '../../lib/mes
 import { book, BookingError, bookingSchema } from '../../lib/booking';
 import { cancelCalendarEvent, confirmCalendarEvent, createCalendarEvent } from '../../lib/google';
 import { DEPOSIT_PCT, HAIR_LENGTHS, hairLabel } from '../../lib/defaults';
-import { cotizar } from '../../lib/cita';
+import { valorDeCita } from '../../lib/cita';
 import { addDays, formatCOP, fromLocal, isDate, localDate, localTime, minutesOf, prettyDate, prettyTime as prettyTimeRaw, weekdayOf } from '../../lib/time';
 import { isUuid, str } from '../../lib/admin';
 import type { Appointment, AppointmentStatus } from '../../lib/types';
@@ -167,8 +167,7 @@ const durOf = (a: Appointment) => Math.max(20, (new Date(a.ends_at).getTime() - 
 
 // Indicadores (cifras reales de la semana mostrada)
 const svcOf = new Map(services.map((x) => [x.id, x]));
-/** Valor y abono fijados en la cita; si la base aún no tiene esas columnas, se calculan como antes. */
-const valorOf = (a: Appointment) => (a.price !== undefined ? { price: a.price, deposit: a.deposit ?? null } : cotizar(svcOf.get(a.service_id ?? ''), a.hair_length));
+const valorOf = (a: Appointment) => valorDeCita(a, svcOf.get(a.service_id ?? ''));
 const weekActive = appts.filter(isActive);
 const income = appts.filter((a) => a.status !== 'cancelada').reduce((t, a) => t + (valorOf(a).price ?? 0), 0);
 const next = upcoming.find((a) => new Date(a.starts_at) > now);
