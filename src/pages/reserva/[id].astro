@@ -6,7 +6,7 @@ import { getAppointment, getService, getSettings, saveReceipt } from '../../lib/
 import { publicStorageUrl } from '../../lib/supabase';
 import { limited } from '../../lib/http';
 import { DEPOSIT_PCT, POLICIES, hairLabel } from '../../lib/defaults';
-import { valorDeCita } from '../../lib/cita';
+import { saldoDe, valorDeCita } from '../../lib/cita';
 import { formatCOP, prettyDate, prettyTime } from '../../lib/time';
 
 const { id = '' } = Astro.params;
@@ -39,6 +39,10 @@ if (Astro.request.method === 'POST') {
 const [s, service] = await Promise.all([getSettings(), appt.service_id ? getService(appt.service_id) : null]);
 const pending = appt.status === 'pendiente';
 const { price, deposit } = valorDeCita(appt, service);
+const saldo = saldoDe({ price, deposit });
+const travel = appt.travel_fee ?? 0;
+/** Abono confirmado por Betsy (las citas creadas a mano no pasan por el abono). */
+const paid = Boolean(appt.deposit_confirmed_at) && appt.status !== 'cancelada';
 const place = appt.home_service && appt.home_address ? appt.home_address : s.address;
 const qr = s.pay_qr_path ? publicStorageUrl(s.pay_qr_path) : null;
 const hasReceipt = Boolean(appt.receipt_path);
@@ -109,7 +113,7 @@ const icsHref = `data:text/calendar;charset=utf-8,${encodeURIComponent(ics)}`;
 
     {
       pending && (
-        <section class="pay" aria-labelledby="pay-t" data-status-watch={appt.id} data-status={appt.status}>
+        <section class="pay" aria-labelledby="pay-t">
           {upMsg && (
             <p class:list={['notice', upErr ? 'error' : 'ok']} role="status">
               {upMsg}
@@ -166,7 +170,13 @@ const icsHref = `data:text/calendar;charset=utf-8,${encodeURIComponent(ics)}`;
       )
     }
 
-    <article class:list={['ticket', { off: cancelled }]} aria-label="Resumen de tu cita">
+    <article
+      class:list={['ticket', { off: cancelled }]}
+      aria-label="Resumen de tu cita"
+      data-status-watch={cancelled ? undefined : appt.id}
+      data-status={appt.status}
+      data-amounts={`${price ?? ''}|${deposit ?? ''}|${travel}`}
+    >
       <div class="stub" aria-hidden="true">
         <small>{month}</small>
         <strong>{day}</strong>
@@ -187,7 +197,9 @@ const icsHref = `data:text/calendar;charset=utf-8,${encodeURIComponent(ics)}`;
           <div><dt>Hora</dt><dd>{prettyTime(appt.starts_at)}</dd></div>
           <div><dt>{appt.home_service ? 'Domicilio' : 'Lugar'}</dt><dd>{place}</dd></div>
           {appt.hair_length && <div><dt>Largo</dt><dd>{hairLabel(appt.hair_length)}</dd></div>}
-          {price && <div><dt>{deposit != null ? 'Valor' : 'Valor desde'}</dt><dd>{formatCOP(price)}</dd></div>}
+          {price != null && <div><dt>{deposit != null ? 'Valor' : 'Valor desde'}</dt><dd>{formatCOP(price)}{travel > 0 && <small class="t-sub">incluye desplazamiento {formatCOP(travel)}</small>}</dd></div>}
+          {deposit != null && (pending || paid) && <div><dt>{paid ? 'Abono pagado' : 'Abono a pagar'}</dt><dd>{formatCOP(deposit)}</dd></div>}
+          {deposit != null && saldo != null && (pending || paid) && <div><dt>Saldo el día de la cita</dt><dd>{formatCOP(saldo)}</dd></div>}
           {pending && <div><dt>Estado</dt><dd>{hasReceipt ? 'Comprobante en revisión' : 'Esperando abono'}</dd></div>}
           <div><dt>A nombre de</dt><dd>{appt.customer_name}</dd></div>
         </dl>
@@ -242,7 +254,7 @@ const icsHref = `data:text/calendar;charset=utf-8,${encodeURIComponent(ics)}`;
     msg.textContent = f.name;
     document.querySelector<HTMLFormElement>('[data-up]')!.submit();
   });
-  // Cuando Betsy confirme el abono, la página se actualiza sola.
+  // Cuando Betsy confirme el abono o ajuste el valor, la página se actualiza sola.
   const watch = document.querySelector<HTMLElement>('[data-status-watch]');
   if (watch) {
     const id = watch.dataset.statusWatch!;
@@ -251,7 +263,8 @@ const icsHref = `data:text/calendar;charset=utf-8,${encodeURIComponent(ics)}`;
       try {
         const r = await fetch(`/api/estado?id=${id}`, { headers: { Accept: 'application/json' }, cache: 'no-store' });
         const j = await r.json();
-        if (j.status && j.status !== watch.dataset.status) location.replace(location.pathname);
+        const amounts = `${j.price ?? ''}|${j.deposit ?? ''}|${j.travel_fee ?? 0}`;
+        if ((j.status && j.status !== watch.dataset.status) || (j.status && amounts !== watch.dataset.amounts)) location.replace(location.pathname);
       } catch {
         /* sin conexión: se reintenta */
       }
@@ -262,6 +275,12 @@ const icsHref = `data:text/calendar;charset=utf-8,${encodeURIComponent(ics)}`;
 </script>
 
 <style>
+  .t-sub {
+    display: block;
+    font-size: 0.8em;
+    font-weight: 400;
+    opacity: 0.75;
+  }
   .ok {
     max-width: 680px;
     padding: 1.5rem 0 5rem;

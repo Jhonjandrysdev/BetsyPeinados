@@ -78,6 +78,8 @@ export interface Appointment {
   price?: number | null;
   /** Abono fijado al reservar (null = valor no exacto, Betsy lo confirma). */
   deposit?: number | null;
+  /** Desplazamiento a domicilio incluido en el valor (solo informativo). */
+  travel_fee?: number | null;
   deposit_confirmed_at: string | null;
   receipt_path?: string | null;
   receipt_at?: string | null;
