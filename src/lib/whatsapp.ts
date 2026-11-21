@@ -13,13 +13,15 @@
 import { getSecret } from 'astro:env/server';
 import { demoMode, getService, getSettings, getTemplates, markNotified } from './db';
 import { supabaseAdmin } from './supabase';
+import { safeEqual } from './crypto';
 import { valorDeCita } from './cita';
 import { DEFAULT_TEMPLATES, META_TEMPLATES, fillTemplate, valuesFor, type NoticeEvent } from './messages';
 import type { Appointment, WaMessage, WaStatus } from './types';
 
 const GRAPH = 'https://graph.facebook.com/v21.0';
 const env = (k: string) => (getSecret(k) ?? '').trim();
-export const waConfigured = () => Boolean(env('WHATSAPP_TOKEN') && env('WHATSAPP_PHONE_ID'));
+// En modo demo (sin Supabase) nunca se envía a Meta: no habría dónde registrar los mensajes.
+export const waConfigured = () => !demoMode && Boolean(env('WHATSAPP_TOKEN') && env('WHATSAPP_PHONE_ID'));
 const lang = () => env('WHATSAPP_LANG') || 'es_CO';
 const prefix = () => env('WHATSAPP_TEMPLATE_PREFIX') || 'betsy_';
 
@@ -224,11 +226,15 @@ export async function validSignature(raw: string, header: string | null): Promis
   const key = await crypto.subtle.importKey('raw', new TextEncoder().encode(secret), { name: 'HMAC', hash: 'SHA-256' }, false, ['sign']);
   const sig = new Uint8Array(await crypto.subtle.sign('HMAC', key, new TextEncoder().encode(raw)));
   const hex = Array.from(sig, (b) => b.toString(16).padStart(2, '0')).join('');
-  const got = header.slice(7);
-  if (got.length !== hex.length) return false;
-  let diff = 0;
-  for (let i = 0; i < hex.length; i++) diff |= hex.charCodeAt(i) ^ got.charCodeAt(i);
-  return diff === 0;
+  return safeEqual(hex, header.slice(7));
+}
+
+/** Por qué no salió un mensaje, en palabras para Betsy. */
+export function waErrorText(r: SendResult): string {
+  if (r.ok) return '';
+  if (r.reason === 'not_configured') return 'el WhatsApp automático no está conectado';
+  if (r.reason === 'window_closed') return 'la clienta no te ha escrito en las últimas 24 horas';
+  return r.error ?? 'error desconocido';
 }
 
 export const verifyToken = () => env('WHATSAPP_VERIFY_TOKEN');
@@ -255,6 +261,16 @@ export async function applyStatus(s: {
     patch.category = s.pricing.category ? clip(s.pricing.category, 30) : null;
   }
   if (Object.keys(patch).length) await sb.from('whatsapp_messages').update(patch).eq('id', row.id);
+}
+
+/** Cita del mensaje nuestro al que responde la clienta (botones del recordatorio). */
+export async function appointmentForReply(waMessageId: string): Promise<Appointment | null> {
+  if (demoMode) return null;
+  const sb = supabaseAdmin();
+  const { data: sent } = await sb.from('whatsapp_messages').select('appointment_id').eq('wa_message_id', waMessageId).maybeSingle();
+  if (!sent?.appointment_id) return null;
+  const { data } = await sb.from('appointments').select('*').eq('id', sent.appointment_id).maybeSingle();
+  return (data as Appointment | null) ?? null;
 }
 
 /** Cita a la que pertenece un mensaje entrante: la próxima activa, si no la más reciente. */

@@ -1,10 +1,12 @@
 import type { APIRoute } from 'astro';
 import { updateAppointment } from '../../../lib/db';
 import { prettyDate, prettyTime } from '../../../lib/time';
+import { safeEqual } from '../../../lib/crypto';
 import {
   BUTTON_CHANGE,
   BUTTON_CONFIRM,
   appointmentForPhone,
+  appointmentForReply,
   applyStatus,
   autoReply,
   saveInbound,
@@ -32,6 +34,8 @@ type Msg = {
   document?: { filename?: string; caption?: string };
   location?: { name?: string; address?: string; latitude: number; longitude: number };
   reaction?: { emoji?: string };
+  /** Mensaje nuestro al que responde (p. ej. el recordatorio con botones). */
+  context?: { id?: string };
 };
 
 const KIND: Record<string, string> = {
@@ -87,7 +91,7 @@ const norm = (s: string) =>
 export const GET: APIRoute = ({ url }) => {
   // Meta comprueba la URL una vez al configurarla.
   const token = verifyToken();
-  const ok = url.searchParams.get('hub.mode') === 'subscribe' && token && url.searchParams.get('hub.verify_token') === token;
+  const ok = url.searchParams.get('hub.mode') === 'subscribe' && token && safeEqual(url.searchParams.get('hub.verify_token') ?? '', token);
   return ok ? new Response(url.searchParams.get('hub.challenge') ?? '', { status: 200 }) : new Response('Forbidden', { status: 403 });
 };
 
@@ -103,15 +107,18 @@ export const POST: APIRoute = async ({ request }) => {
     return new Response('Bad JSON', { status: 400 });
   }
 
-  try {
-    for (const entry of payload.entry ?? []) {
-      for (const change of entry.changes ?? []) {
-        const v = change.value ?? {};
+  // Cada mensaje y cada estado se procesa por separado: si uno falla, los demás del lote siguen.
+  // Se responde 200 igual para que Meta no reenvíe en bucle; los errores quedan en los logs de Vercel.
+  for (const entry of payload.entry ?? []) {
+    for (const change of entry.changes ?? []) {
+      const v = change.value ?? {};
 
-        for (const m of v.messages ?? []) {
+      for (const m of v.messages ?? []) {
+        try {
           const phone = String(m.from ?? '').replace(/\D/g, '');
           if (!/^[0-9]{7,15}$/.test(phone)) continue;
-          const appt = await appointmentForPhone(phone);
+          // Si responde a un mensaje nuestro (botones), es la cita de ese mensaje; si no, la próxima activa.
+          const appt = (m.context?.id ? await appointmentForReply(m.context.id) : null) ?? (await appointmentForPhone(phone));
           const body = bodyOf(m);
           const fresh = await saveInbound({
             appointment_id: appt?.id ?? null,
@@ -136,14 +143,19 @@ export const POST: APIRoute = async ({ request }) => {
             await updateAppointment(appt.id, { change_requested_at: new Date().toISOString(), client_confirmed_at: null });
             await autoReply(appt, phone, `Listo, ${name} 👌 Cuéntame qué día y hora te quedan mejor y te ayudo a cambiarla.`);
           }
+        } catch (e) {
+          console.error('whatsapp webhook: mensaje', m.id, e);
         }
+      }
 
-        for (const s of v.statuses ?? []) await applyStatus(s);
+      for (const s of v.statuses ?? []) {
+        try {
+          await applyStatus(s);
+        } catch (e) {
+          console.error('whatsapp webhook: estado', s.id, e);
+        }
       }
     }
-  } catch (e) {
-    // Se responde 200 para que Meta no reenvíe en bucle; el error queda en los logs de Vercel.
-    console.error('whatsapp webhook', e);
   }
   return new Response('ok', { status: 200 });
 };

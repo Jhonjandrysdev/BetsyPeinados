@@ -2,7 +2,8 @@ import type { APIRoute } from 'astro';
 import { getSecret } from 'astro:env/server';
 import { getAppointments, getSettings } from '../../../lib/db';
 import { addDays, fromLocal, localDate } from '../../../lib/time';
-import { sendNotice, waConfigured } from '../../../lib/whatsapp';
+import { sendNotice, waConfigured, waErrorText } from '../../../lib/whatsapp';
+import { safeEqual } from '../../../lib/crypto';
 import { json } from '../../../lib/http';
 
 /**
@@ -14,7 +15,7 @@ export const prerender = false;
 
 export const GET: APIRoute = async ({ request }) => {
   const secret = getSecret('CRON_SECRET');
-  if (!secret || request.headers.get('authorization') !== `Bearer ${secret}`) return json({ error: 'No autorizado' }, 401);
+  if (!secret || !safeEqual(request.headers.get('authorization') ?? '', `Bearer ${secret}`)) return json({ error: 'No autorizado' }, 401);
   if (!waConfigured()) return json({ ok: true, skipped: 'whatsapp_not_configured' });
   const settings = await getSettings();
   if (settings.wa_auto_reminder === false) return json({ ok: true, skipped: 'disabled' });
@@ -29,7 +30,7 @@ export const GET: APIRoute = async ({ request }) => {
   for (const a of due) {
     const r = await sendNotice(a, 'recordatorio');
     if (r.ok) sent++;
-    else failed.push(`${a.id.slice(0, 8)}: ${r.ok ? '' : (r.error ?? r.reason)}`);
+    else failed.push(`${a.id.slice(0, 8)}: ${waErrorText(r)}`);
   }
   if (failed.length) console.error('recordatorios fallidos', failed);
   return json({ ok: true, day: tomorrow, sent, failed: failed.length });
