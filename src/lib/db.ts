@@ -207,6 +207,11 @@ export async function updateAppointment(
       | 'receipt_rejected_reason'
       | 'receipt_rejected_at'
       | 'cancel_reason'
+      | 'starts_at'
+      | 'ends_at'
+      | 'client_confirmed_at'
+      | 'change_requested_at'
+      | 'rescheduled_at'
     >
   >,
 ): Promise<void> {
@@ -215,7 +220,10 @@ export async function updateAppointment(
     if (a) Object.assign(a, patch);
     return;
   }
-  check(await supabaseAdmin().from('appointments').update(patch).eq('id', id));
+  const res = await supabaseAdmin().from('appointments').update(patch).eq('id', id);
+  // 23P01 = cruce con otra cita activa (al cambiar la hora)
+  if (res.error?.code === '23P01') throw new SlotTakenError('Horario ocupado');
+  check(res);
 }
 
 /** Actualiza solo si la cita sigue con ese comprobante (evita pisar uno que la clienta acaba de subir). */

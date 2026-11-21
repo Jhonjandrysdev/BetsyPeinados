@@ -166,6 +166,14 @@ export async function confirmCalendarEvent(eventId: string, a: Appointment): Pro
   });
 }
 
+/** Cuando Betsy cambia la fecha u hora de la cita, mueve el evento (y avisa por correo si hay invitada). */
+export async function moveCalendarEvent(eventId: string, a: Appointment): Promise<void> {
+  await gfetch(`/calendars/{cal}/events/${encodeURIComponent(eventId)}?sendUpdates=${a.customer_email ? 'all' : 'none'}`, {
+    method: 'PATCH',
+    body: JSON.stringify({ start: { dateTime: a.starts_at, timeZone: TZ }, end: { dateTime: a.ends_at, timeZone: TZ }, summary: summaryOf(a) }),
+  });
+}
+
 export async function cancelCalendarEvent(eventId: string, notify: boolean): Promise<void> {
   await gfetch(`/calendars/{cal}/events/${encodeURIComponent(eventId)}?sendUpdates=${notify ? 'all' : 'none'}`, { method: 'DELETE' });
 }
