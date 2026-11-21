@@ -176,7 +176,13 @@ export async function createAppointment(
     demo.appointments.push(row);
     return row;
   }
-  const res = await supabaseAdmin().from('appointments').insert(a).select('*').single();
+  const insert = (row: Partial<Appointment>) => supabaseAdmin().from('appointments').insert(row).select('*').single();
+  let res = await insert(a);
+  // Si la base aún no tiene las columnas de valor y abono, reserva igual.
+  if (res.error?.code === 'PGRST204') {
+    const { price: _p, deposit: _d, ...base } = a;
+    res = await insert(base);
+  }
   // 23P01 = exclusion_violation (cruce de horarios)
   if (res.error?.code === '23P01') throw new SlotTakenError('Horario ocupado');
   return check(res) as Appointment;

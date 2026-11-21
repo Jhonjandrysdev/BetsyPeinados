@@ -74,6 +74,10 @@ export interface Appointment {
   home_service: boolean;
   home_address: string | null;
   hair_length: string | null;
+  /** Valor fijado al reservar (null = se cotiza aparte). */
+  price?: number | null;
+  /** Abono fijado al reservar (null = valor no exacto, Betsy lo confirma). */
+  deposit?: number | null;
   deposit_confirmed_at: string | null;
   receipt_path?: string | null;
   receipt_at?: string | null;

@@ -5,7 +5,8 @@ import Icon from '../../components/Icon.astro';
 import { getAppointment, getService, getSettings, saveReceipt } from '../../lib/db';
 import { publicStorageUrl } from '../../lib/supabase';
 import { limited } from '../../lib/http';
-import { DEPOSIT_PCT, POLICIES, depositOf, hairLabel, priceFor } from '../../lib/defaults';
+import { DEPOSIT_PCT, POLICIES, hairLabel } from '../../lib/defaults';
+import { cotizar } from '../../lib/cita';
 import { formatCOP, prettyDate, prettyTime } from '../../lib/time';
 
 const { id = '' } = Astro.params;
@@ -37,9 +38,8 @@ if (Astro.request.method === 'POST') {
 }
 const [s, service] = await Promise.all([getSettings(), appt.service_id ? getService(appt.service_id) : null]);
 const pending = appt.status === 'pendiente';
-const price = priceFor(service, appt.hair_length) ?? service?.price_from ?? null;
-const exact = priceFor(service, appt.hair_length) != null;
-const deposit = exact ? depositOf(price) : null;
+// Valor y abono fijados al reservar; si la base aún no tiene esas columnas, se calculan como antes.
+const { price, deposit } = appt.price !== undefined ? { price: appt.price, deposit: appt.deposit ?? null } : cotizar(service, appt.hair_length);
 const place = appt.home_service && appt.home_address ? appt.home_address : s.address;
 const qr = s.pay_qr_path ? publicStorageUrl(s.pay_qr_path) : null;
 const hasReceipt = Boolean(appt.receipt_path);
@@ -188,7 +188,7 @@ const icsHref = `data:text/calendar;charset=utf-8,${encodeURIComponent(ics)}`;
           <div><dt>Hora</dt><dd>{prettyTime(appt.starts_at)}</dd></div>
           <div><dt>{appt.home_service ? 'Domicilio' : 'Lugar'}</dt><dd>{place}</dd></div>
           {appt.hair_length && <div><dt>Largo</dt><dd>{hairLabel(appt.hair_length)}</dd></div>}
-          {price && <div><dt>{exact ? 'Valor' : 'Valor desde'}</dt><dd>{formatCOP(price)}</dd></div>}
+          {price && <div><dt>{deposit != null ? 'Valor' : 'Valor desde'}</dt><dd>{formatCOP(price)}</dd></div>}
           {pending && <div><dt>Estado</dt><dd>{hasReceipt ? 'Comprobante en revisión' : 'Esperando abono'}</dd></div>}
           <div><dt>A nombre de</dt><dd>{appt.customer_name}</dd></div>
         </dl>
