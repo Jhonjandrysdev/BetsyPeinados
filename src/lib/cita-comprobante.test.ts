@@ -1,5 +1,5 @@
 import { beforeEach, describe, expect, it } from 'vitest';
-import { CitaError, createCitas, resumenDeCita } from './cita';
+import { CitaError, createCitas, debeAvisarRechazo, resumenDeCita } from './cita';
 import { base, fakeStore } from './cita.fixtures';
 
 const AHORA = new Date('2026-11-22T09:30:00.000Z');
@@ -7,7 +7,7 @@ const conComprobante = { ...base, receipt_path: 'c1/123.jpg', receipt_at: '2026-
 
 describe('rechazar comprobante', () => {
   let store: ReturnType<typeof fakeStore>;
-  const citas = () => createCitas(store, { now: () => AHORA });
+  const citas = () => createCitas(store, { now: () => AHORA, reportar: () => {} });
   beforeEach(() => {
     store = fakeStore([conComprobante]);
   });
@@ -50,6 +50,23 @@ describe('rechazar comprobante', () => {
     expect(store.borrados).toEqual([]);
   });
 
+  it('no rechaza si la clienta subió otro comprobante después del que Betsy vio', async () => {
+    await expect(citas().rechazarComprobante('c1', 'Borroso', 'c1/otro.jpg')).rejects.toThrow(/otro comprobante/);
+    expect(store.get('c1')?.receipt_path).toBe('c1/123.jpg');
+  });
+
+  it('no rechaza si el comprobante cambió entre la lectura y el guardado', async () => {
+    const original = store.getAppointment;
+    store.getAppointment = async (id) => {
+      const a = await original(id);
+      await store.updateAppointment(id, { receipt_path: 'c1/nuevo.jpg' }); // la clienta sube justo ahora
+      return a;
+    };
+    await expect(citas().rechazarComprobante('c1', 'Borroso')).rejects.toThrow(/otro comprobante/);
+    expect(store.get('c1')?.receipt_path).toBe('c1/nuevo.jpg');
+    expect(store.borrados).toEqual([]);
+  });
+
   it('si no se puede borrar el archivo, la cita igual queda rechazada', async () => {
     store.deleteReceipt = async () => {
       throw new Error('storage caído');
@@ -65,5 +82,34 @@ describe('la página de la clienta se entera del rechazo', () => {
     const enRevision = resumenDeCita(conComprobante, null).firma;
     const rechazado = resumenDeCita({ ...base, receipt_rejected_at: AHORA.toISOString() }, null).firma;
     expect(new Set([esperando, enRevision, rechazado]).size).toBe(3);
+  });
+});
+
+describe('aviso pendiente de comprobante rechazado', () => {
+  const rechazada = { ...base, receipt_rejected_at: '2026-11-22T09:30:00.000Z', receipt_rejected_reason: 'Borroso' };
+  const antes = new Date('2026-11-22T08:00:00.000Z');
+
+  it('se ofrece tras rechazar si aún no se avisó', () => {
+    expect(debeAvisarRechazo(rechazada, antes)).toBe(true);
+  });
+
+  it('no se ofrece después de avisar', () => {
+    expect(debeAvisarRechazo({ ...rechazada, notified: { comprobante_rechazado: '2026-11-22T09:31:00.000Z' } }, antes)).toBe(false);
+  });
+
+  it('se vuelve a ofrecer en un segundo rechazo', () => {
+    const segundo = { ...rechazada, receipt_rejected_at: '2026-11-22T12:00:00.000Z', notified: { comprobante_rechazado: '2026-11-22T09:31:00.000Z' } };
+    expect(debeAvisarRechazo(segundo, antes)).toBe(true);
+  });
+
+  it('compara fechas, no texto (la base puede devolverlas en otra zona horaria)', () => {
+    // 04:31 en Bogotá = 09:31 UTC: posterior al rechazo de las 09:30 UTC.
+    expect(debeAvisarRechazo({ ...rechazada, notified: { comprobante_rechazado: '2026-11-22T04:31:00-05:00' } }, antes)).toBe(false);
+  });
+
+  it('no se ofrece si ya subió uno nuevo, si la cita ya empezó o si no hubo rechazo', () => {
+    expect(debeAvisarRechazo({ ...rechazada, receipt_path: 'c1/nuevo.jpg' }, antes)).toBe(false);
+    expect(debeAvisarRechazo(rechazada, new Date('2026-12-01T15:05:00.000Z'))).toBe(false);
+    expect(debeAvisarRechazo(base, antes)).toBe(false);
   });
 });

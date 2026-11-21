@@ -17,6 +17,12 @@ export function fakeStore(rows: Appointment[]): CitaStore & { get(id: string): A
       const a = m.get(id);
       if (a) Object.assign(a, patch);
     },
+    updateAppointmentIfReceipt: async (id, receiptPath, patch) => {
+      const a = m.get(id);
+      if (!a || a.receipt_path !== receiptPath) return false;
+      Object.assign(a, patch);
+      return true;
+    },
   };
 }
 

@@ -217,6 +217,18 @@ export async function updateAppointment(
   check(await supabaseAdmin().from('appointments').update(patch).eq('id', id));
 }
 
+/** Actualiza solo si la cita sigue con ese comprobante (evita pisar uno que la clienta acaba de subir). */
+export async function updateAppointmentIfReceipt(id: string, receiptPath: string, patch: Parameters<typeof updateAppointment>[1]): Promise<boolean> {
+  if (demoMode) {
+    const a = demo.appointments.find((x) => x.id === id);
+    if (!a || a.receipt_path !== receiptPath) return false;
+    Object.assign(a, patch);
+    return true;
+  }
+  const rows = check(await supabaseAdmin().from('appointments').update(patch).eq('id', id).eq('receipt_path', receiptPath).select('id'));
+  return (rows ?? []).length > 0;
+}
+
 export type { AppointmentStatus };
 
 // ───────────── Galería ─────────────
