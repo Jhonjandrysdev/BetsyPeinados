@@ -191,7 +191,9 @@ export async function createAppointment(
 
 export async function updateAppointment(
   id: string,
-  patch: Partial<Omit<Appointment, 'id' | 'created_at'>>,
+  patch: Partial<
+    Pick<Appointment, 'status' | 'google_event_id' | 'notes' | 'deposit_confirmed_at' | 'receipt_path' | 'receipt_at' | 'notified' | 'price' | 'deposit' | 'travel_fee'>
+  >,
 ): Promise<void> {
   if (demoMode) {
     const a = demo.appointments.find((x) => x.id === id);

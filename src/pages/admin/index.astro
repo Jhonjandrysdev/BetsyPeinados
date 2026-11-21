@@ -1,13 +1,12 @@
 ---
 import Admin from '../../layouts/Admin.astro';
 import Icon from '../../components/Icon.astro';
-import * as db from '../../lib/db';
 import { getAppointment, getAppointments, getBlockedDates, getGoogleConnection, getHours, getServices, getSettings, getTemplates, receiptUrl, updateAppointment } from '../../lib/db';
 import { DEFAULT_TEMPLATES, fillTemplate, type NoticeEvent } from '../../lib/messages';
 import { book, BookingError, bookingSchema } from '../../lib/booking';
 import { cancelCalendarEvent, confirmCalendarEvent, createCalendarEvent } from '../../lib/google';
 import { DEPOSIT_PCT, HAIR_LENGTHS, hairLabel } from '../../lib/defaults';
-import { CitaError, createCitas, saldoDe, valorDeCita } from '../../lib/cita';
+import { CitaError, createCitas, resumenDeCita, valorDeCita } from '../../lib/cita';
 import { addDays, formatCOP, fromLocal, isDate, localDate, localTime, minutesOf, prettyDate, prettyTime as prettyTimeRaw, weekdayOf } from '../../lib/time';
 import { isUuid, str } from '../../lib/admin';
 import type { Appointment, AppointmentStatus } from '../../lib/types';
@@ -87,11 +86,11 @@ if (Astro.request.method === 'POST') {
     const price = pesos('price');
     if (price === null) return go('error', 'Escribe el valor de la cita.', desde, id);
     try {
-      await createCitas(db).ajustarValor(id, { price, travelFee: pesos('travel_fee') });
+      await createCitas({ getAppointment, updateAppointment }).ajustarValor(id, { price, travelFee: pesos('travel_fee') });
     } catch (e) {
       if (e instanceof CitaError) return go('error', e.message, desde, id);
-      console.error(e);
-      return go('error', 'No se pudo guardar el valor. ¿Ya aplicaste la migración valor_final?', desde, id);
+      console.error('Ajustar valor (¿faltan las migraciones precio_en_cita / valor_final?)', e);
+      return go('error', 'No se pudo guardar el valor. Intenta de nuevo.', desde, id);
     }
     return go('ok', 'Valor actualizado. La clienta ya lo ve en su página.', desde, id);
   }
@@ -620,33 +619,32 @@ const todayOff = offOf(today);
                 </div>
               )}
               {(() => {
-                const v = valorOf(a);
-                const saldo = saldoDe(v);
+                const r = resumenDeCita(a, svcOf.get(a.service_id ?? ''));
                 return (
                   <>
                     <div>
                       <dt>
-                        <Icon name="money" size={16} /> {v.price == null ? 'Valor' : v.deposit != null ? 'Valor' : 'Valor desde'}
+                        <Icon name="money" size={16} /> {r.price == null || r.exacto ? 'Valor' : 'Valor desde'}
                       </dt>
                       <dd>
-                        {v.price == null ? 'Por definir' : formatCOP(v.price)}
-                        {(a.travel_fee ?? 0) > 0 && <small class="muted"> · incluye desplazamiento {formatCOP(a.travel_fee)}</small>}
+                        {r.price == null ? 'Por definir' : formatCOP(r.price)}
+                        {r.travel > 0 && <small class="muted"> · incluye desplazamiento {formatCOP(r.travel)}</small>}
                       </dd>
                     </div>
-                    {v.deposit != null && (a.status === 'pendiente' || a.deposit_confirmed_at) && (
+                    {r.abono && (
                       <div>
                         <dt>
-                          <Icon name="check" size={16} /> {a.deposit_confirmed_at ? 'Abono pagado' : `Abono (${DEPOSIT_PCT}%)`}
+                          <Icon name="check" size={16} /> {r.abono === 'pagado' ? 'Abono pagado' : `Abono (${DEPOSIT_PCT}%)`}
                         </dt>
-                        <dd>{formatCOP(v.deposit)}</dd>
+                        <dd>{formatCOP(r.deposit)}</dd>
                       </div>
                     )}
-                    {v.deposit != null && saldo != null && a.status !== 'cancelada' && (a.status === 'pendiente' || a.deposit_confirmed_at) && (
+                    {r.saldo != null && (
                       <div>
                         <dt>
                           <Icon name="money" size={16} /> Saldo el día de la cita
                         </dt>
-                        <dd>{formatCOP(saldo)}</dd>
+                        <dd>{formatCOP(r.saldo)}</dd>
                       </div>
                     )}
                   </>
