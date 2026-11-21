@@ -3,7 +3,7 @@ import Admin from '../../layouts/Admin.astro';
 import Icon from '../../components/Icon.astro';
 import { SlotTakenError, getAppointment, getAppointments, getBlockedDates, getGoogleConnection, getHours, getServices, getSettings, getTemplates, receiptUrl, updateAppointment } from '../../lib/db';
 import { DEFAULT_TEMPLATES, NOTICE_EVENTS, fillTemplate, type NoticeEvent } from '../../lib/messages';
-import { sendFree, sendNotice, waConfigured, waMessagesForPhones, waNumber, windowOpen, type SendResult } from '../../lib/whatsapp';
+import { sendFree, sendNotice, waConfigured, waErrorText, waMessagesForPhones, waNumber, windowOpen, type SendResult } from '../../lib/whatsapp';
 import { book, BookingError, bookingSchema } from '../../lib/booking';
 import { cancelCalendarEvent, confirmCalendarEvent, createCalendarEvent, moveCalendarEvent } from '../../lib/google';
 import { DEPOSIT_PCT, HAIR_LENGTHS, depositOf, hairLabel, priceFor } from '../../lib/defaults';
@@ -34,7 +34,7 @@ if (Astro.request.method === 'POST') {
       ? ''
       : r.ok
         ? ` Le llegó el aviso por WhatsApp${r.kind === 'plantilla' ? ' (plantilla de Meta)' : ''}.`
-        : ` Pero el WhatsApp a ${who} no salió: ${r.error ?? 'error desconocido'}. Usa «Abrir en mi WhatsApp».`;
+        : ` Pero el WhatsApp a ${who} no salió: ${waErrorText(r)}. Usa «Abrir en mi WhatsApp».`;
 
   if (action === 'status') {
     const id = str(fd, 'id', 40);
@@ -109,7 +109,7 @@ if (Astro.request.method === 'POST') {
     const who = firstName(appt.customer_name);
     if (!waOn) return go('error', 'El WhatsApp automático aún no está conectado. Usa «Abrir en mi WhatsApp».', desde, id);
     const r = await sendNotice(appt, ev).catch((e) => ({ ok: false, reason: 'error', error: String(e?.message ?? e) }) as SendResult);
-    if (!r.ok) return go('error', `No se pudo enviar a ${who}: ${r.error ?? r.reason}`, desde, id);
+    if (!r.ok) return go('error', `No se pudo enviar a ${who}: ${waErrorText(r)}.`, desde, id);
     return go('ok', ev === 'recordatorio' ? `Listo: le preguntamos a ${who} si confirma. Verás su respuesta aquí.` : `Mensaje enviado a ${who}${r.kind === 'plantilla' ? ' (plantilla de Meta)' : ''}.`, desde, id);
   }
 
@@ -124,7 +124,7 @@ if (Astro.request.method === 'POST') {
     const r = await sendFree(appt, text).catch((e) => ({ ok: false, reason: 'error', error: String(e?.message ?? e) }) as SendResult);
     if (!r.ok && r.reason === 'window_closed')
       return go('warn', `${firstName(appt.customer_name)} no te ha escrito en las últimas 24 horas: WhatsApp solo deja mandar plantillas. Usa «Pedir confirmación» o «Abrir en mi WhatsApp».`, desde, id);
-    if (!r.ok) return go('error', `No se pudo enviar: ${r.error ?? r.reason}`, desde, id);
+    if (!r.ok) return go('error', `No se pudo enviar: ${waErrorText(r)}.`, desde, id);
     return go('ok', 'Mensaje enviado', desde, id);
   }
 
