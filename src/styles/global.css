@@ -51,13 +51,15 @@
   --sand: #e6d3bd;
   --clay: #b8603f;
   --clay-deep: #8f4429;
+  /* Arcilla para fondos con texto claro: 5.33:1 con --white (la base da 4.23:1, no pasa AA). */
+  --clay-ink: #a4512f;
   --blush: #ebbfa9;
   --sage: #7d8a68;
   --sage-soft: #d9dccb;
   --gold: #c39a52;
   --cocoa: #2a1c16;
   --cocoa-2: #4a372e;
-  --muted: #7a665b;
+  --muted: #6b584e;
   --white: #fffaf4;
 
   --bg: var(--cream);
@@ -178,7 +180,7 @@ p {
   font-weight: 700;
   letter-spacing: 0.18em;
   text-transform: uppercase;
-  color: var(--clay);
+  color: var(--clay-deep);
   margin-bottom: 1.1rem;
 }
 .eyebrow::before {
@@ -196,7 +198,7 @@ p {
 }
 
 ::selection {
-  background: var(--clay);
+  background: var(--clay-ink);
   color: var(--white);
 }
 
@@ -262,7 +264,7 @@ section {
   transform: translateY(0);
 }
 .btn-clay {
-  --b-bg: var(--clay);
+  --b-bg: var(--clay-ink);
   box-shadow: 0 10px 24px -14px rgb(143 68 41 / 0.9);
 }
 .btn-clay:hover {

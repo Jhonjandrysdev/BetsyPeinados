@@ -1659,9 +1659,9 @@ const description = `Peinados profesionales en ${s.city}: ondas, peinados social
     flex: none;
     font-style: italic;
     font-size: 0.95em;
-    color: var(--clay);
-    opacity: 0.65;
-    transition: opacity 0.4s;
+    /* sin opacidad: daba 2.37:1; el énfasis baja con un color que sigue pasando AA */
+    color: var(--muted);
+    transition: color 0.4s;
   }
   .q-text {
     flex: 1;
@@ -1717,7 +1717,7 @@ const description = `Peinados profesionales en ${s.city}: ondas, peinados social
   }
   .faq.js details.is-open .q-num,
   .faq:not(.js) details[open] .q-num {
-    opacity: 1;
+    color: var(--clay-deep);
   }
   .faq.js details.is-open .q-text,
   .faq:not(.js) details[open] .q-text {
@@ -1870,7 +1870,7 @@ const description = `Peinados profesionales en ${s.city}: ondas, peinados social
     text-align: center;
     padding: clamp(3.2rem, 8vw, 6rem) clamp(1.5rem, 6vw, 4.5rem);
     border-radius: 48px;
-    background: linear-gradient(135deg, var(--clay), var(--clay-deep));
+    background: linear-gradient(135deg, var(--clay-ink), var(--clay-deep));
     color: var(--white);
   }
   .f-blob {
