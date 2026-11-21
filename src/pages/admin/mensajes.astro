@@ -1,14 +1,28 @@
 ---
 import Admin from '../../layouts/Admin.astro';
 import Icon from '../../components/Icon.astro';
-import { getSettings, getTemplates, saveTemplate } from '../../lib/db';
+import { getSettings, getTemplates, saveTemplate, updateSettings } from '../../lib/db';
 import { back, str } from '../../lib/admin';
+import { metaCost, waConfigured, waMessagesBetween } from '../../lib/whatsapp';
+import { formatCOP, fromLocal, localDate } from '../../lib/time';
+import { getSecret } from 'astro:env/server';
 import { DEFAULT_TEMPLATES, NOTICE_EVENTS, PLACEHOLDERS, fillTemplate, type NoticeEvent } from '../../lib/messages';
 import type { Appointment } from '../../lib/types';
 
 const HERE = '/admin/mensajes';
 if (Astro.request.method === 'POST') {
   const fd = await Astro.request.formData();
+  if (fd.get('form') === 'wa') {
+    const rate = Number(str(fd, 'rate', 12).replace(',', '.'));
+    if (!Number.isFinite(rate) || rate < 0 || rate > 10000) return back(HERE, 'error', 'Escribe el precio por mensaje en pesos, por ejemplo 3,5.');
+    try {
+      await updateSettings({ wa_rate_cop: Math.round(rate * 100) / 100, wa_auto_reminder: fd.get('auto') === 'on' });
+    } catch (e) {
+      console.error(e);
+      return back(HERE, 'error', 'No se pudo guardar. Falta activar el WhatsApp automático en la base de datos.');
+    }
+    return back(HERE, 'ok', 'Ajustes de WhatsApp guardados');
+  }
   const ev = str(fd, 'event', 20) as NoticeEvent;
   if (!NOTICE_EVENTS.some((e) => e.id === ev)) return back(HERE, 'error', 'Algo salió mal. Recarga la página.');
   const body = str(fd, 'body', 1500).trim() || DEFAULT_TEMPLATES[ev];
@@ -21,7 +35,53 @@ if (Astro.request.method === 'POST') {
   return back(HERE, 'ok', 'Mensaje guardado');
 }
 
-const [s, saved] = await Promise.all([getSettings(), getTemplates()]);
+// ───────── WhatsApp: conexión y costo del mes (solo lo de Betsy) ─────────
+const today = localDate();
+const qMes = Astro.url.searchParams.get('mes');
+const month = qMes && /^\d{4}-(0[1-9]|1[0-2])$/.test(qMes) && qMes <= today.slice(0, 7) ? qMes : today.slice(0, 7);
+const monthStart = fromLocal(`${month}-01`, '00:00');
+const nextMonth = (() => {
+  const [y, m] = month.split('-').map(Number);
+  return m === 12 ? `${y + 1}-01` : `${y}-${String(m + 1).padStart(2, '0')}`;
+})();
+const prevMonth = (() => {
+  const [y, m] = month.split('-').map(Number);
+  return m === 1 ? `${y - 1}-12` : `${y}-${String(m - 1).padStart(2, '0')}`;
+})();
+const monthEnd = fromLocal(`${nextMonth}-01`, '00:00');
+const monthLabel = new Intl.DateTimeFormat('es-CO', { month: 'long', year: 'numeric', timeZone: 'UTC' }).format(new Date(`${month}-15T12:00:00Z`));
+
+const [s, saved, msgs, meta] = await Promise.all([getSettings(), getTemplates(), waMessagesBetween(monthStart, monthEnd), metaCost(monthStart, monthEnd)]);
+const waOn = waConfigured();
+const has = (k: string) => Boolean((getSecret(k) ?? '').trim());
+const steps = [
+  { ok: waOn, label: 'Número y token de Meta', hint: 'WHATSAPP_TOKEN y WHATSAPP_PHONE_ID' },
+  { ok: has('WHATSAPP_APP_SECRET') && has('WHATSAPP_VERIFY_TOKEN'), label: 'Respuestas de las clientas (webhook)', hint: 'WHATSAPP_APP_SECRET y WHATSAPP_VERIFY_TOKEN' },
+  { ok: has('WHATSAPP_WABA_ID'), label: 'Costo real desde Meta', hint: 'WHATSAPP_WABA_ID (opcional)' },
+  { ok: has('CRON_SECRET'), label: 'Recordatorio automático del día antes', hint: 'CRON_SECRET' },
+];
+const rate = Number(s.wa_rate_cop ?? 3.5);
+const list = msgs ?? [];
+const out = list.filter((m) => m.direction === 'out' && m.status !== 'manual');
+const sentOk = out.filter((m) => m.status !== 'fallido');
+// Cobrado: lo que Meta marcó como cobrable; si aún no lo informó, toda plantilla entregada se cuenta como cobrada.
+const isBillable = (m: (typeof list)[number]) => m.billable === true || (m.billable == null && m.kind === 'plantilla' && m.status !== 'fallido');
+const billable = sentOk.filter(isBillable);
+const received = list.filter((m) => m.direction === 'in');
+const confirmed = received.filter((m) => /^confirmo$/i.test(m.body.trim())).length;
+const estimate = billable.length * rate;
+const byEvent = new Map<string, { sent: number; paid: number }>();
+for (const m of sentOk) {
+  const k = m.event ?? 'libre';
+  const e = byEvent.get(k) ?? { sent: 0, paid: 0 };
+  e.sent++;
+  if (isBillable(m)) e.paid++;
+  byEvent.set(k, e);
+}
+const EVENT_LABEL: Record<string, string> = { ...Object.fromEntries(NOTICE_EVENTS.map((e) => [e.id, e.label])), libre: 'Respuestas tuyas', auto: 'Respuestas automáticas' };
+const usd = new Intl.NumberFormat('en-US', { style: 'currency', currency: 'USD', minimumFractionDigits: 2, maximumFractionDigits: 4 });
+const fmtRate = new Intl.NumberFormat('es-CO', { maximumFractionDigits: 2 }).format(rate);
+const isNow = month === today.slice(0, 7);
 const sample: Appointment = {
   id: 'a1b2c3d4-0000-4000-8000-000000000000',
   service_id: null,
@@ -43,7 +103,106 @@ const sample: Appointment = {
 };
 ---
 
-<Admin title="Mensajes" subtitle="Lo que le escribes a tus clientas por WhatsApp en cada momento de la cita. En la agenda, el botón de WhatsApp ya trae el mensaje que toca con sus datos puestos.">
+<Admin title="Mensajes" subtitle="Lo que le escribes a tus clientas por WhatsApp en cada momento de la cita, si el envío automático está conectado y cuánto te cobra Meta.">
+  <section class="panel wa" aria-labelledby="wa-t">
+    <div class="wa-top">
+      <div>
+        <h2 id="wa-t">WhatsApp automático</h2>
+        <p class="muted">
+          {
+            waOn
+              ? 'Activo: los avisos salen solos desde la agenda y las respuestas de tus clientas aparecen en cada cita.'
+              : 'Aún no está conectado. Mientras tanto, el botón de WhatsApp abre tu app con el mensaje listo, como siempre.'
+          }
+        </p>
+      </div>
+      <span class:list={['wa-pill', { on: waOn }]}>{waOn ? 'Activo' : 'Sin conectar'}</span>
+    </div>
+    <ul class="wa-steps">
+      {
+        steps.map((st) => (
+          <li class:list={{ ok: st.ok }}>
+            <span class="wa-dot" aria-hidden="true">{st.ok ? '✓' : ''}</span>
+            <span>
+              {st.label}
+              <small class="muted">{st.ok ? 'Listo' : `Falta: ${st.hint}`}</small>
+            </span>
+          </li>
+        ))
+      }
+    </ul>
+
+    <div class="wa-cost">
+      <div class="wa-month">
+        <a class="btn btn-soft btn-sm btn-icon" href={`?mes=${prevMonth}`} aria-label="Mes anterior"><span aria-hidden="true">‹</span></a>
+        <h3>Costo de {monthLabel}</h3>
+        {isNow ? <span class="btn-icon-gap" aria-hidden="true" /> : <a class="btn btn-soft btn-sm btn-icon" href={`?mes=${nextMonth}`} aria-label="Mes siguiente"><span aria-hidden="true">›</span></a>}
+      </div>
+      {msgs === null ? (
+        <p class="muted">Para llevar la cuenta falta activar el WhatsApp automático en la base de datos (ver la guía).</p>
+      ) : (
+        <>
+          <div class="wa-kpis">
+            <p>
+              <strong>{meta && 'usd' in meta ? usd.format(meta.usd) : formatCOP(estimate)}</strong>
+              <span>{meta && 'usd' in meta ? 'cobrado por Meta (dato real)' : 'costo estimado'}</span>
+            </p>
+            <p>
+              <strong>{billable.length}</strong>
+              <span>{billable.length === 1 ? 'mensaje cobrado' : 'mensajes cobrados'}</span>
+            </p>
+            <p>
+              <strong>{sentOk.length - billable.length}</strong>
+              <span>gratis (respuestas dentro de las 24 h)</span>
+            </p>
+            <p>
+              <strong>{received.length}</strong>
+              <span>{received.length === 1 ? 'mensaje recibido' : 'mensajes recibidos'}{confirmed ? ` · ${confirmed} «Confirmo»` : ''}</span>
+            </p>
+          </div>
+          {meta && 'usd' in meta && <p class="muted wa-note">Estimado con tu tarifa: {formatCOP(estimate)} ({billable.length} × {fmtRate} pesos).</p>}
+          {meta && 'error' in meta && <p class="muted wa-note">No se pudo leer el costo real en Meta ({meta.error}). Se muestra el estimado.</p>}
+          {byEvent.size > 0 && (
+            <table class="wa-table">
+              <caption class="sr-only">Mensajes enviados por tipo</caption>
+              <thead>
+                <tr>
+                  <th scope="col">Mensaje</th>
+                  <th scope="col">Enviados</th>
+                  <th scope="col">Cobrados</th>
+                </tr>
+              </thead>
+              <tbody>
+                {[...byEvent.entries()].map(([k, v]) => (
+                  <tr>
+                    <th scope="row">{EVENT_LABEL[k] ?? k}</th>
+                    <td>{v.sent}</td>
+                    <td>{v.paid}</td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          )}
+          {out.length === 0 && <p class="muted wa-note">Este mes no salió ningún mensaje automático.</p>}
+        </>
+      )}
+    </div>
+
+    <form method="post" class="wa-set">
+      <input type="hidden" name="form" value="wa" />
+      <label class="field chk">
+        <input type="checkbox" name="auto" checked={s.wa_auto_reminder !== false} />
+        <span>Pedir confirmación sola el día antes (9:00 a. m.)</span>
+      </label>
+      <div class="field">
+        <label for="wa-rate">Precio por mensaje cobrado (pesos)</label>
+        <input id="wa-rate" name="rate" inputmode="decimal" value={fmtRate} maxlength="12" aria-describedby="wa-rate-h" />
+        <small class="hint" id="wa-rate-h">Meta cobra cada plantilla de Utilidad en Colombia; mira tu tarifa en WhatsApp Manager → Facturación.</small>
+      </div>
+      <button class="btn btn-clay"><Icon name="check" /> Guardar</button>
+    </form>
+  </section>
+
   <div class="panel help">
     <p>
       Las palabras entre llaves se cambian solas por los datos de cada clienta:
@@ -84,6 +243,179 @@ const sample: Appointment = {
 </Admin>
 
 <style>
+  .wa {
+    display: grid;
+    gap: 1.2rem;
+  }
+  .wa h2 {
+    margin: 0;
+    font-size: 1.35rem;
+  }
+  .wa-top {
+    display: flex;
+    align-items: flex-start;
+    justify-content: space-between;
+    gap: 1rem;
+  }
+  .wa-top p {
+    margin: 0.25rem 0 0;
+  }
+  .wa-pill {
+    flex: none;
+    padding: 0.35rem 0.85rem;
+    border-radius: 999px;
+    background: var(--cream-2);
+    color: var(--cocoa-2);
+    font-weight: 700;
+    font-size: 0.85rem;
+    white-space: nowrap;
+  }
+  .wa-pill.on {
+    background: #dcefdc;
+    color: #24572b;
+  }
+  .wa-steps {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
+    gap: 0.5rem;
+    margin: 0;
+    padding: 0;
+    list-style: none;
+  }
+  .wa-steps li {
+    display: flex;
+    gap: 0.6rem;
+    align-items: flex-start;
+    padding: 0.7rem 0.85rem;
+    border-radius: 14px;
+    background: var(--cream);
+    font-weight: 600;
+    min-width: 0;
+  }
+  .wa-steps small {
+    display: block;
+    font-weight: 400;
+    overflow-wrap: anywhere;
+  }
+  .wa-dot {
+    flex: none;
+    display: grid;
+    place-items: center;
+    width: 1.4rem;
+    height: 1.4rem;
+    border-radius: 50%;
+    border: 2px solid var(--line);
+    font-size: 0.8rem;
+    color: #fff;
+  }
+  .wa-steps li.ok .wa-dot {
+    border-color: #3f8a4a;
+    background: #3f8a4a;
+  }
+  .wa-cost {
+    display: grid;
+    gap: 0.8rem;
+    padding-top: 1rem;
+    border-top: 1px dashed var(--line);
+  }
+  .wa-month {
+    display: flex;
+    align-items: center;
+    gap: 0.6rem;
+  }
+  .wa-month h3 {
+    flex: 1;
+    margin: 0;
+    text-align: center;
+    font-size: 1.1rem;
+  }
+  .wa-month h3::first-letter {
+    text-transform: uppercase;
+  }
+  .btn-icon-gap {
+    width: 44px;
+    flex: none;
+  }
+  .wa-kpis {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(150px, 1fr));
+    gap: 0.6rem;
+  }
+  .wa-kpis p {
+    display: grid;
+    gap: 0.2rem;
+    margin: 0;
+    padding: 0.85rem 1rem;
+    border-radius: 14px;
+    background: var(--cream);
+    min-width: 0;
+  }
+  .wa-kpis strong {
+    font-size: 1.35rem;
+    line-height: 1.2;
+    overflow-wrap: anywhere;
+  }
+  .wa-kpis span {
+    color: var(--muted);
+    font-size: 0.85rem;
+  }
+  .wa-note {
+    margin: 0;
+    font-size: 0.9rem;
+  }
+  .wa-table {
+    width: 100%;
+    border-collapse: collapse;
+    font-size: 0.92rem;
+  }
+  .wa-table th,
+  .wa-table td {
+    padding: 0.55rem 0.4rem;
+    border-bottom: 1px dashed var(--line);
+    text-align: right;
+  }
+  .wa-table th:first-child {
+    text-align: left;
+  }
+  .wa-table thead th {
+    font-size: 0.75rem;
+    letter-spacing: 0.06em;
+    text-transform: uppercase;
+    color: var(--muted);
+  }
+  .wa-set {
+    display: grid;
+    grid-template-columns: 1fr 1fr auto;
+    align-items: end;
+    gap: 0.8rem 1rem;
+    padding-top: 1rem;
+    border-top: 1px dashed var(--line);
+  }
+  .wa-set .chk {
+    display: flex;
+    flex-direction: row;
+    align-items: center;
+    gap: 0.5rem;
+    font-weight: 600;
+    align-self: center;
+  }
+  .wa-set .chk input {
+    width: 1.1rem;
+    height: 1.1rem;
+    flex: none;
+    accent-color: var(--clay);
+  }
+  .wa-set .field {
+    min-width: 0;
+  }
+  @media (max-width: 760px) {
+    .wa-set {
+      grid-template-columns: 1fr;
+    }
+    .wa-set .btn {
+      justify-content: center;
+    }
+  }
   .help p {
     margin: 0;
     line-height: 1.9;

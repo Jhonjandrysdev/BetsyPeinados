@@ -1,10 +1,11 @@
 ---
 import Admin from '../../layouts/Admin.astro';
 import Icon from '../../components/Icon.astro';
-import { getAppointment, getAppointments, getBlockedDates, getGoogleConnection, getHours, getServices, getSettings, getTemplates, receiptUrl, updateAppointment } from '../../lib/db';
-import { DEFAULT_TEMPLATES, fillTemplate, type NoticeEvent } from '../../lib/messages';
+import { SlotTakenError, getAppointment, getAppointments, getBlockedDates, getGoogleConnection, getHours, getServices, getSettings, getTemplates, receiptUrl, updateAppointment } from '../../lib/db';
+import { DEFAULT_TEMPLATES, NOTICE_EVENTS, fillTemplate, type NoticeEvent } from '../../lib/messages';
+import { sendFree, sendNotice, waConfigured, waErrorText, waMessagesForPhones, waNumber, windowOpen, type SendResult } from '../../lib/whatsapp';
 import { book, BookingError, bookingSchema } from '../../lib/booking';
-import { cancelCalendarEvent, confirmCalendarEvent, createCalendarEvent } from '../../lib/google';
+import { cancelCalendarEvent, confirmCalendarEvent, createCalendarEvent, moveCalendarEvent } from '../../lib/google';
 import { DEPOSIT_PCT, HAIR_LENGTHS, depositOf, hairLabel, priceFor } from '../../lib/defaults';
 import { addDays, formatCOP, fromLocal, isDate, localDate, localTime, minutesOf, prettyDate, prettyTime as prettyTimeRaw, weekdayOf } from '../../lib/time';
 import { isUuid, str } from '../../lib/admin';
@@ -26,6 +27,14 @@ if (Astro.request.method === 'POST') {
       headers: { Location: `/admin?${isDate(week) ? `desde=${week}&` : ''}${open ? `abrir=${open}&` : ''}${kind}=${encodeURIComponent(msg)}` },
     });
   const OOPS = 'Algo salió mal. Recarga la página e intenta de nuevo.';
+  const waOn = waConfigured();
+  /** Frase para el aviso flotante según cómo salió el WhatsApp. */
+  const waSay = (r: SendResult | null, who: string) =>
+    !r || (!r.ok && r.reason === 'not_configured')
+      ? ''
+      : r.ok
+        ? ` Le llegó el aviso por WhatsApp${r.kind === 'plantilla' ? ' (plantilla de Meta)' : ''}.`
+        : ` Pero el WhatsApp a ${who} no salió: ${waErrorText(r)}. Usa «Abrir en mi WhatsApp».`;
 
   if (action === 'status') {
     const id = str(fd, 'id', 40);
@@ -58,6 +67,22 @@ if (Astro.request.method === 'POST') {
       }
     }
     const who = firstName(appt.customer_name);
+    // Aviso automático por WhatsApp (si está conectado) para los momentos que la clienta debe saber.
+    const notice: NoticeEvent | null = depositOk ? 'abono' : status === 'cancelada' && prev !== 'cancelada' ? 'cancelada' : status === 'completada' && prev !== 'completada' ? 'gracias' : null;
+    let wa: SendResult | null = null;
+    if (notice && waOn) {
+      try {
+        wa = await sendNotice({ ...appt, status }, notice);
+      } catch (e) {
+        console.error(e);
+        wa = { ok: false, reason: 'error', error: 'No se pudo conectar con WhatsApp' };
+      }
+    }
+    if (wa && !wa.ok) return go('warn', `${status === 'cancelada' ? `Cita de ${who} cancelada.` : status === 'completada' ? `Cita de ${who} marcada como realizada.` : `Abono de ${who} recibido.`}${waSay(wa, who)}`, desde, id);
+    if (wa?.ok) {
+      const done = status === 'cancelada' ? `Cita de ${who} cancelada. El horario quedó libre.` : status === 'completada' ? `¡Listo! Cita de ${who} marcada como realizada.` : `Abono de ${who} recibido. La cita quedó confirmada ✨`;
+      return go('ok', `${done}${waSay(wa, who)}`, desde);
+    }
     return go(
       'ok',
       status === 'cancelada'
@@ -72,6 +97,82 @@ if (Astro.request.method === 'POST') {
       desde,
       depositOk ? id : '',
     );
+  }
+
+  // Enviar por WhatsApp (API) el aviso que toca, o pedirle a la clienta que confirme.
+  if (action === 'notice') {
+    const id = str(fd, 'id', 40);
+    const ev = str(fd, 'ev', 20) as NoticeEvent;
+    if (!isUuid(id) || !NOTICE_EVENTS.some((e) => e.id === ev)) return go('error', OOPS);
+    const appt = await getAppointment(id);
+    if (!appt) return go('error', 'No encontramos esa cita. Recarga la página.');
+    const who = firstName(appt.customer_name);
+    if (!waOn) return go('error', 'El WhatsApp automático aún no está conectado. Usa «Abrir en mi WhatsApp».', desde, id);
+    const r = await sendNotice(appt, ev).catch((e) => ({ ok: false, reason: 'error', error: String(e?.message ?? e) }) as SendResult);
+    if (!r.ok) return go('error', `No se pudo enviar a ${who}: ${waErrorText(r)}.`, desde, id);
+    return go('ok', ev === 'recordatorio' ? `Listo: le preguntamos a ${who} si confirma. Verás su respuesta aquí.` : `Mensaje enviado a ${who}${r.kind === 'plantilla' ? ' (plantilla de Meta)' : ''}.`, desde, id);
+  }
+
+  // Respuesta libre a la clienta desde la conversación.
+  if (action === 'reply') {
+    const id = str(fd, 'id', 40);
+    const text = String(fd.get('text') ?? '').replace(/[\u0000-\u0008\u000b-\u001f\u007f]/g, '').trim().slice(0, 2000);
+    if (!isUuid(id)) return go('error', OOPS);
+    const appt = await getAppointment(id);
+    if (!appt) return go('error', 'No encontramos esa cita. Recarga la página.');
+    if (!text) return go('error', 'Escribe el mensaje.', desde, id);
+    const r = await sendFree(appt, text).catch((e) => ({ ok: false, reason: 'error', error: String(e?.message ?? e) }) as SendResult);
+    if (!r.ok && r.reason === 'window_closed')
+      return go('warn', `${firstName(appt.customer_name)} no te ha escrito en las últimas 24 horas: WhatsApp solo deja mandar plantillas. Usa «Pedir confirmación» o «Abrir en mi WhatsApp».`, desde, id);
+    if (!r.ok) return go('error', `No se pudo enviar: ${waErrorText(r)}.`, desde, id);
+    return go('ok', 'Mensaje enviado', desde, id);
+  }
+
+  // Cambiar la hora o reagendar a otro día.
+  if (action === 'move') {
+    const id = str(fd, 'id', 40);
+    const date = str(fd, 'date', 10);
+    const time = str(fd, 'time', 5);
+    const notify = fd.get('notify') === 'on';
+    if (!isUuid(id)) return go('error', OOPS);
+    const appt = await getAppointment(id);
+    if (!appt) return go('error', 'No encontramos esa cita. Recarga la página.');
+    const who = firstName(appt.customer_name);
+    if (appt.status !== 'pendiente' && appt.status !== 'confirmada') return go('error', 'Solo se pueden mover citas activas.', desde, id);
+    if (!isDate(date) || !/^([01]\d|2[0-3]):[0-5]\d$/.test(time)) return go('error', 'Elige la nueva fecha y hora.', desde, id);
+    const startsAt = fromLocal(date, time);
+    if (startsAt.getTime() < Date.now() - 5 * 60_000) return go('error', 'Esa hora ya pasó. Elige una fecha y hora futuras.', desde, id);
+    const dur = new Date(appt.ends_at).getTime() - new Date(appt.starts_at).getTime();
+    const moved = { ...appt, starts_at: startsAt.toISOString(), ends_at: new Date(startsAt.getTime() + dur).toISOString() };
+    if (moved.starts_at === appt.starts_at) return go('warn', 'La cita ya estaba a esa hora.', desde, id);
+    const { recordatorio: _r, reagendada: _g, ...notified } = appt.notified ?? {};
+    try {
+      await updateAppointment(id, {
+        starts_at: moved.starts_at,
+        ends_at: moved.ends_at,
+        rescheduled_at: new Date().toISOString(),
+        client_confirmed_at: null,
+        change_requested_at: null,
+        notified,
+      });
+    } catch (e) {
+      if (e instanceof SlotTakenError) return go('error', 'Ya tienes otra cita a esa hora. Elige otra.', desde, id);
+      console.error(e);
+      return go('error', 'No se pudo cambiar la hora. Intenta de nuevo.', desde, id);
+    }
+    let gcalFail = false;
+    if (appt.google_event_id) {
+      try {
+        await moveCalendarEvent(appt.google_event_id, moved);
+      } catch (e) {
+        console.error(e);
+        gcalFail = true;
+      }
+    }
+    let wa: SendResult | null = null;
+    if (notify && waOn) wa = await sendNotice({ ...moved, notified }, 'reagendada').catch((e) => ({ ok: false, reason: 'error', error: String(e?.message ?? e) }) as SendResult);
+    const msg = `Cita de ${who} movida al ${prettyDate(moved.starts_at).toLowerCase()} a las ${prettyTimeRaw(moved.starts_at)}.${gcalFail ? ' No se pudo mover en tu Google Calendar: cámbiala a mano allá.' : ''}${waSay(wa, who)}${notify && !waOn ? ' Avísale con el botón de WhatsApp.' : ''}`;
+    return go(gcalFail || (wa && !wa.ok) ? 'warn' : 'ok', msg, mondayOf(date), id);
   }
 
   if (action === 'create') {
@@ -221,7 +322,9 @@ const waKind = (a: Appointment): WaKind =>
           ? 'apartada'
           : owesNotice(a)
             ? 'abono'
-            : 'recordatorio';
+            : a.rescheduled_at && !a.notified?.reagendada
+              ? 'reagendada'
+              : 'recordatorio';
 const waText = (a: Appointment, kind: WaKind = waKind(a)) => {
   if (kind === 'hello') return `Hola ${firstName(a.customer_name)} 👋 Te escribe ${settings.business_name}.`;
   const exact = priceFor(svcOf.get(a.service_id ?? ''), a.hair_length);
@@ -229,7 +332,7 @@ const waText = (a: Appointment, kind: WaKind = waKind(a)) => {
 };
 const waLink = (a: Appointment, kind: WaKind = waKind(a)) => `https://wa.me/${a.customer_phone}?text=${encodeURIComponent(waText(a, kind))}`;
 const waLabel = (a: Appointment) =>
-  ({ recordatorio: 'Recordar por WhatsApp', apartada: 'Pedir abono', abono: 'Avisar: cita confirmada', gracias: 'Agradecer por WhatsApp', cancelada: 'Avisar cancelación', hello: 'Escribir por WhatsApp' })[
+  ({ recordatorio: 'Pedir confirmación', reagendada: 'Avisar nueva hora', apartada: 'Pedir abono', abono: 'Avisar: cita confirmada', gracias: 'Agradecer por WhatsApp', cancelada: 'Avisar cancelación', hello: 'Escribir por WhatsApp' })[
     waKind(a)
   ];
 
@@ -267,6 +370,16 @@ const receiptLinks = new Map(
   ),
 );
 const isPdf = (p: string | null | undefined) => Boolean(p && /\.pdf$/i.test(p));
+
+// WhatsApp automático: conversación de cada clienta (si está conectado o ya hay mensajes guardados).
+const waOn = waConfigured();
+const waByPhone = await waMessagesForPhones(dialogAppts.map((a) => a.customer_phone));
+const chatOf = (a: Appointment) => waByPhone.get(waNumber(a.customer_phone)) ?? [];
+const canReply = (a: Appointment) => windowOpen([...chatOf(a)].reverse().find((m) => m.direction === 'in')?.created_at ?? null);
+const fmtChat = new Intl.DateTimeFormat('es-CO', { timeZone: 'America/Bogota', day: 'numeric', month: 'short', hour: 'numeric', minute: '2-digit', hour12: true });
+const chatWhen = (iso: string) => fmtChat.format(new Date(iso)).replace(/\s/g, '\u00a0').replace('.', '');
+const TICK: Record<string, string> = { enviando: '…', enviado: '✓', entregado: '✓✓', leido: '✓✓', fallido: '⚠', manual: '' };
+const TICK_LABEL: Record<string, string> = { enviando: 'Enviando', enviado: 'Enviado', entregado: 'Entregado', leido: 'Leído', fallido: 'No se entregó', manual: '' };
 const todayOff = offOf(today);
 ---
 
@@ -434,6 +547,8 @@ const todayOff = offOf(today);
                     <span>
                       {prettyTime(a.starts_at)} · {a.service_name}
                       {a.status === 'pendiente' && (a.receipt_path ? ' · Revisar comprobante' : ' · Espera abono')}
+                      {isActive(a) && a.change_requested_at && ' · Pide otra hora'}
+                      {isActive(a) && !a.change_requested_at && a.client_confirmed_at && ' · Confirmó ✓'}
                     </span>
                     <span class="sr-only">
                       , {prettyDate(a.starts_at)}, {statusLabel[a.status]}
@@ -493,6 +608,8 @@ const todayOff = offOf(today);
                           </small>
                           {a.status === 'pendiente' && <span class="tag pendiente">{a.receipt_path ? 'Revisar comprobante' : 'Espera abono'}</span>}
                           {owesNotice(a) && <span class="tag plain">Falta avisarle</span>}
+                          {isActive(a) && a.change_requested_at && <span class="tag ask-wa">Pide otra hora</span>}
+                          {isActive(a) && !a.change_requested_at && a.client_confirmed_at && <span class="tag ok-wa">Confirmó</span>}
                         </span>
                       </button>
                       {a.status !== 'cancelada' && (
@@ -546,6 +663,16 @@ const todayOff = offOf(today);
               {a.google_event_id && (
                 <span class="tag plain g">
                   <Icon name="google" size={13} /> En tu Google Calendar
+                </span>
+              )}
+              {a.client_confirmed_at && isActive(a) && (
+                <span class="tag ok-wa">
+                  <Icon name="check" size={13} /> Confirmó por WhatsApp
+                </span>
+              )}
+              {a.change_requested_at && isActive(a) && (
+                <span class="tag ask-wa">
+                  <Icon name="clock" size={13} /> Pide cambiar la hora
                 </span>
               )}
               <span class="tag plain">{a.source === 'web' ? 'Reservó en la web' : 'La agendaste tú'}</span>
@@ -663,6 +790,11 @@ const todayOff = offOf(today);
                   : `Cupo apartado en espera del comprobante del abono del ${DEPOSIT_PCT}%. Cuando lo recibas, confírmala aquí.`}
               </p>
             )}
+            {a.change_requested_at && isActive(a) && !started(a) && (
+              <p class="ap-dep">
+                <Icon name="clock" size={16} /> {who} tocó «Cambiar hora» en WhatsApp. Pregúntale qué hora le sirve y usa «Cambiar hora o reagendar» aquí abajo.
+              </p>
+            )}
             {owesNotice(a) && (
               <p class="ap-dep ok">
                 <Icon name="check" size={16} /> Abono confirmado. Avísale a {who} que su cita quedó en firme: el mensaje ya está escrito.
@@ -691,9 +823,21 @@ const todayOff = offOf(today);
                   </button>
                 </form>
               )}
-              <a class:list={['btn', 'btn-wa', { 'btn-wa-main': (!canComplete && a.status !== 'pendiente') || owesNotice(a) }]} data-notice={`${a.id}:${waKind(a)}`} href={waLink(a)} target="_blank" rel="noopener">
-                <Icon name="whatsapp" /> {waLabel(a)}
-              </a>
+              {waOn && waKind(a) !== 'hello' ? (
+                <form method="post" class:list={[{ 'btn-wa-main': (!canComplete && a.status !== 'pendiente') || owesNotice(a) }]}>
+                  <input type="hidden" name="action" value="notice" />
+                  <input type="hidden" name="id" value={a.id} />
+                  <input type="hidden" name="desde" value={start} />
+                  <input type="hidden" name="ev" value={waKind(a)} />
+                  <button class="btn btn-wa">
+                    <Icon name="whatsapp" /> {waLabel(a)}
+                  </button>
+                </form>
+              ) : (
+                <a class:list={['btn', 'btn-wa', { 'btn-wa-main': (!canComplete && a.status !== 'pendiente') || owesNotice(a) }]} data-notice={`${a.id}:${waKind(a)}`} href={waLink(a)} target="_blank" rel="noopener">
+                  <Icon name="whatsapp" /> {waLabel(a)}
+                </a>
+              )}
               {a.status === 'completada' && (
                 <form method="post">
                   <input type="hidden" name="action" value="status" />
@@ -704,7 +848,79 @@ const todayOff = offOf(today);
                 </form>
               )}
             </div>
-            {(laterToday || isActive(a)) && (
+            {isActive(a) && (
+              <details class="move" open={Boolean(a.change_requested_at)}>
+                <summary>
+                  <Icon name="calendar" size={16} /> Cambiar hora o reagendar
+                  <span class="move-chev" aria-hidden="true"><Icon name="chevron" size={18} /></span>
+                </summary>
+                <form method="post" class="move-in" data-confirm={`¿Mover la cita de ${who}? El horario anterior queda libre.`} data-confirm-yes="Sí, mover">
+                  <input type="hidden" name="action" value="move" />
+                  <input type="hidden" name="id" value={a.id} />
+                  <input type="hidden" name="desde" value={start} />
+                  <div class="field">
+                    <label for={`mv-d-${a.id}`}>Nueva fecha</label>
+                    <input id={`mv-d-${a.id}`} name="date" type="date" min={today} value={localDate(new Date(a.starts_at)) < today ? today : localDate(new Date(a.starts_at))} required />
+                  </div>
+                  <div class="field">
+                    <label for={`mv-t-${a.id}`}>Nueva hora</label>
+                    <input id={`mv-t-${a.id}`} name="time" type="time" step="300" value={localTime(new Date(a.starts_at))} required />
+                  </div>
+                  <label class="field chk move-chk">
+                    <input type="checkbox" name="notify" checked /> <span>{waOn ? 'Avisarle por WhatsApp' : 'Le avisaré por WhatsApp'}</span>
+                  </label>
+                  <button class="btn btn-clay move-go">
+                    <Icon name="check" /> Guardar nueva hora
+                  </button>
+                  <small class="hint move-hint">Dura lo mismo ({durLabel(a)}). Si choca con otra cita, te avisamos.</small>
+                </form>
+              </details>
+            )}
+            {(waOn || chatOf(a).length > 0) && (
+              <section class="chat" aria-label={`Conversación de WhatsApp con ${who}`}>
+                <header class="chat-h">
+                  <Icon name="whatsapp" size={16} /> <span>Conversación de WhatsApp</span>
+                </header>
+                <ol class="chat-list" data-chat={waNumber(a.customer_phone)} aria-live="polite">
+                  {chatOf(a).length === 0 && <li class="chat-empty">Aún no hay mensajes con {who}.</li>}
+                  {chatOf(a).map((m) => (
+                    <li class:list={['msg', m.direction, m.status]}>
+                      <p>{m.body}</p>
+                      <small>
+                        {m.kind === 'plantilla' && 'Plantilla · '}
+                        {chatWhen(m.created_at)}
+                        {m.direction === 'out' && TICK[m.status] && (
+                          <span class:list={['tick', m.status]} title={TICK_LABEL[m.status]} aria-label={TICK_LABEL[m.status]}>
+                            {' '}
+                            {TICK[m.status]}
+                          </span>
+                        )}
+                      </small>
+                      {m.error && <small class="msg-err">{m.error}</small>}
+                    </li>
+                  ))}
+                </ol>
+                {waOn &&
+                  (canReply(a) ? (
+                    <form method="post" class="chat-form">
+                      <input type="hidden" name="action" value="reply" />
+                      <input type="hidden" name="id" value={a.id} />
+                      <input type="hidden" name="desde" value={start} />
+                      <label class="sr-only" for={`rp-${a.id}`}>Responder a {who}</label>
+                      <textarea id={`rp-${a.id}`} name="text" rows="2" maxlength="2000" placeholder={`Escríbele a ${who}…`} required />
+                      <button class="btn btn-wa btn-icon" aria-label="Enviar">
+                        <Icon name="arrow" />
+                      </button>
+                    </form>
+                  ) : (
+                    <p class="chat-note muted">
+                      Para escribirle libre, {who} tiene que haberte escrito en las últimas 24 horas. Mientras tanto usa los avisos de arriba o{' '}
+                      <a href={waLink(a, 'hello')} target="_blank" rel="noopener">abre tu WhatsApp</a>.
+                    </p>
+                  ))}
+              </section>
+            )}
+            {(laterToday || isActive(a) || (waOn && a.status !== 'cancelada')) && (
               <div class="ap-minor">
                 {laterToday && (
                   <form
@@ -720,6 +936,11 @@ const todayOff = offOf(today);
                       <Icon name="check" size={16} /> Ya terminé
                     </button>
                   </form>
+                )}
+                {waOn && a.status !== 'cancelada' && (
+                  <a class="ap-minor-btn" href={waLink(a)} target="_blank" rel="noopener" data-notice={`${a.id}:${waKind(a)}`}>
+                    <Icon name="external" size={16} /> Abrir en mi WhatsApp
+                  </a>
                 )}
                 {isActive(a) && (
                   <form method="post" data-confirm={cancelMsg(a)} data-confirm-yes="Sí, cancelar cita">
@@ -847,6 +1068,7 @@ const todayOff = offOf(today);
 
 <style>
   .chk {
+    display: flex;
     flex-direction: row;
     align-items: center;
     gap: 0.5rem;
@@ -1801,6 +2023,10 @@ const todayOff = offOf(today);
     min-height: 52px;
     font-size: var(--t-md);
   }
+  .ap-acts form.btn-wa-main .btn {
+    min-height: 52px;
+    font-size: var(--t-md);
+  }
   .ap-minor {
     display: flex;
     justify-content: center;
@@ -1843,6 +2069,213 @@ const todayOff = offOf(today);
       font-size: 1.05rem;
     }
     .ap-acts {
+      grid-template-columns: 1fr;
+    }
+  }
+
+  /* ───────── WhatsApp: confirmación, reagendar y conversación ───────── */
+  .tag.ok-wa {
+    background: #dcefdc;
+    color: #24572b;
+  }
+  .tag.ask-wa {
+    background: #f7ecd0;
+    color: #6b4d0c;
+  }
+  .ap-tags .tag.ok-wa,
+  .ap-tags .tag.ask-wa {
+    display: inline-flex;
+    align-items: center;
+    gap: 0.3rem;
+  }
+  .move {
+    margin-top: 1rem;
+    border: 1px solid var(--line);
+    border-radius: var(--r-md);
+    background: var(--white);
+  }
+  .move summary {
+    display: flex;
+    align-items: center;
+    gap: 0.45rem;
+    min-height: 48px;
+    padding: 0.4rem 1rem;
+    font-weight: 700;
+    cursor: pointer;
+    list-style: none;
+    border-radius: inherit;
+  }
+  .move summary::-webkit-details-marker {
+    display: none;
+  }
+  .move-chev {
+    display: grid;
+    margin-left: auto;
+    transform: rotate(90deg);
+    transition: transform 0.2s var(--ease);
+  }
+  .move[open] .move-chev {
+    transform: rotate(-90deg);
+  }
+  .move summary:focus-visible {
+    outline: 2.5px solid var(--clay);
+    outline-offset: 2px;
+  }
+  .move-in {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 0.6rem 0.75rem;
+    padding: 0 1rem 1rem;
+  }
+  .move-in .field {
+    min-width: 0;
+  }
+  .move-in input[type='date'],
+  .move-in input[type='time'] {
+    width: 100%;
+    min-width: 0;
+  }
+  .move-chk,
+  .move-go,
+  .move-hint {
+    grid-column: 1 / -1;
+  }
+  .move-chk {
+    display: flex;
+    flex-direction: row;
+    align-items: center;
+    gap: 0.55rem;
+    min-height: 44px;
+    padding-bottom: 0;
+    align-self: auto;
+    font-weight: 600;
+    cursor: pointer;
+  }
+  .move-chk input {
+    flex: none;
+  }
+  .move-go {
+    justify-content: center;
+    width: 100%;
+  }
+  .move-hint {
+    color: var(--muted);
+  }
+  .chat {
+    margin-top: 1rem;
+    border-radius: var(--r-md);
+    background: #efe7dc;
+    overflow: hidden;
+  }
+  .chat-h {
+    display: flex;
+    align-items: center;
+    gap: 0.45rem;
+    padding: 0.7rem 1rem;
+    font-size: var(--t-xs);
+    font-weight: 700;
+    letter-spacing: 0.08em;
+    text-transform: uppercase;
+    color: var(--muted);
+    border-bottom: 1px solid var(--line);
+  }
+  .chat-list {
+    display: flex;
+    flex-direction: column;
+    gap: 0.45rem;
+    max-height: 300px;
+    margin: 0;
+    padding: 0.8rem;
+    overflow-y: auto;
+    overscroll-behavior: contain;
+    list-style: none;
+  }
+  .chat-empty {
+    align-self: center;
+    padding: 0.6rem;
+    color: var(--muted);
+    font-size: var(--t-sm);
+  }
+  .msg {
+    display: grid;
+    gap: 0.15rem;
+    max-width: 85%;
+    padding: 0.5rem 0.75rem;
+    border-radius: 14px;
+    background: var(--white);
+    box-shadow: 0 1px 1px rgb(42 28 22 / 0.08);
+  }
+  .msg.in {
+    align-self: flex-start;
+    border-bottom-left-radius: 4px;
+  }
+  .msg.out {
+    align-self: flex-end;
+    background: #dcf3d0;
+    border-bottom-right-radius: 4px;
+  }
+  .msg.out.fallido {
+    background: #f8e1dc;
+  }
+  .msg p {
+    margin: 0;
+    white-space: pre-wrap;
+    overflow-wrap: anywhere;
+    font-size: var(--t-sm);
+    line-height: 1.4;
+  }
+  .msg small {
+    justify-self: end;
+    color: var(--muted);
+    font-size: 0.72rem;
+  }
+  .msg .msg-err {
+    justify-self: start;
+    color: #9c2a1a;
+    overflow-wrap: anywhere;
+  }
+  .tick.leido {
+    color: #2a7bd4;
+  }
+  .chat-form {
+    display: flex;
+    align-items: flex-end;
+    gap: 0.5rem;
+    padding: 0.6rem 0.8rem 0.8rem;
+    border-top: 1px solid var(--line);
+  }
+  .chat-form textarea {
+    flex: 1;
+    min-width: 0;
+    min-height: 44px;
+    max-height: 140px;
+    padding: 0.6rem 0.9rem;
+    border: 1.5px solid var(--line);
+    border-radius: 22px;
+    background: var(--white);
+    font: inherit;
+    font-size: 16px;
+    resize: vertical;
+  }
+  .chat-form textarea:focus {
+    outline: none;
+    border-color: var(--clay);
+  }
+  .chat-form .btn-icon {
+    flex: none;
+  }
+  .chat-note {
+    margin: 0;
+    padding: 0.6rem 1rem 0.8rem;
+    font-size: var(--t-sm);
+    border-top: 1px solid var(--line);
+  }
+  .chat-note a {
+    color: inherit;
+    font-weight: 700;
+  }
+  @media (max-width: 400px) {
+    .move-in {
       grid-template-columns: 1fr;
     }
   }
@@ -2181,6 +2614,90 @@ const todayOff = offOf(today);
     l.addEventListener('click', () => {
       const [id, ev] = (l.dataset.notice ?? '').split(':');
       if (ev && ev !== 'hello') navigator.sendBeacon('/api/admin/avisado', new URLSearchParams({ id, ev }));
+    }),
+  );
+
+  // Conversación de WhatsApp: baja al último mensaje y se actualiza sola mientras la cita está abierta.
+  const TICK: Record<string, [string, string]> = {
+    enviando: ['…', 'Enviando'],
+    enviado: ['✓', 'Enviado'],
+    entregado: ['✓✓', 'Entregado'],
+    leido: ['✓✓', 'Leído'],
+    fallido: ['⚠', 'No se entregó'],
+  };
+  const fmtChat = new Intl.DateTimeFormat('es-CO', { timeZone: 'America/Bogota', day: 'numeric', month: 'short', hour: 'numeric', minute: '2-digit', hour12: true });
+  type ChatMsg = { id: number; direction: 'in' | 'out'; status: string; body: string; kind: string; error: string | null; created_at: string };
+  const renderChat = (list: HTMLElement, msgs: ChatMsg[]) => {
+    if (!msgs.length) return;
+    const atBottom = list.scrollHeight - list.scrollTop - list.clientHeight < 40;
+    list.replaceChildren(
+      ...msgs.map((m) => {
+        const li = document.createElement('li');
+        li.className = `msg ${m.direction} ${m.status}`;
+        const p = document.createElement('p');
+        p.textContent = m.body;
+        const sm = document.createElement('small');
+        sm.textContent = `${m.kind === 'plantilla' ? 'Plantilla · ' : ''}${fmtChat.format(new Date(m.created_at)).replace(/\s/g, '\u00a0').replace('.', '')}`;
+        const t = m.direction === 'out' ? TICK[m.status] : undefined;
+        if (t) {
+          const span = document.createElement('span');
+          span.className = `tick ${m.status}`;
+          span.title = t[1];
+          span.setAttribute('aria-label', t[1]);
+          span.textContent = ` ${t[0]}`;
+          sm.append(span);
+        }
+        li.append(p, sm);
+        if (m.error) {
+          const err = document.createElement('small');
+          err.className = 'msg-err';
+          err.textContent = m.error;
+          li.append(err);
+        }
+        return li;
+      }),
+    );
+    if (atBottom) list.scrollTop = list.scrollHeight;
+  };
+  let chatTimer: number | undefined;
+  document.querySelectorAll<HTMLDialogElement>('dialog.ap').forEach((d) => {
+    const list = d.querySelector<HTMLElement>('[data-chat]');
+    if (!list) return;
+    let lastSig = '';
+    const refresh = async () => {
+      if (!d.open || document.hidden) return;
+      try {
+        const r = await fetch(`/api/admin/whatsapp?phone=${encodeURIComponent(list.dataset.chat!)}`, { headers: { Accept: 'application/json' } });
+        if (!r.ok) return;
+        const { messages } = (await r.json()) as { messages: ChatMsg[] };
+        const sig = messages.map((m) => `${m.id}:${m.status}`).join(',');
+        if (sig !== lastSig) {
+          lastSig = sig;
+          renderChat(list, messages);
+        }
+      } catch {
+        /* sin conexión: se intenta en la próxima vuelta */
+      }
+    };
+    new MutationObserver(() => {
+      window.clearInterval(chatTimer);
+      if (!d.open) return;
+      list.scrollTop = list.scrollHeight;
+      chatTimer = window.setInterval(refresh, 10_000);
+    }).observe(d, { attributes: true, attributeFilter: ['open'] });
+    // Si la cita ya se abrió sola (tras enviar un mensaje), arranca de una vez.
+    if (d.open) {
+      list.scrollTop = list.scrollHeight;
+      chatTimer = window.setInterval(refresh, 10_000);
+    }
+  });
+  // Enter envía, Mayús+Enter hace salto de línea (solo con teclado físico).
+  document.querySelectorAll<HTMLTextAreaElement>('.chat-form textarea').forEach((t) =>
+    t.addEventListener('keydown', (e) => {
+      if (e.key === 'Enter' && !e.shiftKey && !touch && t.value.trim()) {
+        e.preventDefault();
+        t.form?.requestSubmit();
+      }
     }),
   );
 
