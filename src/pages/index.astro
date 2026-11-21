@@ -130,7 +130,7 @@ const description = `Peinados profesionales en ${s.city}: ondas, peinados social
                   </div>
                   {o.deposit && (
                     <p class="p-dep">
-                      Apartas con {o.from ? 'desde ' : ''}
+                      Abono {o.from ? 'desde ' : ''}
                       {formatCOP(o.deposit)}
                     </p>
                   )}
@@ -178,7 +178,7 @@ const description = `Peinados profesionales en ${s.city}: ondas, peinados social
                         <small>desde</small> {formatCOP(sv.price_from)}
                       </>
                     ) : (
-                      <small>a cotizar</small>
+                      <small>Valor a cotizar</small>
                     )}
                   </span>
                   <Icon name="chevron" size={18} />
@@ -438,7 +438,27 @@ const description = `Peinados profesionales en ${s.city}: ondas, peinados social
     line-height: 1.04;
   }
   .hero h1 em {
+    position: relative;
+    display: inline-block;
     color: var(--blush);
+  }
+  /* Único detalle de marca animado: el subrayado dorado a mano bajo la última palabra. */
+  .hero h1 em::after {
+    content: '';
+    position: absolute;
+    left: -2%;
+    right: -4%;
+    bottom: -0.02em;
+    height: 0.2em;
+    background: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 300 24' preserveAspectRatio='none'%3E%3Cpath d='M4 15c42-10 88-12 134-7s92 8 158-4' fill='none' stroke='%23c39a52' stroke-width='5' stroke-linecap='round'/%3E%3C/svg%3E")
+      center / 100% 100% no-repeat;
+    clip-path: inset(0 100% 0 0);
+    animation: underline-in 0.6s var(--ease) 0.4s forwards;
+  }
+  @keyframes underline-in {
+    to {
+      clip-path: inset(0 0 0 0);
+    }
   }
   .hero-sub {
     margin: 0;

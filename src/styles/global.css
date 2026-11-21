@@ -242,16 +242,21 @@ section {
   letter-spacing: 0.01em;
   text-decoration: none;
   cursor: pointer;
-  transition: transform 0.15s var(--ease), background-color 0.2s, color 0.2s, border-color 0.2s;
+  transition: transform 0.15s var(--ease), background-color 0.2s, color 0.2s, border-color 0.2s, box-shadow 0.3s var(--ease);
 }
 .btn svg {
   transition: transform 0.35s var(--ease);
+}
+.btn:hover {
+  transform: translateY(-2px);
+  box-shadow: 0 14px 30px -14px rgb(42 28 22 / 0.55);
 }
 .btn:active {
   transform: scale(0.97);
 }
 .btn-clay {
   --b-bg: var(--clay-ink);
+  box-shadow: 0 10px 24px -14px rgb(143 68 41 / 0.9);
 }
 .btn-clay:hover {
   --b-bg: var(--clay-deep);

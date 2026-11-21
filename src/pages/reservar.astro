@@ -74,7 +74,7 @@ const data = {
                     <span>
                       <Icon name="clock" size={15} /> {formatDuration(sv.duration_min)}
                     </span>
-                    <strong>{sv.price_from != null ? `desde ${formatCOP(sv.price_from)}` : 'A convenir'}</strong>
+                    <strong>{sv.price_from != null ? `desde ${formatCOP(sv.price_from)}` : 'Valor a cotizar'}</strong>
                   </span>
                 </span>
               </label>
@@ -555,24 +555,6 @@ const data = {
     outline: 2.5px solid var(--clay);
     outline-offset: 2px;
   }
-  .slots :global(button) {
-    min-height: 48px;
-    border-radius: 14px;
-    border: 1.5px solid var(--line);
-    background: var(--cream);
-    font: 650 0.95rem var(--font-body);
-    color: var(--cocoa);
-    cursor: pointer;
-    transition: all 0.2s;
-  }
-  .slots :global(button:hover) {
-    border-color: var(--clay);
-  }
-  .slots :global(button[aria-checked='true']) {
-    background: var(--cocoa);
-    border-color: var(--cocoa);
-    color: var(--white);
-  }
   .slots :global(p) {
     grid-column: 1 / -1;
     color: var(--muted);
@@ -732,7 +714,7 @@ const data = {
     border: 2px solid currentColor;
     border-right-color: transparent;
     border-radius: 50%;
-    animation: spin 0.7s linear infinite;
+    animation: bp-spin 0.7s linear infinite;
   }
   [data-submit][aria-busy='true'] .spin {
     display: inline-block;
@@ -740,7 +722,7 @@ const data = {
   [data-submit][aria-busy='true'] :global(svg) {
     display: none;
   }
-  @keyframes spin {
+  @keyframes bp-spin {
     to {
       transform: rotate(1turn);
     }
@@ -778,6 +760,8 @@ const data = {
 </style>
 
 <script>
+  import { depositOf } from '../lib/defaults';
+
   interface Data {
     ft: string;
     days: string[];
@@ -844,7 +828,7 @@ const data = {
       el.textContent = 'Elige un servicio';
       return;
     }
-    el.replaceChildren(Object.assign(document.createElement('b'), { textContent: sv.name }), document.createTextNode(sv.from != null ? `desde ${sv.price}` : 'Valor a convenir'));
+    el.replaceChildren(Object.assign(document.createElement('b'), { textContent: sv.name }), document.createTextNode(sv.from != null ? `desde ${sv.price}` : 'Valor a cotizar'));
   }
 
   function renderCal() {
@@ -936,7 +920,7 @@ const data = {
         : `desde ${cop(Math.min(...Object.values(tiers)))}`
       : sv?.from != null
         ? `desde ${sv.price}`
-        : 'Valor a convenir';
+        : 'Valor a cotizar';
     const el = $('[data-summary]');
     el.replaceChildren(
       document.createTextNode(`${sv?.name ?? ''} · ${pretty12(state.time)}`),
@@ -946,9 +930,10 @@ const data = {
     );
     const dep = $<HTMLElement>('[data-deposit]');
     dep.hidden = !price;
-    if (price) dep.textContent = `Abono para asegurar tu cupo (${data.pct}%): ${cop(Math.round((price * data.pct) / 100 / 1000) * 1000)}`;
-    $('[data-dep-line]').textContent = price
-      ? `Apartas con ${cop(Math.round((price * data.pct) / 100 / 1000) * 1000)} (${data.pct}%) y el resto lo pagas el día del peinado. Te muestro cómo pagar al reservar.`
+    const deposit = depositOf(price);
+    if (deposit) dep.textContent = `Abono para asegurar tu cupo (${data.pct}%): ${cop(deposit)}`;
+    $('[data-dep-line]').textContent = deposit
+      ? `Apartas con ${cop(deposit)} (${data.pct}%) y el resto lo pagas el día del peinado. Te muestro cómo pagar al reservar.`
       : `Tu cupo queda apartado y lo aseguras con el abono del ${data.pct}%. Te muestro cómo pagar al reservar.`;
   }
   form.addEventListener('change', (e) => {
