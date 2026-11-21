@@ -21,7 +21,8 @@ const hero = gallery[0] ?? null;
 const shown = gallery.slice(0, 6);
 const placeholders = ['Ondas', 'Grado', 'Quinceañera', 'Recogido', 'Novia', 'Niña'];
 const catalogo = serviciosDelHome(services, PACKAGES);
-const opciones = opcionesDeOcasion(services, PACKAGES);
+// Sin servicio a domicilio no se ofrece el paquete de grupo (es solo a domicilio).
+const opciones = opcionesDeOcasion(services, s.home_service ? PACKAGES : PACKAGES.filter((p) => p.slug !== 'grupos'));
 const faq = faqDelHome(FAQ);
 const hoy = horarioDeHoy(hours, new Date());
 const titleWords = s.hero_title.split(' ');

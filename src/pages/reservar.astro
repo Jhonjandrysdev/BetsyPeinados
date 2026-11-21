@@ -44,7 +44,7 @@ const data = {
 
     <form class="card" id="booking" novalidate>
       <ol class="progress" aria-label="Pasos">
-        <li data-step-dot="1" class="on" aria-current="step"><button type="button" data-goto="1" disabled><span>1</span> <b>Servicio</b></button></li>
+        <li data-step-dot="1" class="on current" aria-current="step"><button type="button" data-goto="1" disabled><span>1</span> <b>Servicio</b></button></li>
         <li data-step-dot="2"><button type="button" data-goto="2" disabled><span>2</span> <b>Fecha y hora</b></button></li>
         <li data-step-dot="3"><button type="button" data-goto="3" disabled><span>3</span> <b>Tus datos</b></button></li>
       </ol>
@@ -820,6 +820,8 @@ const data = {
   }
 
   const serviceId = () => (new FormData(form).get('service_id') as string) || '';
+  /** Servicio para el que se cargaron el día y la hora actuales. */
+  let slotsFor = data.preselect;
 
   function renderPick() {
     const sv = data.services.find((x) => x.id === serviceId());
@@ -954,10 +956,14 @@ const data = {
     b.addEventListener('click', () => {
       if (state.step === 1) {
         if (!serviceId()) return alertStep('Elige un servicio para continuar.');
-        state.date = '';
-        state.time = '';
-        $('[data-slots]').replaceChildren();
-        $('[data-slots-title]').textContent = 'Selecciona un día';
+        // Si vuelve al paso 1 y no cambia de servicio, conserva el día y la hora elegidos.
+        if (serviceId() !== slotsFor) {
+          slotsFor = serviceId();
+          state.date = '';
+          state.time = '';
+          $('[data-slots]').replaceChildren();
+          $('[data-slots-title]').textContent = 'Selecciona un día';
+        }
         go(2);
       } else if (state.step === 2) {
         if (!state.date || !state.time) return alertStep('Elige un día y una hora.');
