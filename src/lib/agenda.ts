@@ -2,16 +2,15 @@
  * Reglas de la agenda que Betsy usa en el panel: si una hora cae en su horario de atención
  * y qué hacer en Google Calendar cuando cambia el estado de una cita. Puro.
  */
-import { minutesOf, timeOf, weekdayOf } from './time';
+import { minutesOf, prettyClock, weekdayOf } from './time';
 import type { AppointmentStatus, BlockedDate, BusinessHour } from './types';
 
-/** "09:00:00" → "9:00 a. m." */
-const horaBonita = (hhmm: string) => {
-  const m = minutesOf(hhmm);
-  const h = Math.floor(m / 60);
-  const [, mm] = timeOf(m).split(':');
-  return `${h % 12 || 12}:${mm} ${h < 12 ? 'a. m.' : 'p. m.'}`;
-};
+/** Minutos (desde la medianoche) en que Betsy abre y cierra un día; null si no atiende o está bloqueado. */
+export function ventanaDelDia(fecha: string, horarios: BusinessHour[], bloqueos: BlockedDate[]): { abre: number; cierra: number } | null {
+  if (bloqueos.some((b) => b.day === fecha)) return null;
+  const h = horarios.find((x) => x.weekday === weekdayOf(fecha));
+  return h?.enabled ? { abre: minutesOf(h.open_time), cierra: minutesOf(h.close_time) } : null;
+}
 
 /**
  * Por qué una cita de `duracionMin` minutos el `fecha` a las `hora` no cabe en el horario de atención,
@@ -20,11 +19,12 @@ const horaBonita = (hhmm: string) => {
 export function fueraDeHorario({ fecha, hora, duracionMin, horarios, bloqueos }: { fecha: string; hora: string; duracionMin: number; horarios: BusinessHour[]; bloqueos: BlockedDate[] }): string | null {
   const bloqueo = bloqueos.find((b) => b.day === fecha);
   if (bloqueo) return `Ese día está bloqueado${bloqueo.reason ? ` (${bloqueo.reason})` : ''}`;
-  const h = horarios.find((x) => x.weekday === weekdayOf(fecha));
-  if (!h?.enabled) return 'Ese día no atiendes según tu horario';
+  const ventana = ventanaDelDia(fecha, horarios, bloqueos);
+  if (!ventana) return 'Ese día no atiendes según tu horario';
   const inicio = minutesOf(hora);
-  if (inicio < minutesOf(h.open_time) || inicio + duracionMin > minutesOf(h.close_time)) {
-    return `Esa hora queda fuera de tu horario de ese día (${horaBonita(h.open_time)} a ${horaBonita(h.close_time)})`;
+  if (inicio < ventana.abre || inicio + duracionMin > ventana.cierra) {
+    const h = horarios.find((x) => x.weekday === weekdayOf(fecha))!;
+    return `Esa hora queda fuera de tu horario de ese día (${prettyClock(h.open_time)} a ${prettyClock(h.close_time)})`;
   }
   return null;
 }
