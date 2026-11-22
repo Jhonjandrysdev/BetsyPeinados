@@ -137,7 +137,7 @@ const data = {
           <p class="hint" data-cm-note hidden></p>
         </div>
         <div class="fields">
-          <div class="field">
+          <div class="field full">
             <label for="name">Nombre completo</label>
             <input id="name" name="name" type="text" autocomplete="name" maxlength="80" required />
           </div>
@@ -147,8 +147,9 @@ const data = {
             <small class="hint" id="phone-hint">Celular de 10 dígitos. Si es de otro país, empieza con + y el indicativo.</small>
           </div>
           <div class="field">
-            <label for="email">Correo <span class="hint">(opcional, para recibir la invitación de calendario)</span></label>
-            <input id="email" name="email" type="email" autocomplete="email" maxlength="120" />
+            <label for="email">Correo <span class="hint">(opcional)</span></label>
+            <input id="email" name="email" type="email" autocomplete="email" maxlength="120" aria-describedby="email-hint" />
+            <small class="hint" id="email-hint">Para enviarte la invitación de calendario.</small>
           </div>
           <div class="field full">
             <label for="notes">¿Algo que deba saber? <span class="hint">(opcional)</span></label>
@@ -564,6 +565,11 @@ const data = {
   }
   .hair {
     margin: 0 0 1.2rem;
+  }
+  .hair .hint {
+    margin: 0.6rem 0 0;
+    font-size: 0.8rem;
+    color: var(--muted);
   }
   .hair-t {
     margin: 0 0 0.5rem;
