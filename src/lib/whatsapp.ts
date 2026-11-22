@@ -14,7 +14,8 @@ import { getSecret } from 'astro:env/server';
 import { demoMode, getService, getSettings, getTemplates, markNotified } from './db';
 import { supabaseAdmin } from './supabase';
 import { safeEqual } from './crypto';
-import { valorDeCita } from './cita';
+import { aceptaAvisos, valorDeCita } from './cita';
+import { MIN_DIGITOS_INTERNACIONAL } from './celular';
 import { DEFAULT_TEMPLATES, META_TEMPLATES, fillTemplate, valuesFor, type NoticeEvent } from './messages';
 import type { Appointment, WaMessage, WaStatus } from './types';
 
@@ -176,9 +177,9 @@ async function fillData(a: Appointment) {
  */
 export async function sendNotice(a: Appointment, event: NoticeEvent, customText = ''): Promise<SendResult> {
   if (!waConfigured()) return { ok: false, reason: 'not_configured' };
-  if (a.notify_opt_in === false) return { ok: false, reason: 'opt_out' };
+  if (!aceptaAvisos(a)) return { ok: false, reason: 'opt_out' };
   const phone = waNumber(a.customer_phone);
-  if (phone.length < 11) return { ok: false, reason: 'error', error: 'El WhatsApp de la clienta no parece válido.' };
+  if (phone.length < MIN_DIGITOS_INTERNACIONAL) return { ok: false, reason: 'error', error: 'El WhatsApp de la clienta no parece válido.' };
 
   const data = await fillData(a);
   const meta = META_TEMPLATES[event];

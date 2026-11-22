@@ -180,8 +180,8 @@ const data = {
             <input id="website" name="website" type="text" tabindex="-1" autocomplete="off" />
           </div>
           <label class="consent full">
-            <input type="checkbox" name="notify_opt_in" checked />
-            <span>Acepto recibir avisos de mi cita por WhatsApp (cupo apartado, abono recibido y recordatorio).</span>
+            <input type="checkbox" name="wa_opt_in" checked />
+            <span>Acepto recibir avisos de mi cita por WhatsApp</span>
           </label>
           <label class="consent full">
             <input type="checkbox" name="consent" required />
@@ -690,6 +690,7 @@ const data = {
 </style>
 
 <script>
+  import { normalizarCelular } from '../lib/celular';
   interface Data {
     ft: string;
     days: string[];
@@ -897,10 +898,19 @@ const data = {
     form.querySelectorAll('.step-alert').forEach((x) => x.remove());
   }
 
+  $<HTMLInputElement>('#phone').addEventListener('input', (e) => (e.target as HTMLInputElement).setCustomValidity(''));
   form.addEventListener('submit', async (ev) => {
     ev.preventDefault();
     if (state.step !== 3) return;
     if (!form.reportValidity()) return;
+    // El mismo chequeo del servidor, para avisar antes de enviar si el número no es un celular.
+    const phoneInput = $<HTMLInputElement>('#phone');
+    const cel = normalizarCelular(phoneInput.value);
+    phoneInput.setCustomValidity(cel.ok ? '' : cel.error);
+    if (!cel.ok) {
+      phoneInput.reportValidity();
+      return;
+    }
     const fd = new FormData(form);
     const btn = $<HTMLButtonElement>('[data-submit]');
     const label = $('[data-submit-label]');
@@ -930,7 +940,7 @@ const data = {
           home_address: fd.get('home_address') || '',
           website: fd.get('website') || '',
           consent: fd.get('consent') === 'on',
-          notify_opt_in: fd.get('notify_opt_in') === 'on',
+          wa_opt_in: fd.get('wa_opt_in') === 'on',
           ft: data.ft,
         }),
       });

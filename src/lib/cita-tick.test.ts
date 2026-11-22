@@ -116,8 +116,8 @@ describe('vencimiento automático de cupos sin abono', () => {
 
     it('no avisa a quien no aceptó avisos por WhatsApp, sin gastar intentos', async () => {
       store = fakeStore([
-        { ...apartada, id: 'a', notify_opt_in: false },
-        { ...apartada, id: 'b', notify_opt_in: false },
+        { ...apartada, id: 'a', wa_opt_in: false },
+        { ...apartada, id: 'b', wa_opt_in: false },
         { ...apartada, id: 'c' },
       ]);
       const enviados: string[] = [];

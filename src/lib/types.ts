@@ -95,7 +95,7 @@ export interface Appointment {
   /** Por qué se canceló: 'sin_abono' si venció el plazo del comprobante; null si la canceló Betsy. */
   cancel_reason?: CancelReason | null;
   /** La clienta acepta avisos automáticos de su cita por WhatsApp (sin la columna en la base: sí). */
-  notify_opt_in?: boolean;
+  wa_opt_in?: boolean;
   /** Avisos de WhatsApp ya enviados: { abono: fecha, ... } */
   notified?: Record<string, string> | null;
   /** La clienta tocó "Confirmo" en WhatsApp. */

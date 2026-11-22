@@ -32,7 +32,7 @@ export const bookingSchema = z.object({
   home_service: z.boolean().optional().default(false),
   home_address: z.string().transform(clean).pipe(z.string().max(200)).optional().default(''),
   /** Avisos automáticos por WhatsApp: la casilla viene marcada por defecto. */
-  notify_opt_in: z.boolean().optional().default(true),
+  wa_opt_in: z.boolean().optional().default(true),
 }).refine((v) => !v.home_service || v.home_address.length >= 5, {
   path: ['home_address'],
   message: 'Escribe la dirección para el servicio a domicilio',
@@ -75,7 +75,7 @@ export async function book(input: BookingInput, source: 'web' | 'admin'): Promis
       home_service: input.home_service,
       home_address: input.home_service ? input.home_address : null,
       hair_length: input.hair_length || null,
-      notify_opt_in: input.notify_opt_in,
+      wa_opt_in: input.wa_opt_in,
       ...cotizar(service, input.hair_length),
     });
   } catch (e) {
@@ -95,7 +95,7 @@ export async function book(input: BookingInput, source: 'web' | 'admin'): Promis
   }
 
   // Reserva web: el aviso de "cupo apartado" con los datos del abono le llega solo por WhatsApp.
-  if (source === 'web' && input.notify_opt_in && waConfigured()) {
+  if (source === 'web' && waConfigured()) {
     try {
       await sendNotice(appt, 'apartada');
     } catch (e) {

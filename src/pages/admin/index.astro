@@ -7,7 +7,7 @@ import { sendFree, sendNotice, sendNoticeSafe, waConfigured, waErrorText, waMess
 import { book, BookingError, bookingSchema } from '../../lib/booking';
 import { cancelCalendarEvent, confirmCalendarEvent, createCalendarEvent, moveCalendarEvent } from '../../lib/google';
 import { DEPOSIT_PCT, HAIR_LENGTHS, hairLabel } from '../../lib/defaults';
-import { CitaError, createCitas, cupoLiberado, debeAvisarRechazo, resumenDeCita, valorDeCita } from '../../lib/cita';
+import { aceptaAvisos, CitaError, createCitas, cupoLiberado, debeAvisarRechazo, resumenDeCita, valorDeCita } from '../../lib/cita';
 import { addDays, formatCOP, fromLocal, isDate, localDate, localTime, minutesOf, prettyDate, prettyTime as prettyTimeRaw, weekdayOf } from '../../lib/time';
 import { isUuid, str } from '../../lib/admin';
 import type { Appointment, AppointmentStatus } from '../../lib/types';
@@ -34,9 +34,7 @@ if (Astro.request.method === 'POST') {
   const waSay = (r: SendResult | null, who: string) =>
     !r || (!r.ok && r.reason === 'not_configured')
       ? ''
-      : !r.ok && r.reason === 'opt_out'
-        ? ` ${who} no aceptó avisos automáticos por WhatsApp: si hace falta, usa «Abrir en mi WhatsApp».`
-        : r.ok
+      : r.ok
         ? ` Le llegó el aviso por WhatsApp${r.kind === 'plantilla' ? ' (plantilla de Meta)' : ''}.`
         : ` Pero el WhatsApp a ${who} no salió: ${waErrorText(r)}. Usa «Abrir en mi WhatsApp».`;
 
@@ -230,15 +228,14 @@ if (Astro.request.method === 'POST') {
       hair_length: str(fd, 'hair_length', 10),
       home_service: fd.get('home_service') === 'on',
       home_address: str(fd, 'home_address', 200),
-      notify_opt_in: fd.get('notify_opt_in') === 'on',
+      wa_opt_in: fd.get('wa_opt_in') === 'on',
     });
     if (!parsed.success) {
       // Los mensajes del esquema le hablan a la clienta de la web; aquí se le habla a Betsy.
-      const issue = parsed.error.issues[0];
-      const field = String(issue?.path[0] ?? '');
+      const field = String(parsed.error.issues[0]?.path[0] ?? '');
       const msgs: Record<string, string> = {
         name: 'Escribe el nombre de la clienta',
-        phone: issue?.message ?? 'Revisa el WhatsApp de la clienta. Ej.: 300 123 4567',
+        phone: 'El WhatsApp de la clienta debe ser un celular de 10 dígitos que empiece por 3 (los fijos no reciben WhatsApp). Si es de otro país, escríbelo con + y el indicativo.',
         email: 'Ese correo no parece válido. Si no lo tienes, déjalo vacío.',
         date: 'Elige la fecha y la hora de la cita',
         time: 'Elige la fecha y la hora de la cita',
@@ -812,7 +809,7 @@ const todayOff = offOf(today);
                   <a href={`tel:+${a.customer_phone}`} aria-label={`Llamar al ${prettyPhone(a.customer_phone)}`}>
                     {prettyPhone(a.customer_phone)}
                   </a>
-                  {a.notify_opt_in === false && <small class="hint"> · No acepta avisos automáticos por WhatsApp</small>}
+                  {!aceptaAvisos(a) && <small class="hint"> · No acepta avisos automáticos por WhatsApp</small>}
                 </dd>
               </div>
               {a.customer_email && (
@@ -1203,7 +1200,7 @@ const todayOff = offOf(today);
           <input id="m-phone" name="phone" type="tel" inputmode="tel" maxlength="20" placeholder="300 123 4567" autocomplete="off" required />
         </div>
         <label class="field chk full">
-          <input type="checkbox" name="notify_opt_in" checked /> <span>La clienta acepta avisos por WhatsApp</span>
+          <input type="checkbox" name="wa_opt_in" checked /> <span>La clienta acepta avisos por WhatsApp</span>
         </label>
         <details class="more full" data-more>
           <summary>Más datos (opcional)</summary>
