@@ -33,7 +33,7 @@ export const waNumber = (p: string) => {
 
 export type SendResult =
   | { ok: true; kind: 'texto' | 'plantilla'; message?: WaMessage }
-  | { ok: false; reason: 'not_configured' | 'window_closed' | 'error'; error?: string; message?: WaMessage };
+  | { ok: false; reason: 'not_configured' | 'window_closed' | 'opt_out' | 'error'; error?: string; message?: WaMessage };
 
 /** Respuestas con botones que reconoce el webhook. */
 export const BUTTON_CONFIRM = 'Confirmo';
@@ -176,6 +176,7 @@ async function fillData(a: Appointment) {
  */
 export async function sendNotice(a: Appointment, event: NoticeEvent, customText = ''): Promise<SendResult> {
   if (!waConfigured()) return { ok: false, reason: 'not_configured' };
+  if (a.notify_opt_in === false) return { ok: false, reason: 'opt_out' };
   const phone = waNumber(a.customer_phone);
   if (phone.length < 11) return { ok: false, reason: 'error', error: 'El WhatsApp de la clienta no parece válido.' };
 
@@ -245,6 +246,7 @@ export function waErrorText(r: SendResult): string {
   if (r.ok) return '';
   if (r.reason === 'not_configured') return 'el WhatsApp automático no está conectado';
   if (r.reason === 'window_closed') return 'la clienta no te ha escrito en las últimas 24 horas';
+  if (r.reason === 'opt_out') return 'la clienta no aceptó avisos automáticos por WhatsApp';
   // Sin punto final: quien lo muestra decide cómo cerrar la frase.
   return (r.error ?? 'error desconocido').replace(/[.\s]+$/, '');
 }

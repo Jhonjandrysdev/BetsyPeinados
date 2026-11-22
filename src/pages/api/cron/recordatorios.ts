@@ -23,7 +23,7 @@ export const GET: APIRoute = async ({ request }) => {
   const tomorrow = addDays(localDate(), 1);
   const from = fromLocal(tomorrow, '00:00');
   const list = await getAppointments({ from, to: fromLocal(addDays(tomorrow, 1), '00:00'), activeOnly: true });
-  const due = list.filter((a) => a.status === 'confirmada' && new Date(a.starts_at) >= from && !a.notified?.recordatorio && !a.client_confirmed_at);
+  const due = list.filter((a) => a.status === 'confirmada' && a.notify_opt_in !== false && new Date(a.starts_at) >= from && !a.notified?.recordatorio && !a.client_confirmed_at);
 
   let sent = 0;
   const failed: string[] = [];

@@ -143,7 +143,8 @@ const data = {
           </div>
           <div class="field">
             <label for="phone">WhatsApp</label>
-            <input id="phone" name="phone" type="tel" inputmode="tel" autocomplete="tel" placeholder="300 123 4567" maxlength="20" required />
+            <input id="phone" name="phone" type="tel" inputmode="tel" autocomplete="tel" placeholder="300 123 4567" maxlength="20" required aria-describedby="phone-hint" />
+            <small class="hint" id="phone-hint">Celular de 10 dígitos. Si es de otro país, empieza con + y el indicativo.</small>
           </div>
           <div class="field">
             <label for="email">Correo <span class="hint">(opcional, para recibir la invitación de calendario)</span></label>
@@ -178,6 +179,10 @@ const data = {
             <label for="website">No llenar</label>
             <input id="website" name="website" type="text" tabindex="-1" autocomplete="off" />
           </div>
+          <label class="consent full">
+            <input type="checkbox" name="notify_opt_in" checked />
+            <span>Acepto recibir avisos de mi cita por WhatsApp (cupo apartado, abono recibido y recordatorio).</span>
+          </label>
           <label class="consent full">
             <input type="checkbox" name="consent" required />
             <span>Acepto el tratamiento de mis datos para gestionar mi cita, según la <a href="/privacidad" target="_blank">política de privacidad</a>.</span>
@@ -925,6 +930,7 @@ const data = {
           home_address: fd.get('home_address') || '',
           website: fd.get('website') || '',
           consent: fd.get('consent') === 'on',
+          notify_opt_in: fd.get('notify_opt_in') === 'on',
           ft: data.ft,
         }),
       });

@@ -180,8 +180,8 @@ export function createCitas(store: CitaStore, deps: Partial<CitaDeps> = {}) {
             reportar('No se pudo borrar de Google Calendar la cita vencida', e);
           }
         }
-        // Solo si la cita aún no empieza; los avisos que no salgan aquí quedan en el panel para enviarlos a mano.
-        if (avisar && intentos < MAX_AVISOS_POR_CORRIDA && Date.parse(a.starts_at) > now().getTime()) {
+        // Solo si la clienta aceptó avisos y la cita aún no empieza; los que no salgan aquí quedan en el panel para enviarlos a mano.
+        if (avisar && a.notify_opt_in !== false && intentos < MAX_AVISOS_POR_CORRIDA && Date.parse(a.starts_at) > now().getTime()) {
           intentos++;
           try {
             if (await avisar({ ...a, status: 'cancelada', cancel_reason: 'sin_abono' }, 'cupo_liberado')) avisadas++;

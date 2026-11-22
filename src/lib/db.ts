@@ -180,8 +180,8 @@ export async function createAppointment(
   let res = await insert(a);
   // Si la base aún no tiene las columnas de valor y abono, reserva igual.
   if (res.error?.code === 'PGRST204') {
-    console.warn('Falta aplicar la migración precio_en_cita: la cita se guarda sin valor ni abono.');
-    const { price: _p, deposit: _d, ...base } = a;
+    console.warn('Faltan migraciones (precio_en_cita o permiso_avisos): la cita se guarda sin valor, abono ni permiso de avisos.');
+    const { price: _p, deposit: _d, notify_opt_in: _n, ...base } = a;
     res = await insert(base);
   }
   // 23P01 = exclusion_violation (cruce de horarios)
