@@ -15,6 +15,7 @@ import { demoMode, getService, getSettings, getTemplates, markNotified } from '.
 import { supabaseAdmin } from './supabase';
 import { safeEqual } from './crypto';
 import { valorDeCita } from './cita';
+import type { GastoMeta } from './gasto-meta';
 import { SIN_PERMISO, clip, createAvisos, freePayload, waNumber, windowOpen, type SendResult } from './aviso';
 import { DEFAULT_TEMPLATES, fillTemplate, valuesFor, type NoticeEvent } from './messages';
 import type { Appointment, WaMessage, WaStatus } from './types';
@@ -277,10 +278,8 @@ export async function saveInbound(row: { appointment_id: string | null; phone: s
 }
 
 // ───────────── Costos ─────────────
-export interface MetaCost {
-  /** Gasto del periodo en la moneda en que factura la cuenta (`currency`). */
-  amount: number;
-  currency: string;
+/** Gasto real del periodo en la moneda en que factura la cuenta, más el detalle por categoría. */
+export interface MetaCost extends GastoMeta {
   billable: number;
   byCategory: Record<string, { volume: number; cost: number }>;
 }
@@ -291,7 +290,7 @@ export async function metaCost(from: Date, to: Date): Promise<MetaCost | { error
   if (!waba || !env('WHATSAPP_TOKEN')) return null;
   const start = Math.floor(from.getTime() / 1000);
   const end = Math.floor(Math.min(to.getTime(), Date.now()) / 1000);
-  if (end <= start) return { amount: 0, currency: 'USD', billable: 0, byCategory: {} };
+  if (end <= start) return { monto: 0, moneda: null, billable: 0, byCategory: {} };
   // La moneda de la cuenta (USD, COP…) viene con la analítica: no se asume dólares.
   const fields = `currency,pricing_analytics.start(${start}).end(${end}).granularity(MONTHLY).dimensions(["PRICING_CATEGORY","PRICING_TYPE"])`;
   try {
@@ -305,13 +304,13 @@ export async function metaCost(from: Date, to: Date): Promise<MetaCost | { error
       pricing_analytics?: { data?: { data_points?: { pricing_category?: string; pricing_type?: string; volume?: number; cost?: number }[] }[] };
     };
     if (!r.ok) return { error: j.error?.message ?? `Error ${r.status}` };
-    const out: MetaCost = { amount: 0, currency: (j.currency ?? 'USD').toUpperCase(), billable: 0, byCategory: {} };
+    const out: MetaCost = { monto: 0, moneda: j.currency?.toUpperCase() ?? null, billable: 0, byCategory: {} };
     for (const p of j.pricing_analytics?.data?.flatMap((d) => d.data_points ?? []) ?? []) {
       const cat = (p.pricing_category ?? 'otro').toLowerCase();
       const c = (out.byCategory[cat] ??= { volume: 0, cost: 0 });
       c.volume += p.volume ?? 0;
       c.cost += p.cost ?? 0;
-      out.amount += p.cost ?? 0;
+      out.monto += p.cost ?? 0;
       if (p.pricing_type === 'REGULAR') out.billable += p.volume ?? 0;
     }
     return out;

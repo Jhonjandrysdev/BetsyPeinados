@@ -3,7 +3,7 @@ import Admin from '../../layouts/Admin.astro';
 import Icon from '../../components/Icon.astro';
 import { getAppointmentsByIds, getSettings, getTemplates, saveTemplate, updateSettings } from '../../lib/db';
 import { compararGasto, resumenDeUso } from '../../lib/uso-whatsapp';
-import { TASA_USD_COP_DEFECTO, gastoEnPesos } from '../../lib/gasto-meta';
+import { TASA_USD_COP_DEFECTO, gastoEnPesos, leerTasa } from '../../lib/gasto-meta';
 import { back, str } from '../../lib/admin';
 import { metaCost, templatePrefix, waConfigured, waMessagesBetween } from '../../lib/whatsapp';
 import { textoPlantilla } from '../../lib/aviso';
@@ -18,11 +18,10 @@ if (Astro.request.method === 'POST') {
   if (fd.get('form') === 'wa') {
     const rate = Number(str(fd, 'rate', 12).replace(',', '.'));
     if (!Number.isFinite(rate) || rate < 0 || rate > 10000) return back(HERE, 'error', 'Escribe el precio por mensaje en pesos, por ejemplo 3,5.');
-    // La tasa se escribe como en Colombia (4.000 o 4000): se quitan los separadores de miles.
-    const usdCop = Number(str(fd, 'usd', 12).replace(/[.\s]/g, '').replace(',', '.'));
-    if (!Number.isFinite(usdCop) || usdCop < 1000 || usdCop > 20000) return back(HERE, 'error', 'Escribe la tasa del dólar en pesos, por ejemplo 4.000.');
+    const usdCop = leerTasa(str(fd, 'usd', 12));
+    if (usdCop === null) return back(HERE, 'error', 'Escribe la tasa del dólar en pesos, por ejemplo 4.000.');
     try {
-      await updateSettings({ wa_rate_cop: Math.round(rate * 100) / 100, wa_usd_cop: Math.round(usdCop), wa_auto_reminder: fd.get('auto') === 'on' });
+      await updateSettings({ wa_rate_cop: Math.round(rate * 100) / 100, wa_usd_cop: usdCop, wa_auto_reminder: fd.get('auto') === 'on' });
     } catch (e) {
       console.error(e);
       return back(HERE, 'error', 'No se pudo guardar. Falta activar el WhatsApp automático en la base de datos.');
@@ -76,7 +75,7 @@ const steps = [
 ];
 const rate = Number(s.wa_rate_cop ?? 3.5);
 const usdCop = Number(s.wa_usd_cop ?? TASA_USD_COP_DEFECTO);
-const real = meta && 'amount' in meta ? gastoEnPesos({ monto: meta.amount, moneda: meta.currency }, usdCop) : null;
+const real = meta && 'monto' in meta ? gastoEnPesos(meta, usdCop) : null;
 const fmtUsdCop = new Intl.NumberFormat('es-CO', { maximumFractionDigits: 0 }).format(usdCop);
 const uso = resumenDeUso(msgs ?? [], rate);
 // Sin datos del mes anterior (falta la migración o falló la lectura) no hay comparación que mostrar.
@@ -92,14 +91,19 @@ const noSalieron = shown.map((m) => ({ m, cita: m.appointment_id ? citas.get(m.a
 const citaLink = (a: Appointment) => `/admin?desde=${localDate(new Date(a.starts_at))}&abrir=${a.id}`;
 const fmtWhen = new Intl.DateTimeFormat('es-CO', { timeZone: TZ, day: 'numeric', month: 'short', hour: 'numeric', minute: '2-digit', hour12: true });
 const EVENT_LABEL: Record<string, string> = { ...Object.fromEntries(NOTICE_EVENTS.map((e) => [e.id, e.label])), libre: 'Respuestas tuyas', auto: 'Respuestas automáticas' };
-/** Monto en la moneda de Meta (US$0,0123; 1.520 COP…), con decimales suficientes para centavos de dólar. */
-const money = (n: number, currency: string) => {
+/** Monto en la moneda de Meta (US$ 0,0123; 3,00 EUR…), con decimales suficientes para centavos de dólar. */
+const money = (n: number, currency: string | null) => {
+  const num = new Intl.NumberFormat('es-CO', { minimumFractionDigits: 2, maximumFractionDigits: 4 });
+  if (!currency) return `${num.format(n)} (moneda de tu cuenta de Meta)`;
   try {
     return new Intl.NumberFormat('es-CO', { style: 'currency', currency, minimumFractionDigits: 2, maximumFractionDigits: 4 }).format(n);
   } catch {
-    return `${n} ${currency}`;
+    return `${num.format(n)} ${currency}`;
   }
 };
+// Cifra principal del mes: lo que cobró Meta (en pesos si se puede) o, sin ese dato, el estimado con la tarifa.
+const kpiValor = !real ? formatCOP(uso.estimado) : real.cop === null ? money(real.monto, real.moneda) : `${real.aproximado ? '≈ ' : ''}${formatCOP(real.cop)}`;
+const kpiEtiqueta = !real ? 'costo estimado' : real.aproximado ? `cobrado por Meta: ${money(real.monto, real.moneda)} (dólar a ${fmtUsdCop} pesos)` : 'cobrado por Meta (dato real)';
 const fmtRate = new Intl.NumberFormat('es-CO', { maximumFractionDigits: 2 }).format(rate);
 const isNow = month === today.slice(0, 7);
 const sample: Appointment = {
@@ -166,10 +170,8 @@ const sampleData = { a: sample, s, price: 80000, deposit: 40000 };
         <>
           <div class="wa-kpis">
             <p>
-              <strong>{real ? (real.cop !== null ? `${real.aproximado ? '≈ ' : ''}${formatCOP(real.cop)}` : money(real.monto, real.moneda)) : formatCOP(uso.estimado)}</strong>
-              <span>
-                {real ? (real.aproximado ? `cobrado por Meta: ${money(real.monto, real.moneda)} (dólar a ${fmtUsdCop} pesos)` : 'cobrado por Meta (dato real)') : 'costo estimado'}
-              </span>
+              <strong>{kpiValor}</strong>
+              <span>{kpiEtiqueta}</span>
             </p>
             <p>
               <strong>{uso.cobrados}</strong>

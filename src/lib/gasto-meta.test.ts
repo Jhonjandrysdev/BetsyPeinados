@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { TASA_USD_COP_DEFECTO, gastoEnPesos } from './gasto-meta';
+import { TASA_USD_COP_DEFECTO, gastoEnPesos, leerTasa } from './gasto-meta';
 
 describe('gasto real de Meta en pesos', () => {
   it('en dólares: aproximado en COP con la tasa de Betsy, redondeado al peso', () => {
@@ -21,5 +21,30 @@ describe('gasto real de Meta en pesos', () => {
   it('sin tasa válida usa la de por defecto', () => {
     expect(gastoEnPesos({ monto: 1, moneda: 'USD' }, 0).cop).toBe(TASA_USD_COP_DEFECTO);
     expect(gastoEnPesos({ monto: 1, moneda: 'USD' }, Number.NaN).cop).toBe(TASA_USD_COP_DEFECTO);
+  });
+});
+
+describe('tasa del dólar escrita por Betsy', () => {
+  it.each([
+    ['4000', 4000],
+    ['4.000', 4000],
+    ['4,000', 4000],
+    ['4 000', 4000],
+    ['3950,5', 3951],
+    ['3950.5', 3951],
+    ['4.000,50', 4001],
+    ['4,000.50', 4001],
+  ])('«%s» es %d pesos', (texto, esperado) => {
+    expect(leerTasa(texto)).toBe(esperado);
+  });
+
+  it.each([[''], ['abc'], ['40'], ['50.000'], ['-4000']])('«%s» no es una tasa válida', (texto) => {
+    expect(leerTasa(texto)).toBeNull();
+  });
+});
+
+describe('moneda que Meta no informó', () => {
+  it('no se convierte a pesos', () => {
+    expect(gastoEnPesos({ monto: 2, moneda: null }, 4000)).toEqual({ monto: 2, moneda: null, cop: null, aproximado: false });
   });
 });
