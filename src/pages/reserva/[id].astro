@@ -286,18 +286,22 @@ const icsHref = `data:text/calendar;charset=utf-8,${encodeURIComponent(ics)}`;
     const label = document.querySelector('[data-file-label]')!;
     label.textContent = 'Subiendo…';
     file.closest('label')!.classList.add('busy');
-    const f = await shrink(original);
+    let f = await shrink(original);
+    if (f !== original) {
+      try {
+        const dt = new DataTransfer();
+        dt.items.add(f);
+        file.files = dt.files;
+      } catch {
+        f = original; // navegador viejo sin DataTransfer: va el original si cabe
+      }
+    }
     if (f.size > MAX) {
       label.textContent = 'Adjuntar comprobante';
       file.closest('label')!.classList.remove('busy');
       file.value = '';
       msg.textContent = 'El archivo pesa más de 4 MB. Prueba con una captura de pantalla o envíalo por WhatsApp.';
       return;
-    }
-    if (f !== original) {
-      const dt = new DataTransfer();
-      dt.items.add(f);
-      file.files = dt.files;
     }
     msg.textContent = original.name;
     document.querySelector<HTMLFormElement>('[data-up]')!.submit();
