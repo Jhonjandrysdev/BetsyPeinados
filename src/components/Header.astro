@@ -46,7 +46,8 @@ const links = [
     {
       minimal && (
         <a href="/" class="back">
-          ← Volver al inicio
+          <Icon name="arrow" size={18} />
+          Volver al inicio
         </a>
       )
     }
@@ -172,13 +173,29 @@ const links = [
     color: var(--cream);
     transform: rotate(90deg);
   }
+  /* Misma pastilla que el botón de menú del home (borde, fondo blanco). */
   .back {
     display: inline-flex;
     align-items: center;
-    min-height: 44px;
+    gap: 0.45rem;
+    min-height: 46px;
+    padding-inline: 1rem 1.2rem;
+    border: 1.5px solid var(--line);
+    border-radius: 999px;
+    background: var(--white);
+    font-size: 0.92rem;
     font-weight: 600;
     text-decoration: none;
-    color: var(--cocoa-2);
+    color: var(--cocoa);
+    transition: background-color 0.3s, color 0.3s, border-color 0.3s;
+  }
+  .back :global(svg) {
+    transform: scaleX(-1);
+  }
+  .back:hover {
+    background: var(--cocoa);
+    border-color: var(--cocoa);
+    color: var(--cream);
   }
   @media (max-width: 940px) {
     .menu-btn {
