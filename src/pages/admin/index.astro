@@ -443,8 +443,10 @@ const chatOf = (a: Appointment) => waByPhone.get(waNumber(a.customer_phone)) ?? 
 const canReply = (a: Appointment) => windowOpen([...chatOf(a)].reverse().find((m) => m.direction === 'in')?.created_at ?? null);
 const fmtChat = new Intl.DateTimeFormat('es-CO', { timeZone: 'America/Bogota', day: 'numeric', month: 'short', hour: 'numeric', minute: '2-digit', hour12: true });
 const chatWhen = (iso: string) => fmtChat.format(new Date(iso)).replace(/\s/g, '\u00a0').replace('.', '');
-const TICK: Record<string, string> = { enviando: '…', enviado: '✓', entregado: '✓✓', leido: '✓✓', fallido: '⚠', manual: '' };
-const TICK_LABEL: Record<string, string> = { enviando: 'Enviando', enviado: 'Enviado', entregado: 'Entregado', leido: 'Leído', fallido: 'No se entregó', manual: '' };
+const TICK: Record<string, string> = { enviando: '…', enviado: '✓', entregado: '✓✓', leido: '✓✓', fallido: '⚠', bloqueado: '⊘', manual: '' };
+const TICK_LABEL: Record<string, string> = { enviando: 'Enviando', enviado: 'Enviado', entregado: 'Entregado', leido: 'Leído', fallido: 'No se entregó', bloqueado: 'No se envió', manual: '' };
+/** Aviso que no salió (falló o quedó bloqueado): Betsy lo manda desde su WhatsApp con el mismo texto. */
+const manualLink = (phone: string, body: string) => `https://wa.me/${waNumber(phone)}?text=${encodeURIComponent(body)}`;
 const todayOff = offOf(today);
 ---
 
@@ -1066,6 +1068,11 @@ const todayOff = offOf(today);
                         )}
                       </small>
                       {m.error && <small class="msg-err">{m.error}</small>}
+                      {m.direction === 'out' && (m.status === 'fallido' || m.status === 'bloqueado') && (
+                        <a class="msg-manual" href={manualLink(a.customer_phone, m.body)} target="_blank" rel="noopener">
+                          Enviar desde mi WhatsApp
+                        </a>
+                      )}
                     </li>
                   ))}
                 </ol>
@@ -2434,8 +2441,14 @@ const todayOff = offOf(today);
     background: #dcf3d0;
     border-bottom-right-radius: 4px;
   }
-  .msg.out.fallido {
+  .msg.out.fallido,
+  .msg.out.bloqueado {
     background: #f8e1dc;
+  }
+  .msg .msg-manual {
+    justify-self: start;
+    font-size: 0.78rem;
+    font-weight: 600;
   }
   .msg p {
     margin: 0;
@@ -2844,6 +2857,7 @@ const todayOff = offOf(today);
     entregado: ['✓✓', 'Entregado'],
     leido: ['✓✓', 'Leído'],
     fallido: ['⚠', 'No se entregó'],
+    bloqueado: ['⊘', 'No se envió'],
   };
   const fmtChat = new Intl.DateTimeFormat('es-CO', { timeZone: 'America/Bogota', day: 'numeric', month: 'short', hour: 'numeric', minute: '2-digit', hour12: true });
   type ChatMsg = { id: number; direction: 'in' | 'out'; status: string; body: string; kind: string; error: string | null; created_at: string };
@@ -2873,6 +2887,15 @@ const todayOff = offOf(today);
           err.className = 'msg-err';
           err.textContent = m.error;
           li.append(err);
+        }
+        if (m.direction === 'out' && (m.status === 'fallido' || m.status === 'bloqueado') && list.dataset.chat) {
+          const a = document.createElement('a');
+          a.className = 'msg-manual';
+          a.href = `https://wa.me/${list.dataset.chat}?text=${encodeURIComponent(m.body)}`;
+          a.target = '_blank';
+          a.rel = 'noopener';
+          a.textContent = 'Enviar desde mi WhatsApp';
+          li.append(a);
         }
         return li;
       }),

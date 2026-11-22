@@ -6,7 +6,7 @@ import { back, str } from '../../lib/admin';
 import { metaCost, waConfigured, waMessagesBetween } from '../../lib/whatsapp';
 import { formatCOP, fromLocal, localDate } from '../../lib/time';
 import { getSecret } from 'astro:env/server';
-import { DEFAULT_TEMPLATES, NOTICE_EVENTS, PLACEHOLDERS, fillTemplate, type NoticeEvent } from '../../lib/messages';
+import { DEFAULT_TEMPLATES, META_TEMPLATES, NOTICE_EVENTS, PLACEHOLDERS, fillTemplate, valuesFor, type NoticeEvent } from '../../lib/messages';
 import type { Appointment } from '../../lib/types';
 
 const HERE = '/admin/mensajes';
@@ -53,6 +53,7 @@ const monthLabel = new Intl.DateTimeFormat('es-CO', { month: 'long', year: 'nume
 
 const [s, saved, msgs, meta] = await Promise.all([getSettings(), getTemplates(), waMessagesBetween(monthStart, monthEnd), metaCost(monthStart, monthEnd)]);
 const waOn = waConfigured();
+const tplPrefix = (getSecret('WHATSAPP_TEMPLATE_PREFIX') ?? '').trim() || 'betsy_';
 const has = (k: string) => Boolean((getSecret(k) ?? '').trim());
 const steps = [
   { ok: waOn, label: 'Número y token de Meta', hint: 'WHATSAPP_TOKEN y WHATSAPP_PHONE_ID' },
@@ -62,7 +63,8 @@ const steps = [
 ];
 const rate = Number(s.wa_rate_cop ?? 3.5);
 const list = msgs ?? [];
-const out = list.filter((m) => m.direction === 'out' && m.status !== 'manual');
+// Los bloqueados no salieron: no cuentan como enviados ni se cobran.
+const out = list.filter((m) => m.direction === 'out' && m.status !== 'manual' && m.status !== 'bloqueado');
 const sentOk = out.filter((m) => m.status !== 'fallido');
 // Cobrado: lo que Meta marcó como cobrable; si aún no lo informó, toda plantilla entregada se cuenta como cobrada.
 const isBillable = (m: (typeof list)[number]) => m.billable === true || (m.billable == null && m.kind === 'plantilla' && m.status !== 'fallido');
@@ -212,6 +214,9 @@ const sample: Appointment = {
   {
     NOTICE_EVENTS.map((e) => {
       const body = saved[e.id] ?? DEFAULT_TEMPLATES[e.id];
+      const meta = META_TEMPLATES[e.id];
+      const metaParams = meta.params(valuesFor({ a: sample, s, price: 80000, deposit: 40000 }));
+      const metaText = meta.text.replace(/\{\{(\d+)\}\}/g, (_, n) => metaParams[Number(n) - 1] ?? '');
       return (
         <form method="post" class="panel tpl" id={`m-${e.id}`}>
           <input type="hidden" name="event" value={e.id} />
@@ -225,6 +230,16 @@ const sample: Appointment = {
               <small>Vista previa</small>
               <p>{fillTemplate(body, { a: sample, s, price: 80000, deposit: 40000 })}</p>
             </div>
+          </div>
+          <div class="meta-tpl">
+            <p class="meta-tag">
+              <Icon name="check" size={14} /> Aprobada por WhatsApp · solo lectura
+            </p>
+            <p>{metaText}</p>
+            {meta.buttons && <p class="muted">Botones: {meta.buttons.join(' · ')}</p>}
+            <small class="muted">
+              Plantilla <code>{tplPrefix}{e.id}</code>: es la que le llega a la clienta si no te ha escrito en las últimas 24 horas. El texto de arriba (editable y gratis) se usa cuando sí te escribió. Para cambiar la plantilla hay que aprobar una nueva en Meta.
+            </small>
           </div>
           <div class="tpl-acts">
             {body !== DEFAULT_TEMPLATES[e.id] && (
@@ -448,6 +463,30 @@ const sample: Appointment = {
     min-height: 11rem;
     resize: vertical;
     line-height: 1.5;
+  }
+  .meta-tpl {
+    margin-top: 0.8rem;
+    padding: 0.8rem 1rem;
+    border: 1px dashed var(--line);
+    border-radius: var(--r, 12px);
+    background: var(--bg-soft, transparent);
+  }
+  .meta-tpl p {
+    margin: 0 0 0.4rem;
+    font-size: var(--t-sm);
+    line-height: 1.45;
+  }
+  .meta-tpl .meta-tag {
+    display: inline-flex;
+    align-items: center;
+    gap: 0.3rem;
+    font-weight: 600;
+    font-size: 0.78rem;
+    color: #2f6b3a;
+  }
+  .meta-tpl small {
+    display: block;
+    font-size: 0.75rem;
   }
   .bubble {
     align-self: start;

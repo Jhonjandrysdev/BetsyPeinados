@@ -14,9 +14,9 @@ import { getSecret } from 'astro:env/server';
 import { demoMode, getService, getSettings, getTemplates, markNotified } from './db';
 import { supabaseAdmin } from './supabase';
 import { safeEqual } from './crypto';
-import { aceptaAvisos, valorDeCita } from './cita';
-import { MIN_DIGITOS_INTERNACIONAL } from './celular';
-import { DEFAULT_TEMPLATES, META_TEMPLATES, fillTemplate, valuesFor, type NoticeEvent } from './messages';
+import { valorDeCita } from './cita';
+import { clip, createAvisos, freePayload, waNumber, windowOpen, type SendResult } from './aviso';
+import { DEFAULT_TEMPLATES, fillTemplate, valuesFor, type NoticeEvent } from './messages';
 import type { Appointment, WaMessage, WaStatus } from './types';
 
 const GRAPH = 'https://graph.facebook.com/v21.0';
@@ -26,15 +26,7 @@ export const waConfigured = () => !demoMode && Boolean(env('WHATSAPP_TOKEN') && 
 const lang = () => env('WHATSAPP_LANG') || 'es_CO';
 const prefix = () => env('WHATSAPP_TEMPLATE_PREFIX') || 'betsy_';
 
-/** Número en formato internacional, solo dígitos (Colombia por defecto). */
-export const waNumber = (p: string) => {
-  const d = (p ?? '').replace(/\D/g, '');
-  return d.length === 10 && d.startsWith('3') ? `57${d}` : d;
-};
-
-export type SendResult =
-  | { ok: true; kind: 'texto' | 'plantilla'; message?: WaMessage }
-  | { ok: false; reason: 'not_configured' | 'window_closed' | 'opt_out' | 'error'; error?: string; message?: WaMessage };
+export { waNumber, windowOpen, type SendResult };
 
 /** Respuestas con botones que reconoce el webhook. */
 export const BUTTON_CONFIRM = 'Confirmo';
@@ -86,9 +78,6 @@ export async function lastInbound(phone: string): Promise<string | null> {
   return (data as { created_at: string } | null)?.created_at ?? null;
 }
 
-/** ¿La clienta escribió en las últimas 24 h? (ventana de atención de WhatsApp) */
-export const windowOpen = (last: string | null) => Boolean(last && Date.now() - new Date(last).getTime() < 24 * 3600_000 - 60_000);
-
 async function saveMessage(row: Partial<WaMessage> & Pick<WaMessage, 'phone' | 'direction'>): Promise<WaMessage | undefined> {
   if (demoMode) return undefined;
   const { data, error } = await supabaseAdmin().from('whatsapp_messages').insert(row).select('*').single();
@@ -126,22 +115,6 @@ async function sendToMeta(payload: Record<string, unknown>): Promise<string | un
   return data.messages?.[0]?.id;
 }
 
-const clip = (s: string, n: number) => (s.length > n ? `${s.slice(0, n - 1)}…` : s);
-
-/** Mensaje de texto libre o con botones (solo dentro de la ventana de 24 h). */
-function freePayload(to: string, body: string, buttons?: string[]) {
-  if (!buttons?.length) return { to, type: 'text', text: { body: clip(body, 4000), preview_url: false } };
-  return {
-    to,
-    type: 'interactive',
-    interactive: {
-      type: 'button',
-      body: { text: clip(body, 1024) },
-      action: { buttons: buttons.map((title, i) => ({ type: 'reply', reply: { id: `b${i}`, title: clip(title, 20) } })) },
-    },
-  };
-}
-
 async function deliver(a: Appointment | null, phone: string, event: string, body: string, kind: 'texto' | 'plantilla', payload: Record<string, unknown>): Promise<SendResult> {
   let waId: string | undefined;
   let error: string | null = null;
@@ -161,8 +134,8 @@ async function deliver(a: Appointment | null, phone: string, event: string, body
     error,
     wa_message_id: waId ?? null,
   });
-  if (error) return { ok: false, reason: 'error', error, message };
-  return { ok: true, kind, message };
+  if (error) return { ok: false, reason: 'error', error, messageId: message?.id };
+  return { ok: true, kind, messageId: message?.id };
 }
 
 /** Datos de precio y abono de la cita (los guardados al reservar), para llenar los mensajes. */
@@ -171,38 +144,22 @@ async function fillData(a: Appointment) {
   return { a, s, ...valorDeCita(a, svc) };
 }
 
-/**
- * Envía el aviso de un momento de la cita. Dentro de la ventana de 24 h va el texto de Mensajes
- * (o el que Betsy ajustó); fuera de ella, la plantilla aprobada en Meta.
- */
-export async function sendNotice(a: Appointment, event: NoticeEvent, customText = ''): Promise<SendResult> {
-  if (!waConfigured()) return { ok: false, reason: 'not_configured' };
-  if (!aceptaAvisos(a)) return { ok: false, reason: 'opt_out' };
-  const phone = waNumber(a.customer_phone);
-  if (phone.length < MIN_DIGITOS_INTERNACIONAL) return { ok: false, reason: 'error', error: 'El WhatsApp de la clienta no parece válido.' };
+const avisos = createAvisos({
+  now: () => new Date(),
+  configurado: waConfigured,
+  meta: { enviar: sendToMeta },
+  ultimoEntrante: lastInbound,
+  textoDeMensajes: async (a, ev) => fillTemplate((await getTemplates())[ev] ?? DEFAULT_TEMPLATES[ev], await fillData(a)),
+  valores: async (a) => valuesFor(await fillData(a)),
+  get plantilla() {
+    return { prefijo: prefix(), idioma: lang() };
+  },
+  registrar: async (r) => (await saveMessage(r))?.id,
+  marcarAvisado: (a, ev) => markNotified(a, ev).catch((e) => console.error(e)),
+});
 
-  const data = await fillData(a);
-  const meta = META_TEMPLATES[event];
-  let result: SendResult;
-  if (windowOpen(await lastInbound(phone))) {
-    const body = customText.trim() || fillTemplate((await getTemplates())[event] ?? DEFAULT_TEMPLATES[event], data);
-    result = await deliver(a, phone, event, body, 'texto', freePayload(phone, body, meta.buttons));
-  } else {
-    const params = meta.params(valuesFor(data)).map((t) => clip(String(t ?? '').replace(/\s+/g, ' ').trim() || '-', 200));
-    const body = meta.text.replace(/\{\{(\d+)\}\}/g, (_, n) => params[Number(n) - 1] ?? '');
-    result = await deliver(a, phone, event, body, 'plantilla', {
-      to: phone,
-      type: 'template',
-      template: {
-        name: `${prefix()}${event}`,
-        language: { code: lang() },
-        components: [{ type: 'body', parameters: params.map((text) => ({ type: 'text', text })) }],
-      },
-    });
-  }
-  if (result.ok) await markNotified(a, event).catch((e) => console.error(e));
-  return result;
-}
+/** Envía el aviso de un momento de la cita (ver createAvisos en aviso.ts). */
+export const sendNotice = (a: Appointment, event: NoticeEvent, customText = ''): Promise<SendResult> => avisos.enviar(a, event, customText);
 
 /** Respuesta libre de Betsy desde el panel (solo si la clienta escribió en las últimas 24 h). */
 export async function sendFree(a: Appointment, text: string): Promise<SendResult> {
