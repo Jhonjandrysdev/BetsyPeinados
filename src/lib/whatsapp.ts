@@ -16,7 +16,8 @@ import { supabaseAdmin } from './supabase';
 import { safeEqual } from './crypto';
 import { valorDeCita } from './cita';
 import type { GastoMeta } from './gasto-meta';
-import { SIN_PERMISO, clip, createAvisos, freePayload, waNumber, windowOpen, type SendResult } from './aviso';
+import { estadoTope, inicioDelMes, type EstadoTope } from './tope-whatsapp';
+import { POR_TOPE, SIN_PERMISO, clip, createAvisos, freePayload, waNumber, windowOpen, type SendResult } from './aviso';
 import { DEFAULT_TEMPLATES, fillTemplate, valuesFor, type NoticeEvent } from './messages';
 import type { Appointment, WaMessage, WaStatus } from './types';
 
@@ -146,9 +147,20 @@ async function fillData(a: Appointment) {
   return { a, s, ...valorDeCita(a, svc) };
 }
 
+/** Gasto estimado del mes en curso frente al tope que puso Betsy (sin tope no consulta los mensajes). */
+export async function estadoTopeActual(ahora = new Date()): Promise<EstadoTope> {
+  const s = await getSettings();
+  const tope = s.wa_tope_cop ?? null;
+  const tarifa = Number(s.wa_rate_cop ?? 3.5);
+  if (!tope) return estadoTope({ mensajes: [], tarifa, tope: null, ahora });
+  const mensajes = (await waMessagesBetween(inicioDelMes(ahora), new Date(ahora.getTime() + 1))) ?? [];
+  return estadoTope({ mensajes, tarifa, tope, ahora });
+}
+
 const avisos = createAvisos({
   now: () => new Date(),
   configurado: waConfigured,
+  topeAgotado: async () => (await estadoTopeActual()).nivel === 'agotado',
   meta: { enviar: sendToMeta },
   ultimoEntrante: lastInbound,
   textoDeMensajes: async (a, ev) => fillTemplate((await getTemplates())[ev] ?? DEFAULT_TEMPLATES[ev], await fillData(a)),
@@ -207,6 +219,7 @@ export function waErrorText(r: SendResult): string {
   if (r.reason === 'not_configured') return 'el WhatsApp automático no está conectado';
   if (r.reason === 'window_closed') return 'la clienta no te ha escrito en las últimas 24 horas';
   if (r.reason === 'opt_out') return SIN_PERMISO.charAt(0).toLowerCase() + SIN_PERMISO.slice(1);
+  if (r.reason === 'tope') return POR_TOPE.charAt(0).toLowerCase() + POR_TOPE.slice(1);
   // Sin punto final: quien lo muestra decide cómo cerrar la frase.
   return (r.error ?? 'error desconocido').replace(/[.\s]+$/, '');
 }

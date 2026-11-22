@@ -9,7 +9,7 @@ import type { Appointment, WaStatus } from './types';
 
 export type SendResult =
   | { ok: true; kind: 'texto' | 'plantilla'; messageId?: number }
-  | { ok: false; reason: 'not_configured' | 'window_closed' | 'opt_out' | 'error'; error?: string; messageId?: number };
+  | { ok: false; reason: 'not_configured' | 'window_closed' | 'opt_out' | 'tope' | 'error'; error?: string; messageId?: number };
 
 /** Fila de la conversación que deja cada intento de aviso. */
 export interface RegistroAviso {
@@ -27,6 +27,8 @@ export interface RegistroAviso {
 export interface AvisoDeps {
   now: () => Date;
   configurado: () => boolean;
+  /** ¿Se alcanzó el tope mensual de gasto? Solo frena las plantillas (lo que se cobra). */
+  topeAgotado: () => Promise<boolean>;
   /** Envía a la Cloud API; devuelve el id de Meta o lanza un Error con el motivo para Betsy. */
   meta: { enviar: (payload: Record<string, unknown>) => Promise<string | undefined> };
   /** Último mensaje que escribió la clienta (abre la ventana gratis de 24 h). */
@@ -68,6 +70,7 @@ export function freePayload(to: string, body: string, buttons?: string[]) {
 
 /** Por qué un aviso quedó bloqueado, tal como lo lee Betsy en la conversación. */
 export const SIN_PERMISO = 'La clienta no aceptó avisos automáticos por WhatsApp';
+export const POR_TOPE = 'Se alcanzó el tope mensual de gasto en WhatsApp';
 
 /** Texto de la plantilla de Meta con sus {{n}} ya llenos, igual al que recibe la clienta. */
 export function textoPlantilla(event: NoticeEvent, valores: Record<string, string>): { params: string[]; body: string } {
@@ -112,6 +115,11 @@ export function createAvisos(deps: AvisoDeps) {
         const t = textoPlantilla(event, await deps.valores(a));
         const params = t.params;
         body = t.body;
+        if (await deps.topeAgotado()) {
+          // Las plantillas se cobran: con el tope agotado no salen hasta el mes siguiente (Betsy puede enviarla a mano).
+          const messageId = await registrar({ appointment_id: a.id, phone, event, body: clip(body, 4000), kind, status: 'bloqueado', error: POR_TOPE, wa_message_id: null });
+          return { ok: false, reason: 'tope', messageId };
+        }
         payload = {
           to: phone,
           type: 'template',
