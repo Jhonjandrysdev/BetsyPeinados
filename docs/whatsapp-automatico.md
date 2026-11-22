@@ -8,7 +8,7 @@ Cuando esté conectado:
 - **Cambiar hora o reagendar** desde la cita: eliges la nueva fecha y hora, el horario anterior queda libre, se mueve en tu Google Calendar y la clienta recibe el aviso de la nueva hora.
 - Al **confirmar el abono**, **cancelar** o **marcar como realizada**, el aviso le llega solo a la clienta. Cuando alguien reserva en la web, le llega solo el mensaje de **cupo apartado** con los datos del abono.
 - Cada cita muestra la **conversación de WhatsApp** (✓ enviado, ✓✓ entregado, ✓✓ azul leído) y lo que la clienta responde. Si te escribió en las últimas 24 horas, le contestas desde ahí mismo.
-- En **Mensajes** ves el **costo del mes** de WhatsApp de Betsy (separado de UNDRWEAR): mensajes cobrados, gratis, recibidos y el valor en pesos (o en dólares, el dato real de Meta, si pones `WHATSAPP_WABA_ID`).
+- En **Mensajes** ves el **costo del mes** de WhatsApp de Betsy (separado de UNDRWEAR): mensajes cobrados, gratis, recibidos y el valor en pesos: estimado con tu tarifa, o el dato real de Meta si pones `WHATSAPP_WABA_ID` (si la cuenta factura en dólares, se muestra también en pesos con la tasa del dólar que pongas en **Mensajes**).
 
 Mientras no lo conectes, todo sigue como hoy: el botón de WhatsApp abre tu app con el mensaje listo.
 

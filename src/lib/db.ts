@@ -50,7 +50,18 @@ export async function updateSettings(patch: Partial<SiteSettings>): Promise<void
     Object.assign(demo.settings, patch);
     return;
   }
-  check(await supabaseAdmin().from('site_settings').update({ ...patch, updated_at: new Date().toISOString() }).eq('id', 1));
+  let row: Record<string, unknown> = { ...patch, updated_at: new Date().toISOString() };
+  let res = await supabaseAdmin().from('site_settings').update(row).eq('id', 1);
+  // Si a la base le falta la columna de un ajuste nuevo (migración pendiente), guarda los demás igual.
+  for (let i = 0; i < 3 && res.error?.code === 'PGRST204'; i++) {
+    const col = Object.keys(row).find((k) => res.error?.message.includes(`'${k}'`));
+    if (!col || col === 'updated_at') break;
+    console.warn(`Falta la columna ${col} en site_settings: aplica las migraciones pendientes. Se guardan los demás ajustes.`);
+    const { [col]: _omit, ...rest } = row;
+    row = rest;
+    res = await supabaseAdmin().from('site_settings').update(row).eq('id', 1);
+  }
+  check(res);
 }
 
 // ───────────── Servicios ─────────────

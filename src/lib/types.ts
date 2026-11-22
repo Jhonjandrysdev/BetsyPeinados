@@ -27,6 +27,8 @@ export interface SiteSettings {
   pay_qr_path?: string | null;
   /** Precio en pesos de cada mensaje que Meta cobra (para el costo en el panel). */
   wa_rate_cop?: number | null;
+  /** Tasa del dólar en pesos para mostrar en COP el gasto real de Meta. */
+  wa_usd_cop?: number | null;
   /** El recordatorio "¿Confirmas tu cita?" sale solo el día anterior. */
   wa_auto_reminder?: boolean | null;
 }
