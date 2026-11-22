@@ -156,6 +156,16 @@ export async function getAppointment(id: string): Promise<Appointment | null> {
   return check(await supabaseAdmin().from('appointments').select('*').eq('id', id).maybeSingle()) as Appointment | null;
 }
 
+/** Varias citas por id en una sola consulta (las que no existan simplemente no vuelven). */
+export async function getAppointmentsByIds(ids: string[]): Promise<Map<string, Appointment>> {
+  const unique = [...new Set(ids)];
+  if (!unique.length) return new Map();
+  const rows = demoMode
+    ? demo.appointments.filter((a) => unique.includes(a.id))
+    : (check(await supabaseAdmin().from('appointments').select('*').in('id', unique)) as Appointment[]);
+  return new Map(rows.map((a) => [a.id, a]));
+}
+
 export class SlotTakenError extends Error {}
 
 export async function createAppointment(
