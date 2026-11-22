@@ -16,7 +16,7 @@ export interface RegistroAviso {
   appointment_id: string | null;
   phone: string;
   direction: 'out';
-  event: string;
+  event: NoticeEvent;
   body: string;
   kind: 'texto' | 'plantilla';
   status: Extract<WaStatus, 'enviado' | 'fallido' | 'bloqueado'>;
@@ -37,7 +37,7 @@ export interface AvisoDeps {
   valores: (a: Appointment) => Promise<Record<string, string>>;
   plantilla: { prefijo: string; idioma: string };
   /** Guarda el intento en la conversación; devuelve su id si lo hay. */
-  registrar: (r: RegistroAviso) => Promise<number | undefined | void>;
+  registrar: (r: RegistroAviso) => Promise<number | undefined>;
   marcarAvisado: (a: Appointment, ev: NoticeEvent) => Promise<void>;
 }
 
@@ -66,13 +66,21 @@ export function freePayload(to: string, body: string, buttons?: string[]) {
   };
 }
 
-const BLOQUEO: Record<'opt_out' | 'not_configured', string> = {
-  opt_out: 'La clienta no aceptó avisos automáticos por WhatsApp',
-  not_configured: 'El WhatsApp automático no está conectado',
-};
+/** Por qué un aviso quedó bloqueado, tal como lo lee Betsy en la conversación. */
+export const SIN_PERMISO = 'La clienta no aceptó avisos automáticos por WhatsApp';
+
+/** Texto de la plantilla de Meta con sus {{n}} ya llenos, igual al que recibe la clienta. */
+export function textoPlantilla(event: NoticeEvent, valores: Record<string, string>): { params: string[]; body: string } {
+  const meta = META_TEMPLATES[event];
+  const params = meta.params(valores).map((t) => clip(String(t ?? '').replace(/\s+/g, ' ').trim() || '-', 200));
+  return { params, body: meta.text.replace(/\{\{(\d+)\}\}/g, (_, n) => params[Number(n) - 1] ?? '') };
+}
+
+/** Mensaje de la conversación que no le llegó a la clienta (falló o quedó bloqueado): se ofrece enviarlo a mano. */
+export const noSalio = (m: { direction: string; status: string }) => m.direction === 'out' && (m.status === 'fallido' || m.status === 'bloqueado');
 
 export function createAvisos(deps: AvisoDeps) {
-  const registrar = async (r: Omit<RegistroAviso, 'direction'>) => (await deps.registrar({ ...r, direction: 'out' })) ?? undefined;
+  const registrar = (r: Omit<RegistroAviso, 'direction'>) => deps.registrar({ ...r, direction: 'out' });
 
   return {
     /**
@@ -80,15 +88,16 @@ export function createAvisos(deps: AvisoDeps) {
      * (o el que Betsy ajustó); fuera de ella, la plantilla aprobada en Meta.
      */
     async enviar(a: Appointment, event: NoticeEvent, customText = ''): Promise<SendResult> {
+      // Sin conexión no hay conversación que registrar: el panel ya ofrece los enlaces manuales.
+      if (!deps.configurado()) return { ok: false, reason: 'not_configured' };
       const phone = waNumber(a.customer_phone);
-      const bloqueo = !deps.configurado() ? 'not_configured' : !aceptaAvisos(a) ? 'opt_out' : null;
-      if (bloqueo) {
+      if (phone.length < MIN_DIGITOS_INTERNACIONAL || phone.length > 15) return { ok: false, reason: 'error', error: 'El WhatsApp de la clienta no parece válido' };
+      if (!aceptaAvisos(a)) {
         // Queda en la conversación para que Betsy vea por qué no salió y lo mande a mano.
         const body = customText.trim() || (await deps.textoDeMensajes(a, event));
-        const messageId = await registrar({ appointment_id: a.id, phone, event, body: clip(body, 4000), kind: 'texto', status: 'bloqueado', error: BLOQUEO[bloqueo], wa_message_id: null });
-        return { ok: false, reason: bloqueo, messageId };
+        const messageId = await registrar({ appointment_id: a.id, phone, event, body: clip(body, 4000), kind: 'texto', status: 'bloqueado', error: SIN_PERMISO, wa_message_id: null });
+        return { ok: false, reason: 'opt_out', messageId };
       }
-      if (phone.length < MIN_DIGITOS_INTERNACIONAL) return { ok: false, reason: 'error', error: 'El WhatsApp de la clienta no parece válido.' };
 
       const meta = META_TEMPLATES[event];
       let kind: 'texto' | 'plantilla';
@@ -100,8 +109,9 @@ export function createAvisos(deps: AvisoDeps) {
         payload = freePayload(phone, body, meta.buttons);
       } else {
         kind = 'plantilla';
-        const params = meta.params(await deps.valores(a)).map((t) => clip(String(t ?? '').replace(/\s+/g, ' ').trim() || '-', 200));
-        body = meta.text.replace(/\{\{(\d+)\}\}/g, (_, n) => params[Number(n) - 1] ?? '');
+        const t = textoPlantilla(event, await deps.valores(a));
+        const params = t.params;
+        body = t.body;
         payload = {
           to: phone,
           type: 'template',

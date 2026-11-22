@@ -15,7 +15,7 @@ import { demoMode, getService, getSettings, getTemplates, markNotified } from '.
 import { supabaseAdmin } from './supabase';
 import { safeEqual } from './crypto';
 import { valorDeCita } from './cita';
-import { clip, createAvisos, freePayload, waNumber, windowOpen, type SendResult } from './aviso';
+import { SIN_PERMISO, clip, createAvisos, freePayload, waNumber, windowOpen, type SendResult } from './aviso';
 import { DEFAULT_TEMPLATES, fillTemplate, valuesFor, type NoticeEvent } from './messages';
 import type { Appointment, WaMessage, WaStatus } from './types';
 
@@ -24,7 +24,8 @@ const env = (k: string) => (getSecret(k) ?? '').trim();
 // En modo demo (sin Supabase) nunca se envía a Meta: no habría dónde registrar los mensajes.
 export const waConfigured = () => !demoMode && Boolean(env('WHATSAPP_TOKEN') && env('WHATSAPP_PHONE_ID'));
 const lang = () => env('WHATSAPP_LANG') || 'es_CO';
-const prefix = () => env('WHATSAPP_TEMPLATE_PREFIX') || 'betsy_';
+/** Prefijo de los nombres de plantilla en Meta (betsy_abono, …). */
+export const templatePrefix = () => env('WHATSAPP_TEMPLATE_PREFIX') || 'betsy_';
 
 export { waNumber, windowOpen, type SendResult };
 
@@ -152,7 +153,7 @@ const avisos = createAvisos({
   textoDeMensajes: async (a, ev) => fillTemplate((await getTemplates())[ev] ?? DEFAULT_TEMPLATES[ev], await fillData(a)),
   valores: async (a) => valuesFor(await fillData(a)),
   get plantilla() {
-    return { prefijo: prefix(), idioma: lang() };
+    return { prefijo: templatePrefix(), idioma: lang() };
   },
   registrar: async (r) => (await saveMessage(r))?.id,
   marcarAvisado: (a, ev) => markNotified(a, ev).catch((e) => console.error(e)),
@@ -204,7 +205,7 @@ export function waErrorText(r: SendResult): string {
   if (r.ok) return '';
   if (r.reason === 'not_configured') return 'el WhatsApp automático no está conectado';
   if (r.reason === 'window_closed') return 'la clienta no te ha escrito en las últimas 24 horas';
-  if (r.reason === 'opt_out') return 'la clienta no aceptó avisos automáticos por WhatsApp';
+  if (r.reason === 'opt_out') return SIN_PERMISO.charAt(0).toLowerCase() + SIN_PERMISO.slice(1);
   // Sin punto final: quien lo muestra decide cómo cerrar la frase.
   return (r.error ?? 'error desconocido').replace(/[.\s]+$/, '');
 }

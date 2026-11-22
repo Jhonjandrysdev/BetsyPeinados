@@ -114,15 +114,21 @@ describe('vencimiento automático de cupos sin abono', () => {
       expect(enviados).toHaveLength(2);
     });
 
-    it('no avisa a quien no aceptó avisos por WhatsApp, sin gastar intentos', async () => {
+    it('a quien no aceptó avisos no le llega nada y no gasta los intentos de las demás', async () => {
       store = fakeStore([
         { ...apartada, id: 'a', wa_opt_in: false },
         { ...apartada, id: 'b', wa_opt_in: false },
         { ...apartada, id: 'c' },
       ]);
-      const enviados: string[] = [];
-      expect(await conAvisos(DESPUES, enviados)).toEqual({ vencidas: ['a', 'b', 'c'], avisadas: 1 });
-      expect(enviados).toEqual(['c:cupo_liberado']);
+      // Como el envío real: a quien no aceptó solo se le registra el bloqueo (no sale nada).
+      const salieron: string[] = [];
+      const r = await createCitas(store, {
+        now: () => DESPUES,
+        reportar: () => {},
+        avisar: async (a, ev) => (a.wa_opt_in === false ? false : (salieron.push(`${a.id}:${ev}`), true)),
+      }).vencerCuposSinAbono();
+      expect(r).toEqual({ vencidas: ['a', 'b', 'c'], avisadas: 1 });
+      expect(salieron).toEqual(['c:cupo_liberado']);
     });
 
     it('si el aviso falla, el cupo igual queda liberado', async () => {

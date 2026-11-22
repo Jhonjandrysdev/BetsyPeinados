@@ -3,7 +3,8 @@ import Admin from '../../layouts/Admin.astro';
 import Icon from '../../components/Icon.astro';
 import { getSettings, getTemplates, saveTemplate, updateSettings } from '../../lib/db';
 import { back, str } from '../../lib/admin';
-import { metaCost, waConfigured, waMessagesBetween } from '../../lib/whatsapp';
+import { metaCost, templatePrefix, waConfigured, waMessagesBetween } from '../../lib/whatsapp';
+import { textoPlantilla } from '../../lib/aviso';
 import { formatCOP, fromLocal, localDate } from '../../lib/time';
 import { getSecret } from 'astro:env/server';
 import { DEFAULT_TEMPLATES, META_TEMPLATES, NOTICE_EVENTS, PLACEHOLDERS, fillTemplate, valuesFor, type NoticeEvent } from '../../lib/messages';
@@ -53,7 +54,7 @@ const monthLabel = new Intl.DateTimeFormat('es-CO', { month: 'long', year: 'nume
 
 const [s, saved, msgs, meta] = await Promise.all([getSettings(), getTemplates(), waMessagesBetween(monthStart, monthEnd), metaCost(monthStart, monthEnd)]);
 const waOn = waConfigured();
-const tplPrefix = (getSecret('WHATSAPP_TEMPLATE_PREFIX') ?? '').trim() || 'betsy_';
+const tplPrefix = templatePrefix();
 const has = (k: string) => Boolean((getSecret(k) ?? '').trim());
 const steps = [
   { ok: waOn, label: 'Número y token de Meta', hint: 'WHATSAPP_TOKEN y WHATSAPP_PHONE_ID' },
@@ -103,6 +104,8 @@ const sample: Appointment = {
   hair_length: 'medio',
   deposit_confirmed_at: null,
 };
+/** Datos de ejemplo para las vistas previas (texto de Mensajes y plantilla de Meta). */
+const sampleData = { a: sample, s, price: 80000, deposit: 40000 };
 ---
 
 <Admin title="Mensajes" subtitle="Lo que le escribes a tus clientas por WhatsApp en cada momento de la cita, si el envío automático está conectado y cuánto te cobra Meta.">
@@ -215,8 +218,7 @@ const sample: Appointment = {
     NOTICE_EVENTS.map((e) => {
       const body = saved[e.id] ?? DEFAULT_TEMPLATES[e.id];
       const meta = META_TEMPLATES[e.id];
-      const metaParams = meta.params(valuesFor({ a: sample, s, price: 80000, deposit: 40000 }));
-      const metaText = meta.text.replace(/\{\{(\d+)\}\}/g, (_, n) => metaParams[Number(n) - 1] ?? '');
+      const metaText = textoPlantilla(e.id, valuesFor(sampleData)).body;
       return (
         <form method="post" class="panel tpl" id={`m-${e.id}`}>
           <input type="hidden" name="event" value={e.id} />
@@ -228,7 +230,7 @@ const sample: Appointment = {
             <textarea name="body" rows="7" maxlength="1500" aria-label={`Mensaje: ${e.label}`}>{body}</textarea>
             <div class="bubble" aria-label="Así lo verá la clienta">
               <small>Vista previa</small>
-              <p>{fillTemplate(body, { a: sample, s, price: 80000, deposit: 40000 })}</p>
+              <p>{fillTemplate(body, sampleData)}</p>
             </div>
           </div>
           <div class="meta-tpl">

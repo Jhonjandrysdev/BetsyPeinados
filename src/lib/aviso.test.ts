@@ -28,7 +28,7 @@ describe('envío de avisos por WhatsApp', () => {
     textoDeMensajes: async (_a, ev) => `Texto de Mensajes: ${ev}`,
     valores: async () => ({ nombre: 'Ana', servicio: 'Ondas', fecha: 'lunes 1 de diciembre', hora: '10:00 a. m.', abono: '$40.000', llave: '300', motivo: 'borroso' }),
     plantilla: { prefijo: 'betsy_', idioma: 'es_CO' },
-    registrar: async (r) => void registro.push(r),
+    registrar: async (r) => registro.push(r),
     marcarAvisado: async (a, ev) => void avisados.push(`${a.id}:${ev}`),
   });
   const enviar = (a: Appointment, ev: Parameters<ReturnType<typeof createAvisos>['enviar']>[1], texto = '') => createAvisos(deps()).enviar(a, ev, texto);
@@ -96,18 +96,20 @@ describe('envío de avisos por WhatsApp', () => {
     expect(avisados).toEqual([]);
   });
 
-  it('sin WhatsApp conectado no envía nada y lo registra como bloqueado', async () => {
+  it('sin WhatsApp conectado no envía ni registra nada', async () => {
     configurado = false;
     const r = await enviar(confirmada, 'abono');
     expect(r).toMatchObject({ ok: false, reason: 'not_configured' });
     expect(enviados).toEqual([]);
-    expect(registro[0]).toMatchObject({ status: 'bloqueado', error: 'El WhatsApp automático no está conectado' });
+    expect(registro).toEqual([]);
   });
 
-  it('con un número que no sirve no intenta enviar', async () => {
-    const r = await enviar({ ...confirmada, customer_phone: '12345' }, 'abono');
-    expect(r).toMatchObject({ ok: false, reason: 'error' });
+  it.each([['muy corto', '12345'], ['muy largo', '1234567890123456']])('con un número %s no intenta enviar ni registra (aunque no haya permiso)', async (_, phone) => {
+    for (const a of [{ ...confirmada, customer_phone: phone }, { ...confirmada, customer_phone: phone, wa_opt_in: false }]) {
+      expect(await enviar(a, 'abono')).toMatchObject({ ok: false, reason: 'error' });
+    }
     expect(enviados).toEqual([]);
+    expect(registro).toEqual([]);
   });
 
   it('usa el texto que Betsy ajustó a mano si viene uno', async () => {
