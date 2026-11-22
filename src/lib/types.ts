@@ -106,7 +106,7 @@ export interface Appointment {
   rescheduled_at?: string | null;
 }
 
-export type WaStatus = 'enviando' | 'enviado' | 'entregado' | 'leido' | 'fallido' | 'recibido' | 'manual';
+export type WaStatus = 'enviando' | 'enviado' | 'entregado' | 'leido' | 'fallido' | 'bloqueado' | 'recibido' | 'manual';
 
 export interface WaMessage {
   id: number;
