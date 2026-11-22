@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { estadoTope, inicioDelMes } from './tope-whatsapp';
+import { estadoTope, estadoTopeDesdeGasto, inicioDelMes } from './tope-whatsapp';
 import type { WaMessage } from './types';
 
 let n = 0;
@@ -65,5 +65,12 @@ describe('tope mensual de WhatsApp (contra el gasto estimado)', () => {
   it('el mes empieza a la medianoche de Colombia', () => {
     expect(inicioDelMes(new Date('2026-12-01T04:59:00.000Z')).toISOString()).toBe('2026-11-01T05:00:00.000Z');
     expect(inicioDelMes(new Date('2026-12-01T05:00:00.000Z')).toISOString()).toBe('2026-12-01T05:00:00.000Z');
+  });
+
+  it('el estado se puede calcular desde el gasto ya contado (lo que usa el envío real)', () => {
+    expect(estadoTopeDesdeGasto(79, 100)).toMatchObject({ nivel: 'normal', porcentaje: 79 });
+    expect(estadoTopeDesdeGasto(80, 100)).toMatchObject({ nivel: 'aviso' });
+    expect(estadoTopeDesdeGasto(100, 100)).toMatchObject({ nivel: 'agotado' });
+    expect(estadoTopeDesdeGasto(100, null)).toMatchObject({ nivel: 'sin_tope' });
   });
 });

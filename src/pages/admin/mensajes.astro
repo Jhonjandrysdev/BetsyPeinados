@@ -3,10 +3,11 @@ import Admin from '../../layouts/Admin.astro';
 import Icon from '../../components/Icon.astro';
 import { getAppointmentsByIds, getSettings, getTemplates, saveTemplate, updateSettings } from '../../lib/db';
 import { compararGasto, resumenDeUso } from '../../lib/uso-whatsapp';
-import { TASA_USD_COP_DEFECTO, gastoEnPesos, leerTasa } from '../../lib/gasto-meta';
+import { TASA_USD_COP_DEFECTO, gastoEnPesos, leerPesos, leerTasa } from '../../lib/gasto-meta';
 import { back, str } from '../../lib/admin';
 import { metaCost, templatePrefix, waConfigured, waMessagesBetween } from '../../lib/whatsapp';
-import { estadoTope } from '../../lib/tope-whatsapp';
+import { TEXTO_TOPE_AGOTADO, TOPE_MAX, estadoTope } from '../../lib/tope-whatsapp';
+import { TARIFA_DEFECTO } from '../../lib/uso-whatsapp';
 import { textoPlantilla } from '../../lib/aviso';
 import { TZ, formatCOP, fromLocal, localDate } from '../../lib/time';
 import { getSecret } from 'astro:env/server';
@@ -21,12 +22,14 @@ if (Astro.request.method === 'POST') {
     if (!Number.isFinite(rate) || rate < 0 || rate > 10000) return back(HERE, 'error', 'Escribe el precio por mensaje en pesos, por ejemplo 3,5.');
     const usdCop = leerTasa(str(fd, 'usd', 12));
     if (usdCop === null) return back(HERE, 'error', 'Escribe la tasa del dólar en pesos, por ejemplo 4.000.');
-    // Tope vacío = sin tope; se escribe en pesos con o sin puntos de miles.
-    const topeTxt = str(fd, 'tope', 15).replace(/[.\s$]/g, '');
-    const tope = topeTxt === '' ? null : Number(topeTxt);
-    if (tope !== null && (!Number.isInteger(tope) || tope < 1 || tope > 100_000_000)) return back(HERE, 'error', 'Escribe el tope mensual en pesos, sin decimales (por ejemplo 20.000), o déjalo vacío.');
+    // Tope vacío = sin tope.
+    const topeTxt = str(fd, 'tope', 15).trim();
+    const nuevoTope = topeTxt === '' ? null : leerPesos(topeTxt);
+    if (topeTxt !== '' && (nuevoTope === null || nuevoTope > TOPE_MAX)) return back(HERE, 'error', 'Escribe el tope mensual en pesos, sin decimales (por ejemplo 20.000), o déjalo vacío.');
     try {
-      await updateSettings({ wa_rate_cop: Math.round(rate * 100) / 100, wa_usd_cop: usdCop, wa_tope_cop: tope, wa_auto_reminder: fd.get('auto') === 'on' });
+      const omitidas = await updateSettings({ wa_rate_cop: Math.round(rate * 100) / 100, wa_usd_cop: usdCop, wa_tope_cop: nuevoTope, wa_auto_reminder: fd.get('auto') === 'on' });
+      // El tope protege el gasto: si no quedó guardado, Betsy debe saberlo.
+      if (omitidas.length) return back(HERE, 'error', `Se guardó lo demás, pero no ${omitidas.includes('wa_tope_cop') ? 'el tope mensual' : 'la tasa del dólar'}: falta aplicar una migración en la base de datos.`);
     } catch (e) {
       console.error(e);
       return back(HERE, 'error', 'No se pudo guardar. Falta activar el WhatsApp automático en la base de datos.');
@@ -79,13 +82,13 @@ const steps = [
   { ok: has('WHATSAPP_WABA_ID'), label: 'Costo real desde Meta', hint: 'WHATSAPP_WABA_ID (opcional)' },
   { ok: has('CRON_SECRET'), label: 'Recordatorio automático del día antes', hint: 'CRON_SECRET' },
 ];
-const rate = Number(s.wa_rate_cop ?? 3.5);
+const rate = Number(s.wa_rate_cop ?? TARIFA_DEFECTO);
 const usdCop = Number(s.wa_usd_cop ?? TASA_USD_COP_DEFECTO);
 const real = meta && 'monto' in meta ? gastoEnPesos(meta, usdCop) : null;
 const fmtUsdCop = new Intl.NumberFormat('es-CO', { maximumFractionDigits: 0 }).format(usdCop);
 const uso = resumenDeUso(msgs ?? [], rate);
 // El tope se mide sobre el mes en curso (al ver un mes pasado no aplica).
-const tope = isNow ? estadoTope({ mensajes: msgs ?? [], tarifa: rate, tope: s.wa_tope_cop ?? null, ahora: new Date() }) : null;
+const estadoDelTope = isNow ? estadoTope({ mensajes: msgs ?? [], tarifa: rate, tope: s.wa_tope_cop ?? null, ahora: new Date() }) : null;
 const fmtTope = s.wa_tope_cop ? new Intl.NumberFormat('es-CO', { maximumFractionDigits: 0 }).format(s.wa_tope_cop) : '';
 // Sin datos del mes anterior (falta la migración o falló la lectura) no hay comparación que mostrar.
 const vsPrev = prevMsgs ? compararGasto(uso.estimado, resumenDeUso(prevMsgs, rate).estimado) : null;
@@ -207,15 +210,23 @@ const sampleData = { a: sample, s, price: 80000, deposit: 40000 };
             <li class:list={{ bad: uso.porEstado.fallidos > 0 }}><strong>{uso.porEstado.fallidos}</strong> no se entregaron</li>
             <li class:list={{ bad: uso.porEstado.bloqueados > 0 }}><strong>{uso.porEstado.bloqueados}</strong> bloqueados (sin permiso o por tope)</li>
           </ul>
-          {tope && tope.nivel !== 'sin_tope' && (
-            <div class:list={['wa-tope', tope.nivel]}>
+          {estadoDelTope && estadoDelTope.nivel !== 'sin_tope' && (
+            <div class:list={['wa-tope', estadoDelTope.nivel]}>
               <p>
-                <b>Tope del mes:</b> {formatCOP(tope.gastado)} de {formatCOP(tope.tope)} ({tope.porcentaje} %)
-                {tope.nivel === 'agotado' && ' · Se alcanzó: los avisos que se cobran no salen hasta el próximo mes (las respuestas dentro de las 24 h sí).'}
-                {tope.nivel === 'aviso' && ' · Ya vas por más del 80 %.'}
+                <b>Tope del mes:</b> {formatCOP(estadoDelTope.gastado)} de {formatCOP(estadoDelTope.tope)} ({estadoDelTope.porcentaje} %)
+                {estadoDelTope.nivel === 'agotado' && ` · Se alcanzó: ${TEXTO_TOPE_AGOTADO}.`}
+                {estadoDelTope.nivel === 'aviso' && ' · Ya vas por más del 80 %.'}
               </p>
-              <div class="wa-bar" role="progressbar" aria-label="Gasto estimado frente al tope del mes" aria-valuemin={0} aria-valuemax={100} aria-valuenow={Math.min(tope.porcentaje, 100)}>
-                <span style={`width:${Math.min(tope.porcentaje, 100)}%`} />
+              <div
+                class="wa-bar"
+                role="progressbar"
+                aria-label="Gasto estimado frente al tope del mes"
+                aria-valuemin={0}
+                aria-valuemax={100}
+                aria-valuenow={Math.min(estadoDelTope.porcentaje, 100)}
+                aria-valuetext={`${formatCOP(estadoDelTope.gastado)} de ${formatCOP(estadoDelTope.tope)} (${estadoDelTope.porcentaje} %)`}
+              >
+                <span style={`width:${Math.min(estadoDelTope.porcentaje, 100)}%`} />
               </div>
             </div>
           )}

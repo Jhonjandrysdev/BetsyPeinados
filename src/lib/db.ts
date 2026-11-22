@@ -45,11 +45,13 @@ export async function getSettings(): Promise<SiteSettings> {
   return { ...DEFAULT_SETTINGS, ...(data ?? {}) };
 }
 
-export async function updateSettings(patch: Partial<SiteSettings>): Promise<void> {
+/** Guarda ajustes; devuelve las columnas que no se pudieron guardar porque falta su migración. */
+export async function updateSettings(patch: Partial<SiteSettings>): Promise<string[]> {
   if (demoMode) {
     Object.assign(demo.settings, patch);
-    return;
+    return [];
   }
+  const omitidas: string[] = [];
   let row: Record<string, unknown> = { ...patch, updated_at: new Date().toISOString() };
   let res = await supabaseAdmin().from('site_settings').update(row).eq('id', 1);
   // Si a la base le falta la columna de un ajuste nuevo (migración pendiente), guarda los demás igual.
@@ -59,9 +61,11 @@ export async function updateSettings(patch: Partial<SiteSettings>): Promise<void
     console.warn(`Falta la columna ${col} en site_settings: aplica las migraciones pendientes. Se guardan los demás ajustes.`);
     const { [col]: _omit, ...rest } = row;
     row = rest;
+    omitidas.push(col);
     res = await supabaseAdmin().from('site_settings').update(row).eq('id', 1);
   }
   check(res);
+  return omitidas;
 }
 
 // ───────────── Servicios ─────────────

@@ -112,10 +112,11 @@ export function createAvisos(deps: AvisoDeps) {
         payload = freePayload(phone, body, meta.buttons);
       } else {
         kind = 'plantilla';
+        const agotado = await deps.topeAgotado();
         const t = textoPlantilla(event, await deps.valores(a));
         const params = t.params;
         body = t.body;
-        if (await deps.topeAgotado()) {
+        if (agotado) {
           // Las plantillas se cobran: con el tope agotado no salen hasta el mes siguiente (Betsy puede enviarla a mano).
           const messageId = await registrar({ appointment_id: a.id, phone, event, body: clip(body, 4000), kind, status: 'bloqueado', error: POR_TOPE, wa_message_id: null });
           return { ok: false, reason: 'tope', messageId };

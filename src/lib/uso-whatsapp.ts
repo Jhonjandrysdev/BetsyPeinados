@@ -29,6 +29,9 @@ export interface ResumenUso {
   noSalieron: WaMessage[];
 }
 
+/** Precio por mensaje cobrado si Betsy no puso uno (pesos). */
+export const TARIFA_DEFECTO = 3.5;
+
 // Cobrado: lo que Meta marcó como cobrable; si aún no lo informó, toda plantilla que salió se cuenta como cobrada.
 const esCobrado = (m: WaMessage) => m.billable === true || (m.billable == null && m.kind === 'plantilla');
 

@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { TASA_USD_COP_DEFECTO, gastoEnPesos, leerTasa } from './gasto-meta';
+import { TASA_USD_COP_DEFECTO, gastoEnPesos, leerPesos, leerTasa } from './gasto-meta';
 
 describe('gasto real de Meta en pesos', () => {
   it('en dólares: aproximado en COP con la tasa de Betsy, redondeado al peso', () => {
@@ -46,5 +46,21 @@ describe('tasa del dólar escrita por Betsy', () => {
 describe('moneda que Meta no informó', () => {
   it('no se convierte a pesos', () => {
     expect(gastoEnPesos({ monto: 2, moneda: null }, 4000)).toEqual({ monto: 2, moneda: null, cop: null, aproximado: false });
+  });
+});
+
+describe('pesos escritos por Betsy (tope mensual)', () => {
+  it.each([
+    ['20000', 20000],
+    ['20.000', 20000],
+    ['20,000', 20000],
+    ['$20.000', 20000],
+    ['$ 1.500.000', 1500000],
+  ])('«%s» son %d pesos', (texto, esperado) => {
+    expect(leerPesos(texto)).toBe(esperado);
+  });
+
+  it.each([['abc'], ['20.5'], ['-500'], ['']])('«%s» no son pesos enteros', (texto) => {
+    expect(leerPesos(texto)).toBeNull();
   });
 });
