@@ -28,12 +28,11 @@ export function gastoEnPesos({ monto, moneda }: GastoMeta, tasaUsdCop: number): 
 }
 
 /**
- * Tasa del dólar tal como la escribe Betsy ("4.000", "4,000", "3950,5"…), en pesos enteros.
+ * Número tal como lo escribe Betsy ("4.000", "4,000", "3950,5", "$20.000"…).
  * Con los dos separadores, el último es el decimal; con uno solo, seguido de exactamente 3 cifras es de miles.
- * Devuelve null si no es un número o está fuera del rango razonable.
  */
-export function leerTasa(texto: string): number | null {
-  let s = texto.replace(/\s/g, '');
+function numeroEscrito(texto: string): number | null {
+  let s = texto.replace(/[\s$]/g, '');
   if (!/^\d[\d.,]*$/.test(s)) return null;
   const ultimo = Math.max(s.lastIndexOf('.'), s.lastIndexOf(','));
   if (s.includes('.') && s.includes(',')) {
@@ -44,6 +43,20 @@ export function leerTasa(texto: string): number | null {
     const miles = veces > 1 || s.length - ultimo - 1 === 3;
     s = miles ? s.split(sep).join('') : s.replace(sep, '.');
   }
-  const n = Math.round(Number(s));
-  return Number.isFinite(n) && n >= TASA_MIN && n <= TASA_MAX ? n : null;
+  const n = Number(s);
+  return Number.isFinite(n) ? n : null;
+}
+
+/** Tasa del dólar en pesos enteros; null si no es un número o está fuera del rango razonable. */
+export function leerTasa(texto: string): number | null {
+  const n = numeroEscrito(texto);
+  if (n === null) return null;
+  const r = Math.round(n);
+  return r >= TASA_MIN && r <= TASA_MAX ? r : null;
+}
+
+/** Pesos enteros (sin centavos), p. ej. el tope mensual; null si no es un número entero positivo. */
+export function leerPesos(texto: string): number | null {
+  const n = numeroEscrito(texto);
+  return n !== null && Number.isInteger(n) && n > 0 ? n : null;
 }

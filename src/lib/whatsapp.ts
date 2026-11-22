@@ -16,9 +16,11 @@ import { supabaseAdmin } from './supabase';
 import { safeEqual } from './crypto';
 import { valorDeCita } from './cita';
 import type { GastoMeta } from './gasto-meta';
-import { SIN_PERMISO, clip, createAvisos, freePayload, waNumber, windowOpen, type SendResult } from './aviso';
+import { estadoTopeDesdeGasto, inicioDelMes, type EstadoTope } from './tope-whatsapp';
+import { TARIFA_DEFECTO } from './uso-whatsapp';
+import { POR_TOPE, SIN_PERMISO, clip, createAvisos, freePayload, waNumber, windowOpen, type SendResult } from './aviso';
 import { DEFAULT_TEMPLATES, fillTemplate, valuesFor, type NoticeEvent } from './messages';
-import type { Appointment, WaMessage, WaStatus } from './types';
+import type { Appointment, SiteSettings, WaMessage, WaStatus } from './types';
 
 const GRAPH = 'https://graph.facebook.com/v21.0';
 const env = (k: string) => (getSecret(k) ?? '').trim();
@@ -146,9 +148,47 @@ async function fillData(a: Appointment) {
   return { a, s, ...valorDeCita(a, svc) };
 }
 
+/**
+ * Mensajes cobrados desde una fecha, contados en la base (sin traer filas). Misma regla que resumenDeUso:
+ * salieron (no fallidos, bloqueados ni manuales) y Meta los marcó cobrables o, sin ese dato, son plantillas.
+ * Lanza si no se puede leer.
+ */
+async function waCobradosDesde(desde: Date): Promise<number> {
+  if (demoMode) return 0;
+  const { count, error } = await supabaseAdmin()
+    .from('whatsapp_messages')
+    .select('id', { count: 'exact', head: true })
+    .eq('direction', 'out')
+    .not('status', 'in', '(fallido,bloqueado,manual)')
+    .or('billable.eq.true,and(billable.is.null,kind.eq.plantilla)')
+    .gte('created_at', desde.toISOString());
+  if (error) throw new Error(`No se pudo contar el gasto del mes: ${error.message}`);
+  return count ?? 0;
+}
+
+/** Gasto estimado del mes en curso frente al tope que puso Betsy (sin tope no consulta los mensajes). Lanza si no se puede leer. */
+export async function estadoTopeActual(s?: SiteSettings, ahora = new Date()): Promise<EstadoTope> {
+  const settings = s ?? (await getSettings());
+  const tope = settings.wa_tope_cop ?? null;
+  if (!tope) return estadoTopeDesdeGasto(0, null);
+  const tarifa = Number(settings.wa_rate_cop ?? TARIFA_DEFECTO);
+  return estadoTopeDesdeGasto((await waCobradosDesde(inicioDelMes(ahora))) * tarifa, tope);
+}
+
+/** Con el gasto ilegible se frena igual: mejor un aviso manual que un gasto sin control. */
+async function topeAgotado(): Promise<boolean> {
+  try {
+    return (await estadoTopeActual()).nivel === 'agotado';
+  } catch (e) {
+    console.error('Tope de WhatsApp: no se pudo calcular el gasto, se frenan las plantillas', e);
+    return true;
+  }
+}
+
 const avisos = createAvisos({
   now: () => new Date(),
   configurado: waConfigured,
+  topeAgotado,
   meta: { enviar: sendToMeta },
   ultimoEntrante: lastInbound,
   textoDeMensajes: async (a, ev) => fillTemplate((await getTemplates())[ev] ?? DEFAULT_TEMPLATES[ev], await fillData(a)),
@@ -201,12 +241,16 @@ export async function sendNoticeSafe(a: Appointment, event: NoticeEvent, customT
   }
 }
 
+/** Un motivo que empieza en mayúscula, listo para ir en medio de una frase. */
+const enFrase = (t: string) => t.charAt(0).toLowerCase() + t.slice(1);
+
 /** Por qué no salió un mensaje, en palabras para Betsy. */
 export function waErrorText(r: SendResult): string {
   if (r.ok) return '';
   if (r.reason === 'not_configured') return 'el WhatsApp automático no está conectado';
   if (r.reason === 'window_closed') return 'la clienta no te ha escrito en las últimas 24 horas';
-  if (r.reason === 'opt_out') return SIN_PERMISO.charAt(0).toLowerCase() + SIN_PERMISO.slice(1);
+  if (r.reason === 'opt_out') return enFrase(SIN_PERMISO);
+  if (r.reason === 'tope') return enFrase(POR_TOPE);
   // Sin punto final: quien lo muestra decide cómo cerrar la frase.
   return (r.error ?? 'error desconocido').replace(/[.\s]+$/, '');
 }

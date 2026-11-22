@@ -3,9 +3,11 @@ import Admin from '../../layouts/Admin.astro';
 import Icon from '../../components/Icon.astro';
 import { getAppointmentsByIds, getSettings, getTemplates, saveTemplate, updateSettings } from '../../lib/db';
 import { compararGasto, resumenDeUso } from '../../lib/uso-whatsapp';
-import { TASA_USD_COP_DEFECTO, gastoEnPesos, leerTasa } from '../../lib/gasto-meta';
+import { TASA_USD_COP_DEFECTO, gastoEnPesos, leerPesos, leerTasa } from '../../lib/gasto-meta';
 import { back, str } from '../../lib/admin';
 import { metaCost, templatePrefix, waConfigured, waMessagesBetween } from '../../lib/whatsapp';
+import { TEXTO_TOPE_AGOTADO, TOPE_MAX, estadoTope } from '../../lib/tope-whatsapp';
+import { TARIFA_DEFECTO } from '../../lib/uso-whatsapp';
 import { textoPlantilla } from '../../lib/aviso';
 import { TZ, formatCOP, fromLocal, localDate } from '../../lib/time';
 import { getSecret } from 'astro:env/server';
@@ -20,8 +22,14 @@ if (Astro.request.method === 'POST') {
     if (!Number.isFinite(rate) || rate < 0 || rate > 10000) return back(HERE, 'error', 'Escribe el precio por mensaje en pesos, por ejemplo 3,5.');
     const usdCop = leerTasa(str(fd, 'usd', 12));
     if (usdCop === null) return back(HERE, 'error', 'Escribe la tasa del dólar en pesos, por ejemplo 4.000.');
+    // Tope vacío = sin tope.
+    const topeTxt = str(fd, 'tope', 15).trim();
+    const nuevoTope = topeTxt === '' ? null : leerPesos(topeTxt);
+    if (topeTxt !== '' && (nuevoTope === null || nuevoTope > TOPE_MAX)) return back(HERE, 'error', 'Escribe el tope mensual en pesos, sin decimales (por ejemplo 20.000), o déjalo vacío.');
     try {
-      await updateSettings({ wa_rate_cop: Math.round(rate * 100) / 100, wa_usd_cop: usdCop, wa_auto_reminder: fd.get('auto') === 'on' });
+      const omitidas = await updateSettings({ wa_rate_cop: Math.round(rate * 100) / 100, wa_usd_cop: usdCop, wa_tope_cop: nuevoTope, wa_auto_reminder: fd.get('auto') === 'on' });
+      // El tope protege el gasto: si no quedó guardado, Betsy debe saberlo.
+      if (omitidas.length) return back(HERE, 'error', `Se guardó lo demás, pero no ${omitidas.includes('wa_tope_cop') ? 'el tope mensual' : 'la tasa del dólar'}: falta aplicar una migración en la base de datos.`);
     } catch (e) {
       console.error(e);
       return back(HERE, 'error', 'No se pudo guardar. Falta activar el WhatsApp automático en la base de datos.');
@@ -55,6 +63,7 @@ const prevMonth = (() => {
 })();
 const monthEnd = fromLocal(`${nextMonth}-01`, '00:00');
 const monthLabel = new Intl.DateTimeFormat('es-CO', { month: 'long', year: 'numeric', timeZone: 'UTC' }).format(new Date(`${month}-15T12:00:00Z`));
+const isNow = month === today.slice(0, 7);
 
 const prevStart = fromLocal(`${prevMonth}-01`, '00:00');
 const [s, saved, msgs, prevMsgs, meta] = await Promise.all([
@@ -73,11 +82,14 @@ const steps = [
   { ok: has('WHATSAPP_WABA_ID'), label: 'Costo real desde Meta', hint: 'WHATSAPP_WABA_ID (opcional)' },
   { ok: has('CRON_SECRET'), label: 'Recordatorio automático del día antes', hint: 'CRON_SECRET' },
 ];
-const rate = Number(s.wa_rate_cop ?? 3.5);
+const rate = Number(s.wa_rate_cop ?? TARIFA_DEFECTO);
 const usdCop = Number(s.wa_usd_cop ?? TASA_USD_COP_DEFECTO);
 const real = meta && 'monto' in meta ? gastoEnPesos(meta, usdCop) : null;
 const fmtUsdCop = new Intl.NumberFormat('es-CO', { maximumFractionDigits: 0 }).format(usdCop);
 const uso = resumenDeUso(msgs ?? [], rate);
+// El tope se mide sobre el mes en curso (al ver un mes pasado no aplica).
+const estadoDelTope = isNow ? estadoTope({ mensajes: msgs ?? [], tarifa: rate, tope: s.wa_tope_cop ?? null, ahora: new Date() }) : null;
+const fmtTope = s.wa_tope_cop ? new Intl.NumberFormat('es-CO', { maximumFractionDigits: 0 }).format(s.wa_tope_cop) : '';
 // Sin datos del mes anterior (falta la migración o falló la lectura) no hay comparación que mostrar.
 const vsPrev = prevMsgs ? compararGasto(uso.estimado, resumenDeUso(prevMsgs, rate).estimado) : null;
 // Avisos que no salieron, con enlace a su cita (abre la semana de la cita con el detalle).
@@ -105,7 +117,6 @@ const money = (n: number, currency: string | null) => {
 const kpiValor = !real ? formatCOP(uso.estimado) : real.cop === null ? money(real.monto, real.moneda) : `${real.aproximado ? '≈ ' : ''}${formatCOP(real.cop)}`;
 const kpiEtiqueta = !real ? 'costo estimado' : real.aproximado ? `cobrado por Meta: ${money(real.monto, real.moneda)} (dólar a ${fmtUsdCop} pesos)` : 'cobrado por Meta (dato real)';
 const fmtRate = new Intl.NumberFormat('es-CO', { maximumFractionDigits: 2 }).format(rate);
-const isNow = month === today.slice(0, 7);
 const sample: Appointment = {
   id: 'a1b2c3d4-0000-4000-8000-000000000000',
   service_id: null,
@@ -197,8 +208,28 @@ const sampleData = { a: sample, s, price: 80000, deposit: 40000 };
           <ul class="wa-states" aria-label="Estado de los mensajes enviados">
             <li><strong>{uso.porEstado.entregados}</strong> entregados ({uso.porEstado.leidos} ya leídos)</li>
             <li class:list={{ bad: uso.porEstado.fallidos > 0 }}><strong>{uso.porEstado.fallidos}</strong> no se entregaron</li>
-            <li class:list={{ bad: uso.porEstado.bloqueados > 0 }}><strong>{uso.porEstado.bloqueados}</strong> sin permiso de la clienta</li>
+            <li class:list={{ bad: uso.porEstado.bloqueados > 0 }}><strong>{uso.porEstado.bloqueados}</strong> bloqueados (sin permiso o por tope)</li>
           </ul>
+          {estadoDelTope && estadoDelTope.nivel !== 'sin_tope' && (
+            <div class:list={['wa-tope', estadoDelTope.nivel]}>
+              <p>
+                <b>Tope del mes:</b> {formatCOP(estadoDelTope.gastado)} de {formatCOP(estadoDelTope.tope)} ({estadoDelTope.porcentaje} %)
+                {estadoDelTope.nivel === 'agotado' && ` · Se alcanzó: ${TEXTO_TOPE_AGOTADO}.`}
+                {estadoDelTope.nivel === 'aviso' && ' · Ya vas por más del 80 %.'}
+              </p>
+              <div
+                class="wa-bar"
+                role="progressbar"
+                aria-label="Gasto estimado frente al tope del mes"
+                aria-valuemin={0}
+                aria-valuemax={100}
+                aria-valuenow={Math.min(estadoDelTope.porcentaje, 100)}
+                aria-valuetext={`${formatCOP(estadoDelTope.gastado)} de ${formatCOP(estadoDelTope.tope)} (${estadoDelTope.porcentaje} %)`}
+              >
+                <span style={`width:${Math.min(estadoDelTope.porcentaje, 100)}%`} />
+              </div>
+            </div>
+          )}
           {real && <p class="muted wa-note">Estimado con tu tarifa: {formatCOP(uso.estimado)} ({uso.cobrados} × {fmtRate} pesos).</p>}
           {meta && 'error' in meta && <p class="muted wa-note">No se pudo leer el costo real en Meta ({meta.error}). Se muestra el estimado.</p>}
           {uso.porEvento.length > 0 && (
@@ -232,7 +263,7 @@ const sampleData = { a: sample, s, price: 80000, deposit: 40000 };
                     <span>
                       <b>{EVENT_LABEL[m.event ?? 'libre'] ?? m.event}</b>
                       {cita ? ` · ${cita.customer_name}` : ''} · {fmtWhen.format(new Date(m.created_at))}
-                      <small class="muted">{m.status === 'bloqueado' ? 'Sin permiso de la clienta' : (m.error ?? 'No se entregó')}</small>
+                      <small class="muted">{m.error ?? (m.status === 'bloqueado' ? 'No se envió' : 'No se entregó')}</small>
                     </span>
                     {cita ? <a class="btn btn-soft btn-sm" href={citaLink(cita)}>Ver cita</a> : <span class="muted">Sin enlace a la cita</span>}
                   </li>
@@ -255,6 +286,11 @@ const sampleData = { a: sample, s, price: 80000, deposit: 40000 };
         <label for="wa-rate">Precio por mensaje cobrado (pesos)</label>
         <input id="wa-rate" name="rate" inputmode="decimal" value={fmtRate} maxlength="12" aria-describedby="wa-rate-h" />
         <small class="hint" id="wa-rate-h">Meta cobra cada plantilla de Utilidad en Colombia; mira tu tarifa en WhatsApp Manager → Facturación.</small>
+      </div>
+      <div class="field">
+        <label for="wa-tope">Tope mensual de gasto (pesos)</label>
+        <input id="wa-tope" name="tope" inputmode="numeric" value={fmtTope} maxlength="15" placeholder="Sin tope" aria-describedby="wa-tope-h" />
+        <small class="hint" id="wa-tope-h">Con el gasto estimado del mes en este valor, los avisos que se cobran dejan de salir hasta el mes siguiente. Vacío = sin tope.</small>
       </div>
       <div class="field">
         <label for="wa-usd">Tasa del dólar (pesos)</label>
@@ -448,6 +484,30 @@ const sampleData = { a: sample, s, price: 80000, deposit: 40000 };
   }
   .wa-states .bad strong {
     color: #9c2a1a;
+  }
+  .wa-tope {
+    margin: 0.6rem 0;
+    font-size: var(--t-sm);
+  }
+  .wa-tope p {
+    margin: 0 0 0.35rem;
+  }
+  .wa-bar {
+    height: 8px;
+    border-radius: 999px;
+    background: var(--line);
+    overflow: hidden;
+  }
+  .wa-bar span {
+    display: block;
+    height: 100%;
+    background: #2f6b3a;
+  }
+  .wa-tope.aviso .wa-bar span {
+    background: #c98a12;
+  }
+  .wa-tope.agotado .wa-bar span {
+    background: #9c2a1a;
   }
   .wa-fail {
     margin-top: 1rem;

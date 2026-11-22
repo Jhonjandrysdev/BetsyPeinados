@@ -13,10 +13,12 @@ describe('envío de avisos por WhatsApp', () => {
   let ultimoEntrante: string | null;
   let falla: string | null;
   let configurado: boolean;
+  let topeAgotado: boolean;
 
   const deps = (): AvisoDeps => ({
     now: () => AHORA,
     configurado: () => configurado,
+    topeAgotado: async () => topeAgotado,
     meta: {
       enviar: async (payload) => {
         if (falla) throw new Error(falla);
@@ -40,6 +42,7 @@ describe('envío de avisos por WhatsApp', () => {
     ultimoEntrante = null;
     falla = null;
     configurado = true;
+    topeAgotado = false;
   });
 
   it('fuera de la ventana de 24 h envía la plantilla aprobada con sus datos', async () => {
@@ -110,6 +113,22 @@ describe('envío de avisos por WhatsApp', () => {
     }
     expect(enviados).toEqual([]);
     expect(registro).toEqual([]);
+  });
+
+  it('con el tope mensual agotado no envía plantillas: quedan bloqueadas por tope', async () => {
+    topeAgotado = true;
+    const r = await enviar(confirmada, 'recordatorio');
+    expect(r).toMatchObject({ ok: false, reason: 'tope' });
+    expect(enviados).toEqual([]);
+    expect(registro[0]).toMatchObject({ status: 'bloqueado', event: 'recordatorio', error: 'Se alcanzó el tope mensual de gasto en WhatsApp' });
+    expect(registro[0].body).toContain('te recordamos tu cita');
+    expect(avisados).toEqual([]);
+  });
+
+  it('con el tope agotado, dentro de la ventana de 24 h el texto gratis sí sale', async () => {
+    topeAgotado = true;
+    ultimoEntrante = '2026-11-22T10:00:00.000Z';
+    expect(await enviar(confirmada, 'abono')).toMatchObject({ ok: true, kind: 'texto' });
   });
 
   it('usa el texto que Betsy ajustó a mano si viene uno', async () => {

@@ -3,7 +3,8 @@ import Admin from '../../layouts/Admin.astro';
 import Icon from '../../components/Icon.astro';
 import { SlotTakenError, citaStore, getAppointment, getAppointments, getBlockedDates, getGoogleConnection, getHours, getServices, getSettings, getTemplates, receiptUrl, updateAppointment } from '../../lib/db';
 import { DEFAULT_TEMPLATES, NOTICE_EVENTS, fillTemplate, type NoticeEvent } from '../../lib/messages';
-import { sendFree, sendNotice, sendNoticeSafe, waConfigured, waErrorText, waMessagesForPhones, waNumber, windowOpen, type SendResult } from '../../lib/whatsapp';
+import { TEXTO_TOPE_AGOTADO } from '../../lib/tope-whatsapp';
+import { estadoTopeActual, sendFree, sendNotice, sendNoticeSafe, waConfigured, waErrorText, waMessagesForPhones, waNumber, windowOpen, type SendResult } from '../../lib/whatsapp';
 import { book, BookingError, bookingSchema } from '../../lib/booking';
 import { cancelCalendarEvent, confirmCalendarEvent, createCalendarEvent, moveCalendarEvent } from '../../lib/google';
 import { DEPOSIT_PCT, HAIR_LENGTHS, hairLabel } from '../../lib/defaults';
@@ -439,6 +440,8 @@ const isPdf = (p: string | null | undefined) => Boolean(p && /\.pdf$/i.test(p));
 
 // WhatsApp automático: conversación de cada clienta (si está conectado o ya hay mensajes guardados).
 const waOn = waConfigured();
+// Aviso del tope mensual de WhatsApp (solo con el WhatsApp conectado y un tope puesto en Mensajes).
+const tope = waOn ? await estadoTopeActual(settings).catch(() => null) : null;
 const waByPhone = await waMessagesForPhones(dialogAppts.map((a) => a.customer_phone));
 const chatOf = (a: Appointment) => waByPhone.get(waNumber(a.customer_phone)) ?? [];
 const canReply = (a: Appointment) => windowOpen([...chatOf(a)].reverse().find((m) => m.direction === 'in')?.created_at ?? null);
@@ -475,6 +478,24 @@ const todayOff = offOf(today);
               </a>
             </li>
           ))}
+        </ul>
+      </section>
+    )
+  }
+
+  {
+    tope && (tope.nivel === 'aviso' || tope.nivel === 'agotado') && (
+      <section class="review panel" aria-labelledby="tope-t">
+        <p class="review-t" id="tope-t">
+          <Icon name="money" size={16} />{' '}
+          {tope.nivel === 'agotado'
+            ? `Se alcanzó el tope de WhatsApp del mes (${formatCOP(tope.gastado)} de ${formatCOP(tope.tope)}): ${TEXTO_TOPE_AGOTADO}. Usa «Abrir en mi WhatsApp».`
+            : `WhatsApp: ya vas en el ${tope.porcentaje} % del tope del mes (${formatCOP(tope.gastado)} de ${formatCOP(tope.tope)}).`}
+        </p>
+        <ul>
+          <li>
+            <a href="/admin/mensajes">Ver el uso en Mensajes</a>
+          </li>
         </ul>
       </section>
     )

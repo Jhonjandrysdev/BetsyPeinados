@@ -29,6 +29,8 @@ export interface SiteSettings {
   wa_rate_cop?: number | null;
   /** Tasa del dólar en pesos para mostrar en COP el gasto real de Meta. */
   wa_usd_cop?: number | null;
+  /** Tope mensual de gasto en WhatsApp en pesos (null = sin tope). */
+  wa_tope_cop?: number | null;
   /** El recordatorio "¿Confirmas tu cita?" sale solo el día anterior. */
   wa_auto_reminder?: boolean | null;
 }
