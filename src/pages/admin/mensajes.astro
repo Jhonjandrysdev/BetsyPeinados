@@ -3,6 +3,7 @@ import Admin from '../../layouts/Admin.astro';
 import Icon from '../../components/Icon.astro';
 import { getAppointmentsByIds, getSettings, getTemplates, saveTemplate, updateSettings } from '../../lib/db';
 import { compararGasto, resumenDeUso } from '../../lib/uso-whatsapp';
+import { TASA_USD_COP_DEFECTO, gastoEnPesos } from '../../lib/gasto-meta';
 import { back, str } from '../../lib/admin';
 import { metaCost, templatePrefix, waConfigured, waMessagesBetween } from '../../lib/whatsapp';
 import { textoPlantilla } from '../../lib/aviso';
@@ -17,8 +18,11 @@ if (Astro.request.method === 'POST') {
   if (fd.get('form') === 'wa') {
     const rate = Number(str(fd, 'rate', 12).replace(',', '.'));
     if (!Number.isFinite(rate) || rate < 0 || rate > 10000) return back(HERE, 'error', 'Escribe el precio por mensaje en pesos, por ejemplo 3,5.');
+    // La tasa se escribe como en Colombia (4.000 o 4000): se quitan los separadores de miles.
+    const usdCop = Number(str(fd, 'usd', 12).replace(/[.\s]/g, '').replace(',', '.'));
+    if (!Number.isFinite(usdCop) || usdCop < 1000 || usdCop > 20000) return back(HERE, 'error', 'Escribe la tasa del dólar en pesos, por ejemplo 4.000.');
     try {
-      await updateSettings({ wa_rate_cop: Math.round(rate * 100) / 100, wa_auto_reminder: fd.get('auto') === 'on' });
+      await updateSettings({ wa_rate_cop: Math.round(rate * 100) / 100, wa_usd_cop: Math.round(usdCop), wa_auto_reminder: fd.get('auto') === 'on' });
     } catch (e) {
       console.error(e);
       return back(HERE, 'error', 'No se pudo guardar. Falta activar el WhatsApp automático en la base de datos.');
@@ -71,6 +75,9 @@ const steps = [
   { ok: has('CRON_SECRET'), label: 'Recordatorio automático del día antes', hint: 'CRON_SECRET' },
 ];
 const rate = Number(s.wa_rate_cop ?? 3.5);
+const usdCop = Number(s.wa_usd_cop ?? TASA_USD_COP_DEFECTO);
+const real = meta && 'amount' in meta ? gastoEnPesos({ monto: meta.amount, moneda: meta.currency }, usdCop) : null;
+const fmtUsdCop = new Intl.NumberFormat('es-CO', { maximumFractionDigits: 0 }).format(usdCop);
 const uso = resumenDeUso(msgs ?? [], rate);
 // Sin datos del mes anterior (falta la migración o falló la lectura) no hay comparación que mostrar.
 const vsPrev = prevMsgs ? compararGasto(uso.estimado, resumenDeUso(prevMsgs, rate).estimado) : null;
@@ -85,7 +92,14 @@ const noSalieron = shown.map((m) => ({ m, cita: m.appointment_id ? citas.get(m.a
 const citaLink = (a: Appointment) => `/admin?desde=${localDate(new Date(a.starts_at))}&abrir=${a.id}`;
 const fmtWhen = new Intl.DateTimeFormat('es-CO', { timeZone: TZ, day: 'numeric', month: 'short', hour: 'numeric', minute: '2-digit', hour12: true });
 const EVENT_LABEL: Record<string, string> = { ...Object.fromEntries(NOTICE_EVENTS.map((e) => [e.id, e.label])), libre: 'Respuestas tuyas', auto: 'Respuestas automáticas' };
-const usd = new Intl.NumberFormat('en-US', { style: 'currency', currency: 'USD', minimumFractionDigits: 2, maximumFractionDigits: 4 });
+/** Monto en la moneda de Meta (US$0,0123; 1.520 COP…), con decimales suficientes para centavos de dólar. */
+const money = (n: number, currency: string) => {
+  try {
+    return new Intl.NumberFormat('es-CO', { style: 'currency', currency, minimumFractionDigits: 2, maximumFractionDigits: 4 }).format(n);
+  } catch {
+    return `${n} ${currency}`;
+  }
+};
 const fmtRate = new Intl.NumberFormat('es-CO', { maximumFractionDigits: 2 }).format(rate);
 const isNow = month === today.slice(0, 7);
 const sample: Appointment = {
@@ -152,8 +166,10 @@ const sampleData = { a: sample, s, price: 80000, deposit: 40000 };
         <>
           <div class="wa-kpis">
             <p>
-              <strong>{meta && 'usd' in meta ? usd.format(meta.usd) : formatCOP(uso.estimado)}</strong>
-              <span>{meta && 'usd' in meta ? 'cobrado por Meta (dato real)' : 'costo estimado'}</span>
+              <strong>{real ? (real.cop !== null ? `${real.aproximado ? '≈ ' : ''}${formatCOP(real.cop)}` : money(real.monto, real.moneda)) : formatCOP(uso.estimado)}</strong>
+              <span>
+                {real ? (real.aproximado ? `cobrado por Meta: ${money(real.monto, real.moneda)} (dólar a ${fmtUsdCop} pesos)` : 'cobrado por Meta (dato real)') : 'costo estimado'}
+              </span>
             </p>
             <p>
               <strong>{uso.cobrados}</strong>
@@ -181,7 +197,7 @@ const sampleData = { a: sample, s, price: 80000, deposit: 40000 };
             <li class:list={{ bad: uso.porEstado.fallidos > 0 }}><strong>{uso.porEstado.fallidos}</strong> no se entregaron</li>
             <li class:list={{ bad: uso.porEstado.bloqueados > 0 }}><strong>{uso.porEstado.bloqueados}</strong> sin permiso de la clienta</li>
           </ul>
-          {meta && 'usd' in meta && <p class="muted wa-note">Estimado con tu tarifa: {formatCOP(uso.estimado)} ({uso.cobrados} × {fmtRate} pesos).</p>}
+          {real && <p class="muted wa-note">Estimado con tu tarifa: {formatCOP(uso.estimado)} ({uso.cobrados} × {fmtRate} pesos).</p>}
           {meta && 'error' in meta && <p class="muted wa-note">No se pudo leer el costo real en Meta ({meta.error}). Se muestra el estimado.</p>}
           {uso.porEvento.length > 0 && (
             <table class="wa-table">
@@ -237,6 +253,11 @@ const sampleData = { a: sample, s, price: 80000, deposit: 40000 };
         <label for="wa-rate">Precio por mensaje cobrado (pesos)</label>
         <input id="wa-rate" name="rate" inputmode="decimal" value={fmtRate} maxlength="12" aria-describedby="wa-rate-h" />
         <small class="hint" id="wa-rate-h">Meta cobra cada plantilla de Utilidad en Colombia; mira tu tarifa en WhatsApp Manager → Facturación.</small>
+      </div>
+      <div class="field">
+        <label for="wa-usd">Tasa del dólar (pesos)</label>
+        <input id="wa-usd" name="usd" inputmode="numeric" value={fmtUsdCop} maxlength="12" aria-describedby="wa-usd-h" />
+        <small class="hint" id="wa-usd-h">Para mostrar en pesos lo que cobra Meta si tu cuenta factura en dólares. Es un aproximado.</small>
       </div>
       <button class="btn btn-clay"><Icon name="check" /> Guardar</button>
     </form>

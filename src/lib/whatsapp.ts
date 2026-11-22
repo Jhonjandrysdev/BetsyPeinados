@@ -278,7 +278,9 @@ export async function saveInbound(row: { appointment_id: string | null; phone: s
 
 // ───────────── Costos ─────────────
 export interface MetaCost {
-  usd: number;
+  /** Gasto del periodo en la moneda en que factura la cuenta (`currency`). */
+  amount: number;
+  currency: string;
   billable: number;
   byCategory: Record<string, { volume: number; cost: number }>;
 }
@@ -289,8 +291,9 @@ export async function metaCost(from: Date, to: Date): Promise<MetaCost | { error
   if (!waba || !env('WHATSAPP_TOKEN')) return null;
   const start = Math.floor(from.getTime() / 1000);
   const end = Math.floor(Math.min(to.getTime(), Date.now()) / 1000);
-  if (end <= start) return { usd: 0, billable: 0, byCategory: {} };
-  const fields = `pricing_analytics.start(${start}).end(${end}).granularity(MONTHLY).dimensions(["PRICING_CATEGORY","PRICING_TYPE"])`;
+  if (end <= start) return { amount: 0, currency: 'USD', billable: 0, byCategory: {} };
+  // La moneda de la cuenta (USD, COP…) viene con la analítica: no se asume dólares.
+  const fields = `currency,pricing_analytics.start(${start}).end(${end}).granularity(MONTHLY).dimensions(["PRICING_CATEGORY","PRICING_TYPE"])`;
   try {
     const r = await fetch(`${GRAPH}/${waba}?fields=${encodeURIComponent(fields)}`, {
       headers: { Authorization: `Bearer ${env('WHATSAPP_TOKEN')}` },
@@ -298,16 +301,17 @@ export async function metaCost(from: Date, to: Date): Promise<MetaCost | { error
     });
     const j = (await r.json().catch(() => ({}))) as {
       error?: { message?: string };
+      currency?: string;
       pricing_analytics?: { data?: { data_points?: { pricing_category?: string; pricing_type?: string; volume?: number; cost?: number }[] }[] };
     };
     if (!r.ok) return { error: j.error?.message ?? `Error ${r.status}` };
-    const out: MetaCost = { usd: 0, billable: 0, byCategory: {} };
+    const out: MetaCost = { amount: 0, currency: (j.currency ?? 'USD').toUpperCase(), billable: 0, byCategory: {} };
     for (const p of j.pricing_analytics?.data?.flatMap((d) => d.data_points ?? []) ?? []) {
       const cat = (p.pricing_category ?? 'otro').toLowerCase();
       const c = (out.byCategory[cat] ??= { volume: 0, cost: 0 });
       c.volume += p.volume ?? 0;
       c.cost += p.cost ?? 0;
-      out.usd += p.cost ?? 0;
+      out.amount += p.cost ?? 0;
       if (p.pricing_type === 'REGULAR') out.billable += p.volume ?? 0;
     }
     return out;
