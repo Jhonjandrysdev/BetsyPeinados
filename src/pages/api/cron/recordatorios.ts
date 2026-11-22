@@ -5,6 +5,7 @@ import { addDays, fromLocal, localDate } from '../../../lib/time';
 import { sendNotice, waConfigured, waErrorText } from '../../../lib/whatsapp';
 import { safeEqual } from '../../../lib/crypto';
 import { json } from '../../../lib/http';
+import { aceptaAvisos } from '../../../lib/cita';
 
 /**
  * Recordatorio del día anterior con los botones "Confirmo" / "Cambiar hora".
@@ -23,7 +24,7 @@ export const GET: APIRoute = async ({ request }) => {
   const tomorrow = addDays(localDate(), 1);
   const from = fromLocal(tomorrow, '00:00');
   const list = await getAppointments({ from, to: fromLocal(addDays(tomorrow, 1), '00:00'), activeOnly: true });
-  const due = list.filter((a) => a.status === 'confirmada' && new Date(a.starts_at) >= from && !a.notified?.recordatorio && !a.client_confirmed_at);
+  const due = list.filter((a) => a.status === 'confirmada' && aceptaAvisos(a) && new Date(a.starts_at) >= from && !a.notified?.recordatorio && !a.client_confirmed_at);
 
   let sent = 0;
   const failed: string[] = [];

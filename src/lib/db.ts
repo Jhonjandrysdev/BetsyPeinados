@@ -177,12 +177,17 @@ export async function createAppointment(
     return row;
   }
   const insert = (row: Partial<Appointment>) => supabaseAdmin().from('appointments').insert(row).select('*').single();
-  let res = await insert(a);
-  // Si la base aún no tiene las columnas de valor y abono, reserva igual.
-  if (res.error?.code === 'PGRST204') {
-    console.warn('Falta aplicar la migración precio_en_cita: la cita se guarda sin valor ni abono.');
-    const { price: _p, deposit: _d, ...base } = a;
-    res = await insert(base);
+  // Si a la base le falta una migración (precio_en_cita o permiso_avisos), reserva igual sin esas columnas:
+  // se quitan solo las que PostgREST dice que no existen, para no perder las demás.
+  const OPCIONALES: Record<string, (keyof Appointment)[]> = { price: ['price', 'deposit'], deposit: ['price', 'deposit'], wa_opt_in: ['wa_opt_in'] };
+  let row: Partial<Appointment> = a;
+  let res = await insert(row);
+  for (let i = 0; i < 2 && res.error?.code === 'PGRST204'; i++) {
+    const col = Object.keys(OPCIONALES).find((c) => res.error?.message.includes(`'${c}'`));
+    if (!col) break;
+    console.warn(`Falta la columna ${col} en appointments: aplica las migraciones pendientes. La cita se guarda sin ella.`);
+    row = Object.fromEntries(Object.entries(row).filter(([k]) => !OPCIONALES[col].includes(k as keyof Appointment)));
+    res = await insert(row);
   }
   // 23P01 = exclusion_violation (cruce de horarios)
   if (res.error?.code === '23P01') throw new SlotTakenError('Horario ocupado');

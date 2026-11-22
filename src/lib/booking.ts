@@ -5,6 +5,7 @@ import { availableSlots } from './slots';
 import { sendNotice, waConfigured } from './whatsapp';
 import { fromLocal, isDate, isTime } from './time';
 import { cotizar } from './cita';
+import { normalizarCelular } from './celular';
 import type { Appointment } from './types';
 
 const clean = (s: string) => s.replace(/[\u0000-\u001f\u007f<>]/g, '').replace(/\s+/g, ' ').trim();
@@ -14,11 +15,12 @@ export const bookingSchema = z.object({
   date: z.string().refine(isDate, 'Fecha inválida'),
   time: z.string().refine(isTime, 'Hora inválida'),
   name: z.string().transform(clean).pipe(z.string().min(2, 'Escribe tu nombre').max(80)),
-  phone: z
-    .string()
-    .transform((s) => s.replace(/[^\d+]/g, ''))
-    .transform((s) => (s.startsWith('+') ? s.slice(1) : s.length === 10 && s.startsWith('3') ? `57${s}` : s))
-    .pipe(z.string().regex(/^[0-9]{7,15}$/, 'Número de WhatsApp inválido')),
+  phone: z.string().transform((s, ctx) => {
+    const r = normalizarCelular(s);
+    if (r.ok) return r.phone;
+    ctx.addIssue({ code: 'custom', message: r.error });
+    return z.NEVER;
+  }),
   email: z
     .string()
     .transform((s) => s.trim().toLowerCase())
@@ -29,6 +31,8 @@ export const bookingSchema = z.object({
   hair_length: z.union([z.enum(['corto', 'medio', 'extra']), z.literal('')]).optional().default(''),
   home_service: z.boolean().optional().default(false),
   home_address: z.string().transform(clean).pipe(z.string().max(200)).optional().default(''),
+  /** Avisos automáticos por WhatsApp: la casilla viene marcada por defecto. */
+  wa_opt_in: z.boolean().optional().default(true),
 }).refine((v) => !v.home_service || v.home_address.length >= 5, {
   path: ['home_address'],
   message: 'Escribe la dirección para el servicio a domicilio',
@@ -71,6 +75,7 @@ export async function book(input: BookingInput, source: 'web' | 'admin'): Promis
       home_service: input.home_service,
       home_address: input.home_service ? input.home_address : null,
       hair_length: input.hair_length || null,
+      wa_opt_in: input.wa_opt_in,
       ...cotizar(service, input.hair_length),
     });
   } catch (e) {

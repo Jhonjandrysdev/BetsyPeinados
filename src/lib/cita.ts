@@ -101,6 +101,9 @@ export function tiempoRestante(plazo: Date, now: Date): string | null {
   return h && m ? `${horas} y ${minutos}` : h ? horas : minutos;
 }
 
+/** La clienta acepta avisos automáticos por WhatsApp (citas sin el dato, de antes del permiso: sí). */
+export const aceptaAvisos = (a: Pick<Appointment, 'wa_opt_in'>) => a.wa_opt_in !== false;
+
 /** Error con un mensaje que se le puede mostrar a Betsy tal cual. */
 export class CitaError extends Error {}
 
@@ -180,8 +183,8 @@ export function createCitas(store: CitaStore, deps: Partial<CitaDeps> = {}) {
             reportar('No se pudo borrar de Google Calendar la cita vencida', e);
           }
         }
-        // Solo si la cita aún no empieza; los avisos que no salgan aquí quedan en el panel para enviarlos a mano.
-        if (avisar && intentos < MAX_AVISOS_POR_CORRIDA && Date.parse(a.starts_at) > now().getTime()) {
+        // Solo si la clienta aceptó avisos y la cita aún no empieza; los que no salgan aquí quedan en el panel para enviarlos a mano.
+        if (avisar && aceptaAvisos(a) && intentos < MAX_AVISOS_POR_CORRIDA && Date.parse(a.starts_at) > now().getTime()) {
           intentos++;
           try {
             if (await avisar({ ...a, status: 'cancelada', cancel_reason: 'sin_abono' }, 'cupo_liberado')) avisadas++;
