@@ -5,6 +5,13 @@
 import { noSalio } from './aviso';
 import type { WaMessage } from './types';
 
+/** Mensajes enviados y cobrados de un tipo (abono, recordatorio, respuestas libres…). */
+export interface UsoPorEvento {
+  event: string;
+  enviados: number;
+  cobrados: number;
+}
+
 export interface ResumenUso {
   /** Mensajes que salieron hacia la clienta (sin fallidos, bloqueados ni los marcados a mano). */
   enviados: number;
@@ -17,7 +24,7 @@ export interface ResumenUso {
   /** Mensajes cobrados × tarifa por mensaje (pesos). */
   estimado: number;
   porEstado: { entregados: number; leidos: number; fallidos: number; bloqueados: number };
-  porEvento: { event: string; enviados: number; cobrados: number }[];
+  porEvento: UsoPorEvento[];
   /** Avisos que no le llegaron a la clienta, el más reciente primero: Betsy los puede enviar a mano. */
   noSalieron: WaMessage[];
 }
@@ -31,7 +38,7 @@ export function resumenDeUso(mensajes: WaMessage[], tarifa: number): ResumenUso 
   const cobrados = enviados.filter(esCobrado);
   const recibidos = mensajes.filter((m) => m.direction === 'in');
 
-  const porEvento = new Map<string, { event: string; enviados: number; cobrados: number }>();
+  const porEvento = new Map<string, UsoPorEvento>();
   for (const m of enviados) {
     const event = m.event ?? 'libre';
     const e = porEvento.get(event) ?? { event, enviados: 0, cobrados: 0 };

@@ -63,6 +63,10 @@ describe('resumen de uso de WhatsApp del mes', () => {
     expect(r2.noSalieron.map((m) => m.appointment_id)).toEqual(['c4', 'c2', 'c3']);
   });
 
+  it('un mensaje que falló no se cobra aunque Meta lo marque como cobrable', () => {
+    expect(resumenDeUso([msg({ status: 'fallido', billable: true })], 4)).toMatchObject({ enviados: 0, cobrados: 0, estimado: 0 });
+  });
+
   it('un mes sin mensajes da todo en cero', () => {
     expect(resumenDeUso([], 4)).toMatchObject({ enviados: 0, cobrados: 0, estimado: 0, noSalieron: [], porEvento: [] });
   });
