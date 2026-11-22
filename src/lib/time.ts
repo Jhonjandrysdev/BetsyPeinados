@@ -52,6 +52,11 @@ export function prettyTime(d: Date | string): string {
   return fmtTime.format(typeof d === 'string' ? new Date(d) : d).replace(/\s/g, ' ');
 }
 
+/** Hora del día "09:00[:00]" en palabras de Colombia ("9:00 a. m."). */
+export function prettyClock(hhmm: string): string {
+  return prettyTime(fromLocal('2026-01-01', hhmm));
+}
+
 export function formatCOP(n: number | null | undefined): string {
   if (n == null) return 'A convenir';
   return new Intl.NumberFormat('es-CO', { style: 'currency', currency: 'COP', maximumFractionDigits: 0 }).format(n);
