@@ -798,9 +798,12 @@ const description = `Peinados profesionales en ${s.city}: ondas, peinados social
   }
 
   /* ───────── SERVICIOS ───────── */
-  /* Paquetes y Servicios van seguidas y con el mismo fondo: sin esto se suman los dos
-     paddings (hasta ~270 px de vacío). Queda un solo espacio de sección entre ambas. */
-  #servicios {
+  /* Secciones seguidas con el mismo fondo (Paquetes→Servicios, Galería→Sobre mí,
+     FAQ→Contacto): sin esto se suman los dos paddings (hasta ~270 px de vacío).
+     Queda un solo espacio de sección entre ambas. */
+  #servicios,
+  .about,
+  #contacto {
     padding-top: 0;
   }
   .services {
