@@ -417,6 +417,11 @@ section {
 .field {
   display: grid;
   gap: 0.4rem;
+  /* Sin esto, en dos columnas el campo se estira para igualar al vecino que lleva ayuda debajo. */
+  align-content: start;
+}
+.field[hidden] {
+  display: none;
 }
 .field label {
   font-size: 0.86rem;
