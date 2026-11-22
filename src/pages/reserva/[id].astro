@@ -23,7 +23,7 @@ if (Astro.request.method === 'POST') {
   else {
     const f = (await Astro.request.formData()).get('receipt');
     if (!(f instanceof File) || f.size === 0) upMsg = 'Elige la foto o el PDF del comprobante.';
-    else if (f.size > 5 * 1024 * 1024) upMsg = 'El archivo pesa más de 5 MB. Prueba con una captura de pantalla.';
+    else if (f.size > 4 * 1024 * 1024) upMsg = 'El archivo pesa más de 4 MB. Prueba con una captura de pantalla.';
     else if (!['image/jpeg', 'image/png', 'image/webp', 'image/heic', 'application/pdf'].includes(f.type)) upMsg = 'Sube una foto (JPG, PNG) o un PDF.';
     else {
       try {
@@ -259,18 +259,47 @@ const icsHref = `data:text/calendar;charset=utf-8,${encodeURIComponent(ics)}`;
     }
   });
   // Adjuntar comprobante: se envía apenas se elige el archivo.
+  // Vercel rechaza peticiones de más de ~4,5 MB y una foto de celular suele pasarlas,
+  // así que las fotos se reducen aquí (JPEG de 1800 px, legible y de pocos cientos de KB).
+  const MAX = 4 * 1024 * 1024;
+  const shrink = async (f: File): Promise<File> => {
+    if (!f.type.startsWith('image/') || f.size < 1024 * 1024) return f;
+    try {
+      const img = await createImageBitmap(f);
+      const k = Math.min(1, 1800 / Math.max(img.width, img.height));
+      const c = document.createElement('canvas');
+      c.width = Math.round(img.width * k);
+      c.height = Math.round(img.height * k);
+      c.getContext('2d')!.drawImage(img, 0, 0, c.width, c.height);
+      const blob = await new Promise<Blob | null>((r) => c.toBlob(r, 'image/jpeg', 0.85));
+      if (!blob || blob.size >= f.size) return f;
+      return new File([blob], f.name.replace(/\.[^.]+$/, '') + '.jpg', { type: 'image/jpeg' });
+    } catch {
+      return f; // el navegador no sabe abrirla (p. ej. HEIC fuera de Safari): se envía tal cual
+    }
+  };
   const file = document.querySelector<HTMLInputElement>('[data-file]');
-  file?.addEventListener('change', () => {
-    const f = file.files?.[0];
-    if (!f) return;
+  file?.addEventListener('change', async () => {
+    const original = file.files?.[0];
+    if (!original) return;
     const msg = document.querySelector<HTMLElement>('[data-up-msg]')!;
-    if (f.size > 5 * 1024 * 1024) {
-      msg.textContent = 'El archivo pesa más de 5 MB. Prueba con una captura de pantalla.';
+    const label = document.querySelector('[data-file-label]')!;
+    label.textContent = 'Subiendo…';
+    file.closest('label')!.classList.add('busy');
+    const f = await shrink(original);
+    if (f.size > MAX) {
+      label.textContent = 'Adjuntar comprobante';
+      file.closest('label')!.classList.remove('busy');
+      file.value = '';
+      msg.textContent = 'El archivo pesa más de 4 MB. Prueba con una captura de pantalla o envíalo por WhatsApp.';
       return;
     }
-    document.querySelector('[data-file-label]')!.textContent = 'Subiendo…';
-    file.closest('label')!.classList.add('busy');
-    msg.textContent = f.name;
+    if (f !== original) {
+      const dt = new DataTransfer();
+      dt.items.add(f);
+      file.files = dt.files;
+    }
+    msg.textContent = original.name;
     document.querySelector<HTMLFormElement>('[data-up]')!.submit();
   });
   // Cuando Betsy confirme el abono o ajuste el valor, la página se actualiza sola
