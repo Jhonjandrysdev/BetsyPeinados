@@ -10,6 +10,7 @@ import { cancelCalendarEvent, confirmCalendarEvent, createCalendarEvent, moveCal
 import { DEPOSIT_PCT, HAIR_LENGTHS, hairLabel } from '../../lib/defaults';
 import { aceptaAvisos, CitaError, createCitas, cupoLiberado, debeAvisarRechazo, resumenDeCita, valorDeCita } from '../../lib/cita';
 import { noSalio } from '../../lib/aviso';
+import { accionCalendario, fueraDeHorario } from '../../lib/agenda';
 import { addDays, formatCOP, fromLocal, isDate, localDate, localTime, minutesOf, prettyDate, prettyTime as prettyTimeRaw, weekdayOf } from '../../lib/time';
 import { isUuid, str } from '../../lib/admin';
 import type { Appointment, AppointmentStatus } from '../../lib/types';
@@ -50,20 +51,29 @@ if (Astro.request.method === 'POST') {
     const depositOk = status === 'confirmada' && prev === 'pendiente';
     // Si se reactiva una cita cancelada, ya no aplica el motivo de cancelación.
     const reopen = prev === 'cancelada' ? { cancel_reason: null } : {};
-    await updateAppointment(id, depositOk ? { status, deposit_confirmed_at: new Date().toISOString(), ...reopen } : { status, ...reopen });
-    if (depositOk) {
-      // Abono recibido: la cita queda en firme también en Google Calendar.
+    try {
+      await updateAppointment(id, depositOk ? { status, deposit_confirmed_at: new Date().toISOString(), ...reopen } : { status, ...reopen });
+    } catch (e) {
+      // Al reactivar, el horario pudo haberlo tomado otra clienta mientras estaba cancelada.
+      if (e instanceof SlotTakenError) return go('error', 'Ese horario ya lo tiene otra cita. Mueve primero esta cita a otra hora.', desde, id);
+      throw e;
+    }
+    // Google Calendar: la cita en firme (abono confirmado o reactivada) debe estar allá; la cancelada, no.
+    const cal = accionCalendario({ antes: prev, despues: status, tieneEvento: Boolean(appt.google_event_id) });
+    let gcalWarn = '';
+    if (cal === 'confirmar' || cal === 'crear') {
       try {
-        if (appt.google_event_id) await confirmCalendarEvent(appt.google_event_id, appt);
+        if (cal === 'confirmar' && appt.google_event_id) await confirmCalendarEvent(appt.google_event_id, appt);
         else {
           const eventId = await createCalendarEvent({ ...appt, status: 'confirmada' }, await getSettings());
           if (eventId) await updateAppointment(id, { google_event_id: eventId });
         }
       } catch (e) {
         console.error(e);
+        if (prev === 'cancelada') gcalWarn = ' No se pudo anotar de nuevo en tu Google Calendar: agrégala a mano allá.';
       }
     }
-    if (status === 'cancelada' && appt.google_event_id) {
+    if (cal === 'cancelar' && appt.google_event_id) {
       try {
         await cancelCalendarEvent(appt.google_event_id, Boolean(appt.customer_email));
         await updateAppointment(id, { google_event_id: null });
@@ -90,8 +100,8 @@ if (Astro.request.method === 'POST') {
       return go('ok', `${done}${waSay(wa, who)}`, desde);
     }
     return go(
-      'ok',
-      status === 'cancelada'
+      gcalWarn ? 'warn' : 'ok',
+      (status === 'cancelada'
         ? `Cita de ${who} cancelada. El horario quedó libre.`
         : status === 'completada'
           ? `¡Listo! Cita de ${who} marcada como realizada.`
@@ -99,9 +109,11 @@ if (Astro.request.method === 'POST') {
             ? `La cita de ${who} ya no está marcada como realizada.`
             : depositOk
               ? `Abono de ${who} recibido. La cita quedó confirmada ✨ Avísale por WhatsApp.`
-              : `Cita de ${who} confirmada`,
+              : prev === 'cancelada'
+                ? `Cita de ${who} reactivada y confirmada`
+                : `Cita de ${who} confirmada`) + gcalWarn,
       desde,
-      depositOk ? id : '',
+      depositOk || gcalWarn ? id : '',
     );
   }
 
@@ -186,6 +198,12 @@ if (Astro.request.method === 'POST') {
     const startsAt = fromLocal(date, time);
     if (startsAt.getTime() < Date.now() - 5 * 60_000) return go('error', 'Esa hora ya pasó. Elige una fecha y hora futuras.', desde, id);
     const dur = new Date(appt.ends_at).getTime() - new Date(appt.starts_at).getTime();
+    // Horario de atención y días bloqueados: Betsy puede saltárselos a sabiendas marcando la casilla.
+    if (fd.get('fuera') !== 'on') {
+      const [horarios, bloqueos] = await Promise.all([getHours(), getBlockedDates(date)]);
+      const problema = fueraDeHorario({ fecha: date, hora: time, duracionMin: Math.round(dur / 60_000), horarios, bloqueos });
+      if (problema) return go('error', `${problema}. Si de verdad quieres moverla ahí, marca «Moverla aunque esté fuera de mi horario» y guarda de nuevo.`, desde, id);
+    }
     const moved = { ...appt, starts_at: startsAt.toISOString(), ends_at: new Date(startsAt.getTime() + dur).toISOString() };
     if (moved.starts_at === appt.starts_at) return go('warn', 'La cita ya estaba a esa hora.', desde, id);
     const { recordatorio: _r, reagendada: _g, ...notified } = appt.notified ?? {};
@@ -1062,10 +1080,13 @@ const todayOff = offOf(today);
                   <label class="field chk move-chk">
                     <input type="checkbox" name="notify" checked /> <span>{waOn ? 'Avisarle por WhatsApp' : 'Le avisaré por WhatsApp'}</span>
                   </label>
+                  <label class="field chk move-chk">
+                    <input type="checkbox" name="fuera" /> <span>Moverla aunque esté fuera de mi horario</span>
+                  </label>
                   <button class="btn btn-clay move-go">
                     <Icon name="check" /> Guardar nueva hora
                   </button>
-                  <small class="hint move-hint">Dura lo mismo ({durLabel(a)}). Si choca con otra cita, te avisamos.</small>
+                  <small class="hint move-hint">Dura lo mismo ({durLabel(a)}). Si choca con otra cita o queda fuera de tu horario, te avisamos.</small>
                 </form>
               </details>
             )}
