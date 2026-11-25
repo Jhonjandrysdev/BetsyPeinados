@@ -509,11 +509,6 @@ const todayOff = offOf(today);
             ? `Se alcanzó el tope de WhatsApp del mes (${formatCOP(tope.gastado)} de ${formatCOP(tope.tope)}): ${TEXTO_TOPE_AGOTADO}. Usa «Abrir en mi WhatsApp».`
             : `WhatsApp: ya vas en el ${tope.porcentaje} % del tope del mes (${formatCOP(tope.gastado)} de ${formatCOP(tope.tope)}).`}
         </p>
-        <ul>
-          <li>
-            <a href="/admin/mensajes">Ver el uso en Mensajes</a>
-          </li>
-        </ul>
       </section>
     )
   }
