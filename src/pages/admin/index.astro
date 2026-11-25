@@ -4,12 +4,11 @@ import Icon from '../../components/Icon.astro';
 import { SlotTakenError, citaStore, getAppointment, getAppointments, getBlockedDates, getGoogleConnection, getHours, getServices, getSettings, getTemplates, updateAppointment } from '../../lib/db';
 import { DEFAULT_TEMPLATES, NOTICE_EVENTS, fillTemplate, type NoticeEvent } from '../../lib/messages';
 import { TEXTO_TOPE_AGOTADO } from '../../lib/tope-whatsapp';
-import { estadoTopeActual, sendFree, sendNotice, sendNoticeSafe, waConfigured, waErrorText, waMessagesForPhones, waNumber, windowOpen, type SendResult } from '../../lib/whatsapp';
+import { estadoTopeActual, sendFree, sendNotice, sendNoticeSafe, waConfigured, waErrorText, waNumber, type SendResult } from '../../lib/whatsapp';
 import { book, BookingError, bookingSchema } from '../../lib/booking';
 import { cancelCalendarEvent, confirmCalendarEvent, createCalendarEvent, moveCalendarEvent } from '../../lib/google';
 import { DEPOSIT_PCT, HAIR_LENGTHS, hairLabel } from '../../lib/defaults';
 import { aceptaAvisos, CitaError, createCitas, cupoLiberado, debeAvisarRechazo, resumenDeCita, valorDeCita } from '../../lib/cita';
-import { noSalio } from '../../lib/aviso';
 import { accionCalendario, fueraDeHorario } from '../../lib/agenda';
 import { addDays, formatCOP, fromLocal, isDate, localDate, localTime, minutesOf, prettyDate, prettyTime as prettyTimeRaw, weekdayOf } from '../../lib/time';
 import { isUuid, str } from '../../lib/admin';
@@ -452,22 +451,13 @@ const selectedDay = thisWeek ? today : start;
 const dialogAppts = [...new Map([...appts, ...todayAll, ...(next ? [next] : [])].map((a) => [a.id, a])).values()];
 const isPdf = (p: string | null | undefined) => Boolean(p && /\.pdf$/i.test(p));
 
-// WhatsApp automático: conversación de cada clienta (si está conectado o ya hay mensajes guardados).
+// WhatsApp automático (desactivado desde 2026-11-25: sin las variables de Meta queda apagado).
 const waOn = waConfigured();
 // Aviso del tope mensual de WhatsApp (solo con el WhatsApp conectado y un tope puesto en Mensajes).
 const tope = waOn ? await estadoTopeActual(settings).catch(() => null) : null;
 // Nueva fecha y hora que Betsy había escrito al mover una cita que quedó fuera de su horario.
 const qMv = { id: Astro.url.searchParams.get('abrir') ?? '', d: Astro.url.searchParams.get('mvd') ?? '', t: Astro.url.searchParams.get('mvt') ?? '' };
 const mvPendiente = (a: Appointment) => (qMv.id === a.id && isDate(qMv.d) && /^([01]\d|2[0-3]):[0-5]\d$/.test(qMv.t) ? { d: qMv.d, t: qMv.t } : null);
-const waByPhone = await waMessagesForPhones(dialogAppts.map((a) => a.customer_phone));
-const chatOf = (a: Appointment) => waByPhone.get(waNumber(a.customer_phone)) ?? [];
-const canReply = (a: Appointment) => windowOpen([...chatOf(a)].reverse().find((m) => m.direction === 'in')?.created_at ?? null);
-const fmtChat = new Intl.DateTimeFormat('es-CO', { timeZone: 'America/Bogota', day: 'numeric', month: 'short', hour: 'numeric', minute: '2-digit', hour12: true });
-const chatWhen = (iso: string) => fmtChat.format(new Date(iso)).replace(/\s/g, '\u00a0').replace('.', '');
-const TICK: Record<string, string> = { enviando: '…', enviado: '✓', entregado: '✓✓', leido: '✓✓', fallido: '⚠', bloqueado: '⊘', manual: '' };
-const TICK_LABEL: Record<string, string> = { enviando: 'Enviando', enviado: 'Enviado', entregado: 'Entregado', leido: 'Leído', fallido: 'No se entregó', bloqueado: 'No se envió', manual: '' };
-/** Aviso que no salió (falló o quedó bloqueado): Betsy lo manda desde su WhatsApp con el mismo texto. */
-const manualLink = (phone: string, body: string) => `https://wa.me/${phone}?text=${encodeURIComponent(body)}`;
 const todayOff = offOf(today);
 ---
 
@@ -1083,56 +1073,6 @@ const todayOff = offOf(today);
                   <small class="hint move-hint">Dura lo mismo ({durLabel(a)}). Si choca con otra cita o queda fuera de tu horario, te avisamos.</small>
                 </form>
               </details>
-            )}
-            {(waOn || chatOf(a).length > 0) && (
-              <section class="chat" aria-label={`Conversación de WhatsApp con ${who}`}>
-                <header class="chat-h">
-                  <Icon name="whatsapp" size={16} /> <span>Conversación de WhatsApp</span>
-                </header>
-                <ol class="chat-list" data-chat={waNumber(a.customer_phone)} data-sig={chatOf(a).map((m) => `${m.id}:${m.status}`).join(',')} aria-live="polite">
-                  {chatOf(a).length === 0 && <li class="chat-empty">Aún no hay mensajes con {who}.</li>}
-                  {chatOf(a).map((m) => (
-                    <li class:list={['msg', m.direction, m.status]}>
-                      <p>{m.body}</p>
-                      <small>
-                        {m.kind === 'plantilla' && 'Plantilla · '}
-                        {chatWhen(m.created_at)}
-                        {m.direction === 'out' && TICK[m.status] && (
-                          <span class:list={['tick', m.status]} title={TICK_LABEL[m.status]} aria-label={TICK_LABEL[m.status]}>
-                            {' '}
-                            {TICK[m.status]}
-                          </span>
-                        )}
-                      </small>
-                      {m.error && <small class="msg-err">{m.error}</small>}
-                      {noSalio(m) && (
-                        <a class="msg-manual" href={manualLink(waNumber(a.customer_phone), m.body)} target="_blank" rel="noopener">
-                          Abrir en mi WhatsApp
-                        </a>
-                      )}
-                    </li>
-                  ))}
-                </ol>
-                {waOn &&
-                  (canReply(a) ? (
-                    <form method="post" class="chat-form" data-chat-form>
-                      <input type="hidden" name="action" value="reply" />
-                      <input type="hidden" name="id" value={a.id} />
-                      <input type="hidden" name="desde" value={start} />
-                      <label class="sr-only" for={`rp-${a.id}`}>Responder a {who}</label>
-                      <textarea id={`rp-${a.id}`} name="text" rows="2" maxlength="2000" placeholder={`Escríbele a ${who}…`} required />
-                      <button class="btn btn-wa btn-icon" aria-label="Enviar">
-                        <Icon name="arrow" />
-                      </button>
-                      <p class="chat-err" role="alert" data-chat-err hidden></p>
-                    </form>
-                  ) : (
-                    <p class="chat-note muted">
-                      Para escribirle libre, {who} tiene que haberte escrito en las últimas 24 horas. Mientras tanto usa los avisos de arriba o{' '}
-                      <a href={waLink(a, 'hello')} target="_blank" rel="noopener">abre tu WhatsApp</a>.
-                    </p>
-                  ))}
-              </section>
             )}
             {(laterToday || isActive(a) || (waOn && a.status !== 'cancelada')) && (
               <div class="ap-minor">
@@ -2443,146 +2383,6 @@ const todayOff = offOf(today);
   .move-hint {
     color: var(--muted);
   }
-  /* Tema fijo de WhatsApp: no cambia con el resto del panel ni al actualizarse la conversación. */
-  .chat {
-    --wa-head: #008069;
-    --wa-bg: #efeae2;
-    --wa-in: #ffffff;
-    --wa-out: #d9fdd3;
-    --wa-ink: #111b21;
-    --wa-meta: #667781;
-    margin-top: 1rem;
-    border: 1px solid #d1d7db;
-    border-radius: var(--r-md);
-    background: var(--wa-bg);
-    color: var(--wa-ink);
-    overflow: hidden;
-  }
-  .chat-h {
-    display: flex;
-    align-items: center;
-    gap: 0.45rem;
-    padding: 0.7rem 1rem;
-    font-size: var(--t-xs);
-    font-weight: 700;
-    letter-spacing: 0.08em;
-    text-transform: uppercase;
-    color: #fff;
-    background: var(--wa-head);
-  }
-  .chat-list {
-    display: flex;
-    flex-direction: column;
-    gap: 0.45rem;
-    max-height: 300px;
-    margin: 0;
-    padding: 0.8rem;
-    overflow-y: auto;
-    overscroll-behavior: contain;
-    list-style: none;
-  }
-  .chat-list :global(.chat-empty) {
-    align-self: center;
-    padding: 0.35rem 0.8rem;
-    border-radius: 8px;
-    background: #fff;
-    color: var(--wa-meta);
-    font-size: var(--t-sm);
-  }
-  .chat-list :global(.msg) {
-    display: grid;
-    gap: 0.15rem;
-    max-width: 85%;
-    padding: 0.5rem 0.75rem;
-    border-radius: 14px;
-    background: var(--wa-in);
-    color: var(--wa-ink);
-    box-shadow: 0 1px 0.5px rgb(11 20 26 / 0.13);
-  }
-  .chat-list :global(.msg.in) {
-    align-self: flex-start;
-    border-bottom-left-radius: 4px;
-  }
-  .chat-list :global(.msg.out) {
-    align-self: flex-end;
-    background: var(--wa-out);
-    border-bottom-right-radius: 4px;
-  }
-  .chat-list :global(.msg.out.fallido),
-  .chat-list :global(.msg.out.bloqueado) {
-    background: #f8e1dc;
-  }
-  .chat-list :global(.msg .msg-manual) {
-    justify-self: start;
-    font-size: 0.78rem;
-    font-weight: 600;
-  }
-  .chat-list :global(.msg p) {
-    margin: 0;
-    white-space: pre-wrap;
-    overflow-wrap: anywhere;
-    font-size: var(--t-sm);
-    line-height: 1.4;
-  }
-  .chat-list :global(.msg small) {
-    justify-self: end;
-    color: var(--wa-meta);
-    font-size: 0.72rem;
-  }
-  .chat-list :global(.msg .msg-err) {
-    justify-self: start;
-    color: #9c2a1a;
-    overflow-wrap: anywhere;
-  }
-  .chat-list :global(.tick.leido) {
-    color: #53bdeb;
-  }
-  .chat-form {
-    display: flex;
-    flex-wrap: wrap;
-    align-items: flex-end;
-    gap: 0.5rem;
-    padding: 0.6rem 0.8rem 0.8rem;
-    background: #f0f2f5;
-  }
-  .chat-err {
-    flex-basis: 100%;
-    margin: 0;
-    color: #9c2a1a;
-    font-size: var(--t-sm);
-  }
-  .chat-form textarea {
-    flex: 1;
-    min-width: 0;
-    min-height: 44px;
-    max-height: 140px;
-    padding: 0.6rem 0.9rem;
-    border: 1.5px solid transparent;
-    border-radius: 22px;
-    background: #fff;
-    color: var(--wa-ink);
-    font: inherit;
-    font-size: 16px;
-    resize: vertical;
-  }
-  .chat-form textarea:focus {
-    outline: none;
-    border-color: var(--wa-head);
-  }
-  .chat-form .btn-icon {
-    flex: none;
-  }
-  .chat-note {
-    margin: 0;
-    padding: 0.6rem 1rem 0.8rem;
-    font-size: var(--t-sm);
-    background: #f0f2f5;
-    color: var(--wa-meta);
-  }
-  .chat-note a {
-    color: inherit;
-    font-weight: 700;
-  }
   @media (max-width: 400px) {
     .move-in {
       grid-template-columns: 1fr;
@@ -2717,7 +2517,6 @@ const todayOff = offOf(today);
 </style>
 
 <script>
-  import { noSalio } from '../../lib/aviso';
   // Coloca citas, franjas de horario y la línea de "ahora" según sus minutos.
   const week = document.querySelector<HTMLElement>('[data-week]');
   if (week) {
@@ -2954,135 +2753,6 @@ const todayOff = offOf(today);
     l.addEventListener('click', () => {
       const [id, ev] = (l.dataset.notice ?? '').split(':');
       if (ev && ev !== 'hello') navigator.sendBeacon('/api/admin/avisado', new URLSearchParams({ id, ev }));
-    }),
-  );
-
-  // Conversación de WhatsApp: baja al último mensaje y se actualiza sola mientras la cita está abierta.
-  const TICK: Record<string, [string, string]> = {
-    enviando: ['…', 'Enviando'],
-    enviado: ['✓', 'Enviado'],
-    entregado: ['✓✓', 'Entregado'],
-    leido: ['✓✓', 'Leído'],
-    fallido: ['⚠', 'No se entregó'],
-    bloqueado: ['⊘', 'No se envió'],
-  };
-  const fmtChat = new Intl.DateTimeFormat('es-CO', { timeZone: 'America/Bogota', day: 'numeric', month: 'short', hour: 'numeric', minute: '2-digit', hour12: true });
-  type ChatMsg = { id: number; direction: 'in' | 'out'; status: string; body: string; kind: string; error: string | null; created_at: string };
-  const renderChat = (list: HTMLElement, msgs: ChatMsg[]) => {
-    if (!msgs.length) return;
-    const atBottom = list.scrollHeight - list.scrollTop - list.clientHeight < 40;
-    list.replaceChildren(
-      ...msgs.map((m) => {
-        const li = document.createElement('li');
-        li.className = `msg ${m.direction} ${m.status}`;
-        const p = document.createElement('p');
-        p.textContent = m.body;
-        const sm = document.createElement('small');
-        sm.textContent = `${m.kind === 'plantilla' ? 'Plantilla · ' : ''}${fmtChat.format(new Date(m.created_at)).replace(/\s/g, '\u00a0').replace('.', '')}`;
-        const t = m.direction === 'out' ? TICK[m.status] : undefined;
-        if (t) {
-          const span = document.createElement('span');
-          span.className = `tick ${m.status}`;
-          span.title = t[1];
-          span.setAttribute('aria-label', t[1]);
-          span.textContent = ` ${t[0]}`;
-          sm.append(span);
-        }
-        li.append(p, sm);
-        if (m.error) {
-          const err = document.createElement('small');
-          err.className = 'msg-err';
-          err.textContent = m.error;
-          li.append(err);
-        }
-        if (noSalio(m) && list.dataset.chat) {
-          const a = document.createElement('a');
-          a.className = 'msg-manual';
-          a.href = `https://wa.me/${list.dataset.chat}?text=${encodeURIComponent(m.body)}`;
-          a.target = '_blank';
-          a.rel = 'noopener';
-          a.textContent = 'Abrir en mi WhatsApp';
-          li.append(a);
-        }
-        return li;
-      }),
-    );
-    if (atBottom) list.scrollTop = list.scrollHeight;
-  };
-  let chatTimer: number | undefined;
-  document.querySelectorAll<HTMLDialogElement>('dialog.ap').forEach((d) => {
-    const list = d.querySelector<HTMLElement>('[data-chat]');
-    if (!list) return;
-    // Firma de lo que ya pintó el servidor: solo se vuelve a pintar si llega algo nuevo.
-    let lastSig = list.dataset.sig ?? '';
-    const paint = (messages: ChatMsg[]) => {
-      const sig = messages.map((m) => `${m.id}:${m.status}`).join(',');
-      if (sig === lastSig) return;
-      lastSig = sig;
-      renderChat(list, messages);
-    };
-    const refresh = async () => {
-      if (!d.open || document.hidden) return;
-      try {
-        const r = await fetch(`/api/admin/whatsapp?phone=${encodeURIComponent(list.dataset.chat!)}`, { headers: { Accept: 'application/json' } });
-        if (!r.ok) return;
-        paint(((await r.json()) as { messages: ChatMsg[] }).messages);
-      } catch {
-        /* sin conexión: se intenta en la próxima vuelta */
-      }
-    };
-    // Enviar sin recargar la página: el mensaje aparece en la conversación y la cita sigue abierta.
-    const form = d.querySelector<HTMLFormElement>('[data-chat-form]');
-    const err = form?.querySelector<HTMLElement>('[data-chat-err]');
-    form?.addEventListener('submit', async (e) => {
-      e.preventDefault();
-      const ta = form.querySelector('textarea')!;
-      const btn = form.querySelector<HTMLButtonElement>('button')!;
-      if (!ta.value.trim() || btn.disabled) return;
-      btn.disabled = true;
-      btn.classList.add('loading');
-      if (err) err.hidden = true;
-      try {
-        const r = await fetch('/api/admin/whatsapp', { method: 'POST', body: new FormData(form), headers: { Accept: 'application/json' } });
-        const data = (await r.json().catch(() => ({}))) as { ok?: boolean; error?: string; messages?: ChatMsg[] };
-        if (data.messages?.length) paint(data.messages);
-        if (data.ok) {
-          ta.value = '';
-          list.scrollTop = list.scrollHeight;
-        } else if (err) {
-          err.textContent = data.error ?? 'No se pudo enviar. Intenta de nuevo.';
-          err.hidden = false;
-        }
-      } catch {
-        if (err) {
-          err.textContent = 'Sin conexión. Revisa el internet e intenta de nuevo.';
-          err.hidden = false;
-        }
-      } finally {
-        btn.disabled = false;
-        btn.classList.remove('loading');
-        ta.focus();
-      }
-    });
-    new MutationObserver(() => {
-      window.clearInterval(chatTimer);
-      if (!d.open) return;
-      list.scrollTop = list.scrollHeight;
-      chatTimer = window.setInterval(refresh, 10_000);
-    }).observe(d, { attributes: true, attributeFilter: ['open'] });
-    // Si la cita ya se abrió sola (tras enviar un mensaje), arranca de una vez.
-    if (d.open) {
-      list.scrollTop = list.scrollHeight;
-      chatTimer = window.setInterval(refresh, 10_000);
-    }
-  });
-  // Enter envía, Mayús+Enter hace salto de línea (solo con teclado físico).
-  document.querySelectorAll<HTMLTextAreaElement>('.chat-form textarea').forEach((t) =>
-    t.addEventListener('keydown', (e) => {
-      if (e.key === 'Enter' && !e.shiftKey && !touch && t.value.trim()) {
-        e.preventDefault();
-        t.form?.requestSubmit();
-      }
     }),
   );
 
