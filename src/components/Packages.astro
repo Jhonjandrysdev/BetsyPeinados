@@ -1,8 +1,8 @@
 ---
 import Icon from './Icon.astro';
-import { DEPOSIT_PCT, DEPOSIT_RULE, ONDAS_LENGTH_NOTE, PACKAGES, depositOf, type EventPackage } from '../lib/defaults';
+import { DEPOSIT_PCT, DEPOSIT_RULE, ONDAS_LENGTH_NOTE, PACKAGES, depositOf, packagesFor, type EventPackage } from '../lib/defaults';
 import { formatCOP } from '../lib/time';
-import type { SiteSettings } from '../lib/types';
+import type { Service, SiteSettings } from '../lib/types';
 
 interface Props {
   s: SiteSettings;
@@ -10,9 +10,12 @@ interface Props {
   only?: EventPackage['slug'][];
   /** Ocultar el enlace "Ver fotos y detalles" (en la página del propio evento). */
   noDetails?: boolean;
+  /** Servicios del panel: de aquí salen los precios (Betsy los cambia en Servicios). */
+  services?: Service[];
 }
-const { s, only, noDetails = false } = Astro.props;
-const list = only ? PACKAGES.filter((p) => only.includes(p.slug)) : PACKAGES;
+const { s, only, noDetails = false, services } = Astro.props;
+const all = services ? packagesFor(services) : PACKAGES;
+const list = only ? all.filter((p) => only.includes(p.slug)) : all;
 const waText = (p: EventPackage) =>
   `¡Hola Betsy! Quiero apartar mi fecha para el paquete ${p.name}${p.price ? ` (${p.from ? 'desde ' : ''}${formatCOP(p.price)}${p.unit ? ` ${p.unit}` : ''})` : ''}. ` +
   `Fecha del evento: ___. ${p.slug === 'grupos' ? 'Somos ___ personas. ' : ''}${p.price ? '' : '¿Me cotizas? '}Sé que el cupo se asegura con el ${DEPOSIT_PCT}%.`;

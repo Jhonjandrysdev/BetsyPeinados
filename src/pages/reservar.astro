@@ -39,7 +39,7 @@ const data = {
     <div class="intro">
       <p class="eyebrow">Reserva online</p>
       <h1>Agenda tu <em>cita</em></h1>
-      <p class="lead">Tres pasos y listo. Tu cupo queda apartado al instante y se confirma con el abono del {DEPOSIT_PCT}%.</p>
+      <p class="lead">Tres pasos y listo. Al final confirmas tu reserva con Betsy por WhatsApp.</p>
     </div>
 
     <form class="card" id="booking" novalidate>
@@ -63,7 +63,7 @@ const data = {
                   {tiersOf(sv) && (
                     <span class="option-tiers">
                       {HAIR_LENGTHS.map((h) => (
-                        <span>
+                        <span title={h.hint}>
                           {h.label} <b>{formatCOP(tiersOf(sv)![h.id])}</b>
                         </span>
                       ))}
@@ -121,6 +121,7 @@ const data = {
         <div class="summary" data-summary></div>
         <div class="hair" data-hair hidden>
           <p class="hair-t">Largo de tu cabello</p>
+          <p class="hair-sub">Mídelo suelto y liso: así sabes cuál es el tuyo.</p>
           <div class="hair-opts">
             {
               HAIR_LENGTHS.map((h) => (
@@ -128,6 +129,7 @@ const data = {
                   <input type="radio" name="hair_length" value={h.id} />
                   <span>
                     {h.label}
+                    <em class="hair-hint">{h.hint}</em>
                     <small data-tier={h.id} />
                   </span>
                 </label>
@@ -598,6 +600,18 @@ const data = {
     font-weight: 600;
     font-size: 0.92rem;
     transition: border-color 0.2s, background-color 0.2s;
+  }
+  .hair-sub {
+    margin: -0.3rem 0 0.6rem;
+    font-size: 0.85rem;
+    color: var(--muted);
+  }
+  .hair-hint {
+    font-style: normal;
+    font-weight: 400;
+    font-size: 0.78rem;
+    line-height: 1.25;
+    color: var(--muted);
   }
   .hair-opt small {
     color: var(--clay-deep);

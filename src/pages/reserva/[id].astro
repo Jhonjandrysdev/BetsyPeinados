@@ -71,7 +71,7 @@ const lines = [
   deposit ? `• Abono (${DEPOSIT_PCT}%): ${formatCOP(deposit)}` : null,
   `• Reserva #${appt.id.slice(0, 8).toUpperCase()}`,
   '',
-  hasReceipt ? `Comprobante del abono: ${origin}/reserva/${appt.id}/comprobante` : `Ya te transfiero el abono del ${DEPOSIT_PCT}% y te envío el comprobante.`,
+  hasReceipt ? `Comprobante del abono: ${origin}/reserva/${appt.id}/comprobante` : 'Quiero confirmar mi reserva. Quedo atenta al valor y a los datos para el abono 🙌',
   `Ver la cita en tu panel: ${origin}/admin?desde=${localDate(new Date(appt.starts_at))}&abrir=${appt.id}`,
 ].filter((l) => l !== null);
 const wa = `https://wa.me/${s.whatsapp}?text=${encodeURIComponent(
@@ -112,17 +112,17 @@ const icsHref = `data:text/calendar;charset=utf-8,${encodeURIComponent(ics)}`;
   <main id="contenido" class="wrap ok">
     <div class="intro">
       <div class:list={['seal', { off: cancelled, wait: pending }]} aria-hidden="true"><Icon name={cancelled ? 'close' : pending ? 'clock' : 'check'} size={30} /></div>
-      <h1>{cancelled ? 'Esta cita fue cancelada' : pending ? <>¡Tu cupo está <em>apartado</em>!</> : <>¡Tu cita está <em>confirmada</em>!</>}</h1>
+      <h1>{cancelled ? 'Esta cita fue cancelada' : pending ? <>Confirma tu reserva <em>con Betsy</em></> : <>¡Tu cita está <em>confirmada</em>!</>}</h1>
       <p class="lead">
         {
           cancelled
             ? released
-              ? 'Tu cupo se liberó porque no recibimos el comprobante del abono a tiempo. Si aún quieres tu cita, agenda un nuevo horario o escríbeme por WhatsApp.'
+              ? 'Este cupo se liberó. Si aún quieres tu cita, agenda un nuevo horario o escríbeme por WhatsApp.'
               : 'Si quieres reprogramar, agenda un nuevo horario.'
             : pending
               ? hasReceipt
                 ? `Gracias, ${appt.customer_name.split(' ')[0]}. Ya recibimos tu comprobante: Betsy lo revisa y esta página cambia sola cuando confirme tu cita.`
-                : `Gracias, ${appt.customer_name.split(' ')[0]}. Transfiere el abono del ${DEPOSIT_PCT}%${deposit ? ` (${formatCOP(deposit)})` : ''} y sube el comprobante para confirmar tu cita.`
+                : `Gracias, ${appt.customer_name.split(' ')[0]}. Tu horario quedó separado: envíale tu reserva a Betsy por WhatsApp con el botón verde y ella te confirma el valor y los datos para el abono.`
               : `Gracias, ${appt.customer_name.split(' ')[0]}. Te espero para dejarte espectacular.`
         }
       </p>
@@ -130,79 +130,11 @@ const icsHref = `data:text/calendar;charset=utf-8,${encodeURIComponent(ics)}`;
 
 
     {
-      pending && (
-        <section class="pay" aria-labelledby="pay-t">
-          {upMsg && (
-            <p class:list={['notice', upErr ? 'error' : 'ok']} role="status">
-              {upMsg}
-            </p>
-          )}
-          {!hasReceipt && appt.receipt_rejected_reason && (
-            <p class="notice error" role="alert">
-              Betsy no pudo validar tu comprobante: <b>{appt.receipt_rejected_reason}</b>. Súbelo de nuevo para confirmar tu cita.
-            </p>
-          )}
-          {!hasReceipt && (
-            <>
-              {plazo && (
-                <p class="pay-deadline" role="note">
-                  <Icon name="clock" size={16} />
-                  {queda ? (
-                    <span>
-                      Te quedan <b>{queda}</b> para enviar el comprobante (hasta el {prettyDate(plazo.toISOString()).toLowerCase()} a las {prettyTime(plazo.toISOString())}). Después el cupo se libera.
-                    </span>
-                  ) : (
-                    <span>El plazo para enviar el comprobante ya venció y el cupo se liberará en unos minutos. Si ya transferiste, súbelo ahora o escríbeme por WhatsApp.</span>
-                  )}
-                </p>
-              )}
-              <p class="pay-step">Paso 1 · Transfiere</p>
-              <p class="pay-txt">
-                Escanea el QR o usa la llave desde Nequi, Bancolombia, Daviplata o tu banco. Escribe <b>{code}</b> en la descripción.
-              </p>
-              <div class:list={['pay-grid', { noqr: !qr }]}>
-                {qr && <img class="pay-qr" src={qr} alt="Código QR para transferir el abono" width="160" height="160" />}
-                <div class="pay-data">
-                  <div>
-                    <p class="pay-lbl">Valor a transferir ({DEPOSIT_PCT}%)</p>
-                    <p id="pay-t" class="pay-amount">{deposit ? formatCOP(deposit) : `${DEPOSIT_PCT}% del valor`}</p>
-                    {!deposit && <p class="pay-hint">Betsy te confirma el valor exacto por WhatsApp.</p>}
-                  </div>
-                  {s.pay_key ? (
-                    <div>
-                      <p class="pay-lbl">{s.pay_bank ? `Llave · ${s.pay_bank}` : 'Llave Bre-B'}</p>
-                      <div class="pay-key">
-                        <code data-key>{s.pay_key}</code>
-                        <button type="button" class="btn btn-ghost btn-sm" data-copy>
-                          Copiar
-                        </button>
-                      </div>
-                      {s.pay_holder && <p class="pay-lbl">A nombre de {s.pay_holder}</p>}
-                    </div>
-                  ) : (
-                    !qr && <p class="pay-hint">Betsy te comparte los datos para transferir por WhatsApp.</p>
-                  )}
-                </div>
-              </div>
-              <p class="pay-step step2">Paso 2 · Sube el comprobante</p>
-              <form method="post" enctype="multipart/form-data" class="pay-up" data-up>
-                <label class="btn btn-clay pay-file">
-                  <Icon name="upload" /> <span data-file-label>Adjuntar comprobante</span>
-                  <input type="file" name="receipt" accept="image/*,application/pdf" required data-file />
-                </label>
-              </form>
-              <p class="pay-hint center" data-up-msg role="status" aria-live="polite">
-                Foto o PDF de la transferencia. Después te dejamos el mensaje listo para enviárselo a Betsy por WhatsApp.
-              </p>
-            </>
-          )}
-          {hasReceipt && (
-            <>
-              <p class="pay-wait">
-                <span class="dot" aria-hidden="true" /> Comprobante en revisión. Esta página cambia sola cuando Betsy confirme tu cita.
-              </p>
-            </>
-          )}
+      pending && hasReceipt && (
+        <section class="pay">
+          <p class="pay-wait">
+            <span class="dot" aria-hidden="true" /> Comprobante en revisión. Esta página cambia sola cuando Betsy confirme tu cita.
+          </p>
         </section>
       )
     }
@@ -237,7 +169,7 @@ const icsHref = `data:text/calendar;charset=utf-8,${encodeURIComponent(ics)}`;
           {price != null && <div><dt>{resumen.exacto ? 'Valor' : 'Valor desde'}</dt><dd>{formatCOP(price)}{travel > 0 && <small class="t-sub">incluye desplazamiento {formatCOP(travel)}</small>}</dd></div>}
           {resumen.abono && <div><dt>{resumen.abono === 'pagado' ? 'Abono pagado' : 'Abono a pagar'}</dt><dd>{formatCOP(deposit)}</dd></div>}
           {saldo != null && <div><dt>Saldo el día de la cita</dt><dd>{formatCOP(saldo)}</dd></div>}
-          {pending && <div><dt>Estado</dt><dd>{hasReceipt ? 'Comprobante en revisión' : 'Esperando abono'}</dd></div>}
+          {pending && <div><dt>Estado</dt><dd>{hasReceipt ? 'Comprobante en revisión' : 'Por confirmar con Betsy'}</dd></div>}
           <div><dt>A nombre de</dt><dd>{appt.customer_name}</dd></div>
         </dl>
       </div>
@@ -264,10 +196,10 @@ const icsHref = `data:text/calendar;charset=utf-8,${encodeURIComponent(ics)}`;
     {
       pending && (
         <aside class="pin" aria-labelledby="pin-t" data-pin data-auto={upMsg && !upErr && hasReceipt ? '1' : undefined}>
-          <details class="pin-in" open={hasReceipt ? true : undefined}>
+          <details class="pin-in" open>
             <summary>
               <span class="pin-ico" aria-hidden="true"><Icon name="whatsapp" size={18} /></span>
-              <span id="pin-t" class="pin-t">{hasReceipt ? 'Envíale tu comprobante a Betsy' : 'Tu mensaje para Betsy'}</span>
+              <span id="pin-t" class="pin-t">{hasReceipt ? 'Envíale tu comprobante a Betsy' : 'Confirma tu reserva con Betsy'}</span>
               <span class="pin-more" aria-hidden="true">▾</span>
             </summary>
             <div class="pin-bubble">
@@ -276,7 +208,7 @@ const icsHref = `data:text/calendar;charset=utf-8,${encodeURIComponent(ics)}`;
           </details>
           <div class="pin-acts">
             <a class="btn btn-wa-big" href={wa} target="_blank" rel="noopener" data-send-betsy>
-              <Icon name="whatsapp" /> {hasReceipt ? 'Enviar a Betsy' : 'Escribirle a Betsy'}
+              <Icon name="whatsapp" /> {hasReceipt ? 'Enviar a Betsy' : 'Confirmar por WhatsApp'}
             </a>
             {hasReceipt && (
               <button type="button" class="btn btn-ghost pin-photo" data-share-photo data-src={`/reserva/${appt.id}/comprobante`} hidden>
