@@ -8,15 +8,16 @@ import Packages from '../components/Packages.astro';
 import Testimonials from '../components/Testimonials.astro';
 import StickyCta from '../components/StickyCta.astro';
 import WhatsAppFab from '../components/WhatsAppFab.astro';
-import { getGallery, getSettings } from '../lib/db';
-import { DEPOSIT_RULE, FAQ, PACKAGES } from '../lib/defaults';
+import { getGallery, getServices, getSettings } from '../lib/db';
+import { DEPOSIT_RULE, FAQ, PACKAGES, packagesFor } from '../lib/defaults';
 import { formatCOP } from '../lib/time';
 import { faqJsonLd } from '../lib/seo';
 
-const pkg = PACKAGES.find((p) => p.slug === Astro.params.evento && p.slug !== 'grupos' && p.slug !== 'maquillaje');
-if (!pkg) return new Response(null, { status: 404 });
+if (!PACKAGES.some((p) => p.slug === Astro.params.evento && p.slug !== 'grupos' && p.slug !== 'maquillaje')) return new Response(null, { status: 404 });
 
-const [s, gallery] = await Promise.all([getSettings(), getGallery()]);
+const [s, gallery, services] = await Promise.all([getSettings(), getGallery(), getServices()]);
+// Precio con lo que Betsy tiene en Servicios del panel.
+const pkg = packagesFor(services).find((p) => p.slug === Astro.params.evento)!;
 Astro.response.headers.set('Cache-Control', 'public, s-maxage=300, stale-while-revalidate=86400');
 
 const words: Record<string, string[]> = {
@@ -48,7 +49,7 @@ const description = `${pkg.pitch} Paquete ${pkg.name} ${pkg.price ? `por ${price
           </div>
         </div>
         <div id="paquete" class="ev-pkg">
-          <Packages s={s} only={[pkg.slug]} noDetails />
+          <Packages s={s} only={[pkg.slug]} noDetails services={services} />
         </div>
       </div>
     </section>

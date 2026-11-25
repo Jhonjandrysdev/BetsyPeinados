@@ -41,11 +41,11 @@ const svc = (
 
 export const DEFAULT_SERVICES: Service[] = [
   svc('00000000-0000-4000-8000-000000000001', 'ondas', 'Ondas', 'Ondas definidas y pulidas con movimiento y brillo que duran toda la noche.', 'Peinados', 60, 70000, true, 1, [70000, 80000, 90000]),
-  svc('00000000-0000-4000-8000-000000000005', 'peinados-sociales', 'Peinados sociales', 'Recogidos, semirecogidos y peinados elegantes para grados, matrimonios y eventos.', 'Eventos', 90, 70000, true, 2, [70000, 90000, 100000]),
-  svc('00000000-0000-4000-8000-000000000002', 'quinceaneras', 'Quinceañeras', 'Rizos, trenzas o recogido con tu corona o tiara para brillar en tus quince.', 'Eventos', 120, 80000, true, 3, [80000, 100000, 120000]),
-  svc('00000000-0000-4000-8000-000000000004', 'ninas', 'Peinados para niñas', 'Trenzas, rizos y accesorios con detalles tiernos para las más pequeñas.', 'Infantil', 45, 60000, false, 4),
+  svc('00000000-0000-4000-8000-000000000005', 'peinados-sociales', 'Peinados sociales', 'Recogidos, semirecogidos y peinados elegantes para grados, matrimonios y eventos.', 'Eventos', 90, 80000, true, 2, [80000, 90000, 100000]),
+  svc('00000000-0000-4000-8000-000000000002', 'quinceaneras', 'Quinceañeras', 'Rizos, trenzas o recogido con tu corona o tiara para brillar en tus quince.', 'Eventos', 120, 90000, true, 3, [90000, 100000, 120000]),
+  svc('00000000-0000-4000-8000-000000000004', 'ninas', 'Peinados para niñas', 'Trenzas, rizos y accesorios con detalles tiernos para las más pequeñas.', 'Infantil', 45, 50000, false, 4),
   svc('00000000-0000-4000-8000-000000000006', 'novias', 'Novias', 'Diseñado para tu rostro y tu vestido, con asesoría previa y fijación de larga duración. Valor según el diseño: escríbeme para cotizar.', 'Novias', 180, null, true, 5),
-  svc('00000000-0000-4000-8000-000000000007', 'peinado-maquillaje', 'Peinado + maquillaje', 'Paquete completo: tu peinado con Betsy y maquillaje profesional el mismo día. Valor según el peinado y el maquillaje: te lo confirmo por WhatsApp.', 'Paquetes', 150, null, true, 6),
+  svc('00000000-0000-4000-8000-000000000007', 'peinado-maquillaje', 'Peinado + maquillaje', 'Paquete completo: tu peinado con Betsy y maquillaje profesional el mismo día. Desde $200.000 según el peinado y el maquillaje: te confirmo el valor por WhatsApp.', 'Paquetes', 150, 200000, true, 6),
 ];
 
 export const DEFAULT_HOURS: BusinessHour[] = [
@@ -63,11 +63,11 @@ export const WEEKDAYS = ['Domingo', 'Lunes', 'Martes', 'Miércoles', 'Jueves', '
 export const FAQ = [
   {
     q: '¿Cuánto cuesta mi peinado?',
-    a: 'Depende del largo de tu cabello. Ondas: corto $70.000, medio largo $80.000 y extra largo $90.000. Peinados sociales: $70.000, $90.000 y $100.000. Quinceañeras: $80.000, $100.000 y $120.000. Niñas desde $60.000. En ondas, a partir de medio largo cada centímetro adicional tiene un costo extra.',
+    a: 'Depende del largo de tu cabello: corto (por los hombros), medio largo (a mitad de la espalda) o largo (debajo de las caderas). Al reservar ves el precio de cada largo.',
   },
   {
     q: '¿Cómo aparto mi cita?',
-    a: 'Reservas en la web y tu cupo queda apartado en espera del abono. Para asegurarlo abonas el 50% del valor y me envías el comprobante por WhatsApp; apenas lo reciba confirmo tu cita. Sin abono no se garantiza la reserva.',
+    a: 'Eliges servicio, fecha y hora en la web y al final confirmas tu reserva conmigo por WhatsApp. Ahí te confirmo el valor y los datos para el abono del 50%, que es lo que asegura tu cupo.',
   },
   {
     q: '¿Me devuelven el abono si cancelo?',
@@ -94,14 +94,15 @@ export const DEPOSIT_RULE = `Aseguras tu cupo abonando el ${DEPOSIT_PCT}% y envi
 /** Políticas que se muestran al reservar y en la confirmación. */
 export const POLICIES = [
   'No realizamos blower: tu cabello debe venir limpio y seco (te indicamos cómo prepararlo).',
-  `Para asegurar tu cupo abonas el ${DEPOSIT_PCT}% del servicio y envías el comprobante. Sin abono no se garantiza la reserva.`,
+  `Para asegurar tu cupo abonas el ${DEPOSIT_PCT}% del servicio: Betsy te confirma el valor y los datos por WhatsApp. Sin abono no se garantiza la reserva.`,
   'No se realizan devoluciones de dinero una vez apartado el cupo.',
 ];
 export type HairLength = 'corto' | 'medio' | 'extra';
-export const HAIR_LENGTHS: { id: HairLength; label: string }[] = [
-  { id: 'corto', label: 'Corto' },
-  { id: 'medio', label: 'Medio largo' },
-  { id: 'extra', label: 'Extra largo' },
+/** Largos de cabello con su referencia, para que la clienta sepa cuál es el suyo. */
+export const HAIR_LENGTHS: { id: HairLength; label: string; hint: string }[] = [
+  { id: 'corto', label: 'Corto', hint: 'por los hombros' },
+  { id: 'medio', label: 'Medio largo', hint: 'a mitad de la espalda' },
+  { id: 'extra', label: 'Largo', hint: 'debajo de las caderas' },
 ];
 export const hairLabel = (id: string | null | undefined) => HAIR_LENGTHS.find((h) => h.id === id)?.label ?? '';
 type Priced = Pick<Service, 'price_short' | 'price_medium' | 'price_long'> | null | undefined;
@@ -146,9 +147,9 @@ export const PACKAGES: EventPackage[] = [
     name: 'Grado',
     title: 'Peinado para tu grado',
     pitch: 'Lista para la ceremonia, las fotos y la fiesta, sin retoques.',
-    price: 70000,
+    price: 80000,
     from: true,
-    includes: ['Corto $70.000 · Medio largo $90.000 · Extra largo $100.000', 'Asesoría previa por WhatsApp con tu foto de referencia', 'Ondas, recogido o semirecogido'],
+    includes: ['Corto $80.000 · Medio largo $90.000 · Largo $100.000', 'Asesoría previa por WhatsApp con tu foto de referencia', 'Ondas, recogido o semirecogido'],
     serviceSlug: 'peinados-sociales',
   },
   {
@@ -156,9 +157,9 @@ export const PACKAGES: EventPackage[] = [
     name: 'Quinceañera',
     title: 'Peinado para tus quince',
     pitch: 'Rizos, trenzas o recogido pensado para tu vestido y tu corona.',
-    price: 80000,
+    price: 90000,
     from: true,
-    includes: ['Corto $80.000 · Medio largo $100.000 · Extra largo $120.000', 'Asesoría previa con tu vestido y accesorios', 'Colocación de corona, tiara o accesorios', 'Fijación para toda la noche'],
+    includes: ['Corto $90.000 · Medio largo $100.000 · Largo $120.000', 'Asesoría previa con tu vestido y accesorios', 'Colocación de corona, tiara o accesorios', 'Fijación para toda la noche'],
     serviceSlug: 'quinceaneras',
     featured: true,
   },
@@ -185,11 +186,31 @@ export const PACKAGES: EventPackage[] = [
     name: 'Peinado + maquillaje',
     title: 'Peinado y maquillaje',
     pitch: 'Llega lista de pies a cabeza: peinado con Betsy y maquillaje profesional el mismo día.',
-    price: null,
+    price: 200000,
+    from: true,
     includes: ['Peinado a tu elección', 'Maquillaje profesional', 'Asesoría previa por WhatsApp'],
     serviceSlug: 'peinado-maquillaje',
   },
 ];
+
+/**
+ * Paquetes con los precios que Betsy tiene en el panel (Servicios): el precio del largo corto
+ * (o el «desde» del servicio) y la lista de precios por largo. Sin servicio, quedan los de arriba.
+ */
+export function packagesFor(services: Service[]): EventPackage[] {
+  const fmt = (n: number) => '$' + new Intl.NumberFormat('es-CO').format(n);
+  return PACKAGES.map((p) => {
+    const sv = p.serviceSlug ? services.find((x) => x.slug === p.serviceSlug) : undefined;
+    if (!sv) return p;
+    const t = tiersOf(sv);
+    if (t) {
+      const line = HAIR_LENGTHS.map((h) => `${h.label} ${fmt(t[h.id])}`).join(' · ');
+      const rest = (p.includes[0] ?? '').startsWith('Corto ') ? p.includes.slice(1) : p.includes;
+      return { ...p, price: t.corto, from: true, includes: [line, ...rest] };
+    }
+    return sv.price_from != null ? { ...p, price: sv.price_from, from: true } : p;
+  });
+}
 
 /**
  * Reseñas reales de clientas (con su permiso). La sección solo aparece cuando hay al menos una.
