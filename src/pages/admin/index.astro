@@ -996,7 +996,7 @@ const todayOff = offOf(today);
             {a.status !== 'cancelada' && (
               <details class="ap-valor">
                 <summary>{valorOf(a).price == null ? 'Fijar el valor' : 'Ajustar el valor final'}</summary>
-                <form method="post" class="ap-valor-f" data-ajax>
+                <form method="post" class="ap-valor-f">
                   <input type="hidden" name="action" value="valor" />
                   <input type="hidden" name="id" value={a.id} />
                   <input type="hidden" name="desde" value={start} />
@@ -1016,7 +1016,6 @@ const todayOff = offOf(today);
                       : `El abono se recalcula al ${DEPOSIT_PCT}% del nuevo valor.`}
                   </small>
                   <button class="btn btn-ghost">Guardar valor</button>
-                  <p class="ajax-msg" role="status" data-ajax-msg hidden></p>
                 </form>
               </details>
             )}
@@ -2420,7 +2419,7 @@ const todayOff = offOf(today);
   .move-hint {
     color: var(--muted);
   }
-  .ajax-msg {
+  :global(.ajax-msg) {
     grid-column: 1 / -1;
     margin: 0;
     padding: 0.55rem 0.8rem;
@@ -2430,7 +2429,10 @@ const todayOff = offOf(today);
     background: #e6eadb;
     color: #3f5a2a;
   }
-  .ajax-msg.err {
+  :global(.ajax-top) {
+    margin: 0 0 0.9rem;
+  }
+  :global(.ajax-msg.err) {
     background: #fdecea;
     color: #8a1c12;
   }
@@ -2805,122 +2807,129 @@ const todayOff = offOf(today);
     rImg?.removeAttribute('src');
     rPdf?.removeAttribute('src');
   });
-  document.querySelectorAll<HTMLButtonElement>('[data-rcpt]').forEach((b) =>
-    b.addEventListener('click', () => {
-      if (!rcpt || !rImg || !rPdf || !rLoad || !rLink) return;
-      rUrl = b.dataset.rcpt!;
-      rTries = 0;
-      const pdf = b.dataset.pdf === '1';
-      rcpt.querySelector('#rcpt-t')!.textContent = `Comprobante de ${b.dataset.who ?? ''}`.trim();
-      rLink.href = rUrl;
-      rcpt.classList.toggle('is-pdf', pdf);
-      rPdf.hidden = !pdf;
-      if (pdf) {
-        rImg.hidden = true;
-        rLoad.hidden = true;
-        rRetry!.hidden = true;
-        rPdf.src = rUrl;
-      } else loadImg();
-      rcpt.showModal();
-    }),
-  );
+  // Botones y formularios de las citas por delegación: siguen funcionando después de que el
+  // diálogo de una cita se refresca sin recargar la página.
+  document.addEventListener('click', (e) => {
+    const b = (e.target as HTMLElement).closest<HTMLButtonElement>('[data-rcpt]');
+    if (!b || !rcpt || !rImg || !rPdf || !rLoad || !rLink) return;
+    rUrl = b.dataset.rcpt!;
+    rTries = 0;
+    const pdf = b.dataset.pdf === '1';
+    rcpt.querySelector('#rcpt-t')!.textContent = `Comprobante de ${b.dataset.who ?? ''}`.trim();
+    rLink.href = rUrl;
+    rcpt.classList.toggle('is-pdf', pdf);
+    rPdf.hidden = !pdf;
+    if (pdf) {
+      rImg.hidden = true;
+      rLoad.hidden = true;
+      rRetry!.hidden = true;
+      rPdf.src = rUrl;
+    } else loadImg();
+    rcpt.showModal();
+  });
 
   // Tras confirmar un abono, se abre la cita para avisarle a la clienta.
   const abrir = document.querySelector<HTMLElement>('[data-abrir]')?.dataset.abrir;
   if (abrir && /^[0-9a-f-]{36}$/i.test(abrir)) document.querySelector<HTMLDialogElement>(`#ap-${abrir}`)?.showModal();
   // Registra qué avisos de WhatsApp ya se enviaron (para no repetirlos).
-  document.querySelectorAll<HTMLAnchorElement>('a[data-notice]').forEach((l) =>
-    l.addEventListener('click', () => {
-      const [id, ev] = (l.dataset.notice ?? '').split(':');
-      if (ev && ev !== 'hello') navigator.sendBeacon('/api/admin/avisado', new URLSearchParams({ id, ev }));
-    }),
-  );
-
-  // Formularios de la cita que guardan sin recargar (por ahora: ajustar el valor). Al guardar se
-  // refrescan los datos de la cita en el diálogo; la agenda de atrás se actualiza al cerrarlo.
-  document.querySelectorAll<HTMLFormElement>('form[data-ajax]').forEach((form) => {
-    const out = form.querySelector<HTMLElement>('[data-ajax-msg]')!;
-    const btn = form.querySelector<HTMLButtonElement>('button:not([type=button])')!;
-    const dlg = form.closest('dialog');
-    form.addEventListener('input', () => (out.hidden = true));
-    form.addEventListener('submit', async (e) => {
-      e.preventDefault();
-      if (btn.disabled) return;
-      btn.disabled = true;
-      btn.classList.add('loading');
-      out.hidden = true;
-      try {
-        const r = await fetch(location.pathname, { method: 'POST', body: new FormData(form), headers: { Accept: 'application/json' } });
-        const data = (await r.json()) as { ok: boolean; msg: string; next: string };
-        out.textContent = data.ok ? `✅ ${data.msg}` : data.msg;
-        out.classList.toggle('err', !data.ok);
-        out.hidden = false;
-        if (!data.ok || !dlg) return;
-        // Trae la página de nuevo y cambia solo el bloque de datos de esta cita.
-        const html = await (await fetch(location.pathname + location.search, { headers: { Accept: 'text/html' }, cache: 'no-store' })).text();
-        const fresh = new DOMParser().parseFromString(html, 'text/html').querySelector(`#${CSS.escape(dlg.id)} .ap-info`);
-        const info = dlg.querySelector('.ap-info');
-        if (fresh && info) info.replaceWith(document.importNode(fresh, true));
-        if (!dlg.dataset.stale) {
-          dlg.dataset.stale = '1';
-          dlg.addEventListener('close', () => location.assign(data.next), { once: true });
-        }
-      } catch {
-        out.textContent = 'Sin conexión. Revisa el internet e intenta de nuevo.';
-        out.classList.add('err');
-        out.hidden = false;
-      } finally {
-        btn.disabled = false;
-        btn.classList.remove('loading');
-      }
-    });
+  document.addEventListener('click', (e) => {
+    const l = (e.target as HTMLElement).closest<HTMLAnchorElement>('a[data-notice]');
+    if (!l) return;
+    const [id, ev] = (l.dataset.notice ?? '').split(':');
+    if (id && ev && ev !== 'hello') navigator.sendBeacon('/api/admin/avisado', new URLSearchParams({ id, ev }));
   });
 
-  // Cambiar hora sin recargar: si el horario está ocupado o fuera de horario, el error sale en el formulario;
-  // si se movió, aparece el botón para avisarle a la clienta por WhatsApp.
-  document.querySelectorAll<HTMLFormElement>('form[data-move-form]').forEach((form) => {
-    const box = form.closest('details')!;
-    const err = form.querySelector<HTMLElement>('[data-move-err]')!;
-    const done = box.querySelector<HTMLElement>('[data-move-done]')!;
-    const btn = form.querySelector<HTMLButtonElement>('.move-go')!;
-    form.addEventListener('input', () => (err.hidden = true));
-    form.addEventListener('submit', async (e) => {
-      e.preventDefault();
-      if (btn.disabled) return;
-      btn.disabled = true;
-      btn.classList.add('loading');
-      err.hidden = true;
-      try {
-        const r = await fetch(location.pathname, { method: 'POST', body: new FormData(form), headers: { Accept: 'application/json' } });
-        const data = (await r.json()) as { ok: boolean; msg: string; next: string; wa?: string; notice?: string };
-        if (!data.ok) {
-          err.textContent = data.msg;
-          err.hidden = false;
-          err.scrollIntoView({ block: 'nearest', behavior: 'smooth' });
-          return;
-        }
-        done.querySelector<HTMLElement>('[data-move-msg]')!.textContent = `✅ ${data.msg}`;
-        const wa = done.querySelector<HTMLAnchorElement>('[data-move-wa]')!;
-        if (data.wa) {
-          wa.href = data.wa;
-          wa.addEventListener('click', () => {
-            const [id, ev] = (data.notice ?? '').split(':');
-            if (id && ev) navigator.sendBeacon('/api/admin/avisado', new URLSearchParams({ id, ev }));
-          });
-        } else wa.hidden = true;
-        done.querySelector<HTMLAnchorElement>('[data-move-next]')!.href = data.next;
-        form.hidden = true;
-        done.hidden = false;
-        // La agenda de atrás quedó vieja: al cerrar la cita, se recarga en la semana nueva.
-        box.closest('dialog')?.addEventListener('close', () => location.assign(data.next), { once: true });
-      } catch {
-        err.textContent = 'Sin conexión. Revisa el internet e intenta de nuevo.';
-        err.hidden = false;
-      } finally {
-        btn.disabled = false;
-        btn.classList.remove('loading');
+  type Res = { ok: boolean; kind?: string; msg: string; next: string; wa?: string; notice?: string };
+  const post = async (form: HTMLFormElement): Promise<Res> => {
+    const r = await fetch(location.pathname, { method: 'POST', body: new FormData(form), headers: { Accept: 'application/json' } });
+    return (await r.json()) as Res;
+  };
+  const note = (el: HTMLElement, text: string, err: boolean) => {
+    el.textContent = text;
+    el.classList.toggle('err', err);
+    el.hidden = false;
+  };
+  /** La agenda de atrás quedó vieja: al cerrar la cita se recarga en la semana que toca. */
+  const staleOnClose = (dlg: HTMLDialogElement, next: string) => {
+    dlg.dataset.next = next;
+    if (dlg.dataset.stale) return;
+    dlg.dataset.stale = '1';
+    dlg.addEventListener('close', () => location.assign(dlg.dataset.next!), { once: true });
+  };
+  /** Trae la página de nuevo y cambia solo el contenido de esta cita, con el aviso arriba de los datos. */
+  const refreshDialog = async (dlg: HTMLDialogElement, res: Res) => {
+    const url = new URL(res.next, location.origin);
+    for (const k of ['ok', 'warn', 'error', 'abrir', 'mvd', 'mvt']) url.searchParams.delete(k);
+    const html = await (await fetch(url.pathname + url.search, { headers: { Accept: 'text/html' }, cache: 'no-store' })).text();
+    const fresh = new DOMParser().parseFromString(html, 'text/html').getElementById(dlg.id);
+    staleOnClose(dlg, res.next);
+    if (!fresh) return location.assign(res.next);
+    const top = dlg.scrollTop;
+    dlg.className = fresh.className;
+    dlg.replaceChildren(...[...fresh.childNodes].map((n) => document.importNode(n, true)));
+    const msg = Object.assign(document.createElement('p'), { className: 'ajax-msg ajax-top', role: 'status' });
+    note(msg, `${res.kind === 'warn' ? '⚠️' : '✅'} ${res.msg}`, false);
+    (dlg.querySelector('.ap-info') ?? dlg.firstElementChild)?.before(msg);
+    dlg.scrollTop = top;
+  };
+
+  document.addEventListener('submit', async (e) => {
+    const form = e.target as HTMLFormElement;
+    const dlg = form.closest<HTMLDialogElement>('dialog.ap');
+    // Solo formularios de una cita; los que piden confirmación llegan aquí ya confirmados.
+    if (!dlg || form.method !== 'post' || e.defaultPrevented) return;
+    e.preventDefault();
+    const btn = ((e as SubmitEvent).submitter ?? form.querySelector('button:not([type=button])')) as HTMLButtonElement | null;
+    if (btn?.disabled) return;
+    btn?.classList.add('loading');
+    if (btn) btn.disabled = true;
+    const done = () => {
+      delete form.dataset.confirmed;
+      if (btn) btn.disabled = false;
+      btn?.classList.remove('loading');
+    };
+    // Dónde mostrar un error: el aviso propio del formulario, o uno que se crea al final de él.
+    const errBox = () => {
+      const own = form.querySelector<HTMLElement>('[data-move-err], [data-ajax-msg]');
+      if (own) return own;
+      const p = Object.assign(document.createElement('p'), { className: 'ajax-msg', role: 'alert' });
+      p.dataset.ajaxMsg = '';
+      return form.appendChild(p);
+    };
+    try {
+      const res = await post(form);
+      if (!res.ok) {
+        const err = errBox();
+        note(err, res.msg, true);
+        err.scrollIntoView({ block: 'nearest', behavior: 'smooth' });
+        return;
       }
-    });
+      // Cambiar hora: el formulario muestra el resultado y el botón para avisarle a la clienta.
+      if (form.matches('[data-move-form]')) {
+        const box = form.closest('details')!;
+        const ok = box.querySelector<HTMLElement>('[data-move-done]')!;
+        ok.querySelector<HTMLElement>('[data-move-msg]')!.textContent = `✅ ${res.msg}`;
+        const wa = ok.querySelector<HTMLAnchorElement>('[data-move-wa]')!;
+        if (res.wa) {
+          wa.href = res.wa;
+          if (res.notice) wa.dataset.notice = res.notice;
+        } else wa.hidden = true;
+        ok.querySelector<HTMLAnchorElement>('[data-move-next]')!.href = res.next;
+        form.hidden = true;
+        ok.hidden = false;
+        staleOnClose(dlg, res.next);
+        return;
+      }
+      await refreshDialog(dlg, res);
+    } catch {
+      note(errBox(), 'Sin conexión. Revisa el internet e intenta de nuevo.', true);
+    } finally {
+      done();
+    }
+  });
+  document.addEventListener('input', (e) => {
+    const f = (e.target as HTMLElement).closest('dialog.ap form');
+    f?.querySelectorAll<HTMLElement>('[data-move-err], [data-ajax-msg]').forEach((x) => (x.hidden = true));
   });
 
   // Servicio a domicilio: muestra y exige la dirección.
