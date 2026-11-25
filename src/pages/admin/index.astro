@@ -26,11 +26,11 @@ if (Astro.request.method === 'POST') {
   const action = str(fd, 'action', 20);
   const desde = str(fd, 'desde', 10);
   /** Redirige a la agenda con el aviso; `extra` son parámetros ya codificados que terminan en "&". */
-  const go = (kind: 'ok' | 'error' | 'warn', msg: string, week = desde, open = '', extra = '') =>
-    new Response(null, {
-      status: 303,
-      headers: { Location: `/admin?${isDate(week) ? `desde=${week}&` : ''}${open ? `abrir=${open}&` : ''}${extra}${kind}=${encodeURIComponent(msg)}` },
-    });
+  const goUrl = (kind: 'ok' | 'error' | 'warn', msg: string, week = desde, open = '', extra = '') =>
+    `/admin?${isDate(week) ? `desde=${week}&` : ''}${open ? `abrir=${open}&` : ''}${extra}${kind}=${encodeURIComponent(msg)}`;
+  const goRedirect = (kind: 'ok' | 'error' | 'warn', msg: string, week = desde, open = '', extra = '') =>
+    new Response(null, { status: 303, headers: { Location: goUrl(kind, msg, week, open, extra) } });
+  const go = goRedirect;
   const OOPS = 'Algo salió mal. Recarga la página e intenta de nuevo.';
   const citas = createCitas(citaStore);
   const waOn = waConfigured();
@@ -186,6 +186,14 @@ if (Astro.request.method === 'POST') {
 
   // Cambiar la hora o reagendar a otro día.
   if (action === 'move') {
+    // Desde el panel llega por fetch (Accept: JSON): los errores se muestran en el formulario sin recargar.
+    const json = (Astro.request.headers.get('accept') ?? '').includes('application/json');
+    const go = (kind: 'ok' | 'error' | 'warn', msg: string, week = desde, open = '', extra = '', more: Record<string, unknown> = {}) =>
+      json
+        ? new Response(JSON.stringify({ ok: kind !== 'error', kind, msg, next: goUrl(kind, msg, week, open), ...more }), {
+            headers: { 'Content-Type': 'application/json', 'Cache-Control': 'no-store' },
+          })
+        : goRedirect(kind, msg, week, open, extra);
     const id = str(fd, 'id', 40);
     const date = str(fd, 'date', 10);
     const time = str(fd, 'time', 5);
@@ -234,8 +242,12 @@ if (Astro.request.method === 'POST') {
     }
     let wa: SendResult | null = null;
     if (notify && waOn) wa = await sendNoticeSafe({ ...moved, notified }, 'reagendada');
-    const msg = `Cita de ${who} movida al ${prettyDate(moved.starts_at).toLowerCase()} a las ${prettyTimeRaw(moved.starts_at)}.${gcalFail ? ' No se pudo mover en tu Google Calendar: cámbiala a mano allá.' : ''}${waSay(wa, who)}${notify && !waOn ? ' Avísale con el botón de WhatsApp.' : ''}`;
-    return go(gcalFail || (wa && !wa.ok) ? 'warn' : 'ok', msg, mondayOf(date), id);
+    // Mensaje listo para que Betsy le avise a la clienta desde su WhatsApp con un toque.
+    const [ajustes, plantillas, servicios] = await Promise.all([getSettings(), getTemplates(), getServices()]);
+    const { price, deposit } = valorDeCita(moved, servicios.find((x) => x.id === moved.service_id));
+    const aviso = waUrl(moved.customer_phone, fillTemplate(plantillas.reagendada ?? DEFAULT_TEMPLATES.reagendada, { a: moved, s: ajustes, price, deposit }));
+    const msg = `Cita de ${who} movida al ${prettyDate(moved.starts_at).toLowerCase()} a las ${prettyTimeRaw(moved.starts_at).replace(/\.$/, '')}.${gcalFail ? ' No se pudo mover en tu Google Calendar: cámbiala a mano allá.' : ''}${waSay(wa, who)}${!json && notify && !waOn ? ' Avísale con el botón de WhatsApp.' : ''}`;
+    return go(gcalFail || (wa && !wa.ok) ? 'warn' : 'ok', msg, mondayOf(date), id, '', { wa: aviso, who, notice: `${id}:reagendada` });
   }
 
   if (action === 'create') {
@@ -941,7 +953,7 @@ const todayOff = offOf(today);
                   ? 'La clienta subió el comprobante. Revísalo y, si el abono llegó, confirma la cita.'
                   : a.receipt_rejected_reason
                     ? `Rechazaste el comprobante («${a.receipt_rejected_reason}»). Esperando uno nuevo.`
-                    : `Cupo apartado en espera del comprobante del abono del ${DEPOSIT_PCT}%. Cuando lo recibas, confírmala aquí.`}
+                    : `Reserva por confirmar con la clienta por WhatsApp. Cuando recibas el abono del ${DEPOSIT_PCT}%, confírmala aquí.`}
               </p>
             )}
             {a.status === 'pendiente' && a.receipt_path && (
@@ -1050,7 +1062,7 @@ const todayOff = offOf(today);
                   <Icon name="calendar" size={16} /> Cambiar hora o reagendar
                   <span class="move-chev" aria-hidden="true"><Icon name="chevron" size={18} /></span>
                 </summary>
-                <form method="post" class="move-in" data-confirm={`¿Mover la cita de ${who}? El horario anterior queda libre.`} data-confirm-yes="Sí, mover">
+                <form method="post" class="move-in" data-move-form>
                   <input type="hidden" name="action" value="move" />
                   <input type="hidden" name="id" value={a.id} />
                   <input type="hidden" name="desde" value={start} />
@@ -1062,17 +1074,27 @@ const todayOff = offOf(today);
                     <label for={`mv-t-${a.id}`}>Nueva hora</label>
                     <input id={`mv-t-${a.id}`} name="time" type="time" step="300" value={mvPendiente(a)?.t ?? localTime(new Date(a.starts_at))} required />
                   </div>
-                  <label class="field chk move-chk">
-                    <input type="checkbox" name="notify" checked /> <span>{waOn ? 'Avisarle por WhatsApp' : 'Le avisaré por WhatsApp'}</span>
-                  </label>
+                  {waOn && (
+                    <label class="field chk move-chk">
+                      <input type="checkbox" name="notify" checked /> <span>Avisarle por WhatsApp</span>
+                    </label>
+                  )}
                   <label class="field chk move-chk">
                     <input type="checkbox" name="fuera" /> <span>Moverla aunque esté fuera de mi horario</span>
                   </label>
                   <button class="btn btn-clay move-go">
                     <Icon name="check" /> Guardar nueva hora
                   </button>
-                  <small class="hint move-hint">Dura lo mismo ({durLabel(a)}). Si choca con otra cita o queda fuera de tu horario, te avisamos.</small>
+                  <p class="move-err" role="alert" data-move-err hidden></p>
+                  <small class="hint move-hint">Dura lo mismo ({durLabel(a)}). Si choca con otra cita o queda fuera de tu horario, te avisamos aquí mismo.</small>
                 </form>
+                <div class="move-done" data-move-done hidden>
+                  <p class="move-done-msg" role="status" data-move-msg></p>
+                  <a class="btn btn-wa move-wa" href="#" target="_blank" rel="noopener" data-move-wa>
+                    <Icon name="whatsapp" /> Avisarle a {who} por WhatsApp
+                  </a>
+                  <a class="btn btn-ghost move-next" href="/admin" data-move-next>Listo, ver la agenda</a>
+                </div>
               </details>
             )}
             {(laterToday || isActive(a) || (waOn && a.status !== 'cancelada')) && (
@@ -1244,12 +1266,14 @@ const todayOff = offOf(today);
     display: flex;
     gap: 0.5rem;
     align-items: flex-start;
-    margin: 0 0 1rem;
-    padding: 0.75rem 0.9rem;
+    margin: 1.25rem 0 1.5rem;
+    padding: 0.9rem 1.05rem;
     border-radius: 14px;
+    border: 1px solid #ecd9a8;
     background: #f7ecd0;
     color: #6b4d0c;
     font-size: 0.9rem;
+    line-height: 1.5;
   }
   .link-btn {
     padding: 0;
@@ -2384,6 +2408,35 @@ const todayOff = offOf(today);
   .move-hint {
     color: var(--muted);
   }
+  .move-in[hidden] {
+    display: none;
+  }
+  .move-err {
+    grid-column: 1 / -1;
+    margin: 0;
+    padding: 0.6rem 0.8rem;
+    border-radius: 10px;
+    background: #fdecea;
+    color: #8a1c12;
+    font-size: var(--t-sm);
+    font-weight: 600;
+  }
+  .move-done {
+    display: grid;
+    gap: 0.6rem;
+    padding: 0.4rem 1rem 1rem;
+  }
+  .move-done[hidden] {
+    display: none;
+  }
+  .move-done-msg {
+    margin: 0;
+    font-weight: 600;
+  }
+  .move-done .btn {
+    justify-content: center;
+    width: 100%;
+  }
   @media (max-width: 400px) {
     .move-in {
       grid-template-columns: 1fr;
@@ -2756,6 +2809,53 @@ const todayOff = offOf(today);
       if (ev && ev !== 'hello') navigator.sendBeacon('/api/admin/avisado', new URLSearchParams({ id, ev }));
     }),
   );
+
+  // Cambiar hora sin recargar: si el horario está ocupado o fuera de horario, el error sale en el formulario;
+  // si se movió, aparece el botón para avisarle a la clienta por WhatsApp.
+  document.querySelectorAll<HTMLFormElement>('form[data-move-form]').forEach((form) => {
+    const box = form.closest('details')!;
+    const err = form.querySelector<HTMLElement>('[data-move-err]')!;
+    const done = box.querySelector<HTMLElement>('[data-move-done]')!;
+    const btn = form.querySelector<HTMLButtonElement>('.move-go')!;
+    form.addEventListener('input', () => (err.hidden = true));
+    form.addEventListener('submit', async (e) => {
+      e.preventDefault();
+      if (btn.disabled) return;
+      btn.disabled = true;
+      btn.classList.add('loading');
+      err.hidden = true;
+      try {
+        const r = await fetch(location.pathname, { method: 'POST', body: new FormData(form), headers: { Accept: 'application/json' } });
+        const data = (await r.json()) as { ok: boolean; msg: string; next: string; wa?: string; notice?: string };
+        if (!data.ok) {
+          err.textContent = data.msg;
+          err.hidden = false;
+          err.scrollIntoView({ block: 'nearest', behavior: 'smooth' });
+          return;
+        }
+        done.querySelector<HTMLElement>('[data-move-msg]')!.textContent = `✅ ${data.msg}`;
+        const wa = done.querySelector<HTMLAnchorElement>('[data-move-wa]')!;
+        if (data.wa) {
+          wa.href = data.wa;
+          wa.addEventListener('click', () => {
+            const [id, ev] = (data.notice ?? '').split(':');
+            if (id && ev) navigator.sendBeacon('/api/admin/avisado', new URLSearchParams({ id, ev }));
+          });
+        } else wa.hidden = true;
+        done.querySelector<HTMLAnchorElement>('[data-move-next]')!.href = data.next;
+        form.hidden = true;
+        done.hidden = false;
+        // La agenda de atrás quedó vieja: al cerrar la cita, se recarga en la semana nueva.
+        box.closest('dialog')?.addEventListener('close', () => location.assign(data.next), { once: true });
+      } catch {
+        err.textContent = 'Sin conexión. Revisa el internet e intenta de nuevo.';
+        err.hidden = false;
+      } finally {
+        btn.disabled = false;
+        btn.classList.remove('loading');
+      }
+    });
+  });
 
   // Servicio a domicilio: muestra y exige la dirección.
   const homeToggle = document.querySelector<HTMLInputElement>('[data-home-toggle]');
