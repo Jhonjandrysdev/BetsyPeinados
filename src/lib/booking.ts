@@ -83,15 +83,19 @@ export async function book(input: BookingInput, source: 'web' | 'admin'): Promis
     throw e;
   }
 
-  // Sincroniza con Google Calendar sin bloquear la reserva si Google falla.
-  try {
-    const eventId = await createCalendarEvent(appt, await getSettings());
-    if (eventId) {
-      await updateAppointment(appt.id, { google_event_id: eventId });
-      appt.google_event_id = eventId;
+  // Google Calendar solo recibe citas en firme: las de la web (pendientes) se anotan cuando Betsy
+  // las confirma en el panel; las que ella crea en el panel nacen confirmadas y se anotan ya.
+  // Sincroniza sin bloquear la reserva si Google falla.
+  if (appt.status === 'confirmada') {
+    try {
+      const eventId = await createCalendarEvent(appt, await getSettings());
+      if (eventId) {
+        await updateAppointment(appt.id, { google_event_id: eventId });
+        appt.google_event_id = eventId;
+      }
+    } catch (e) {
+      console.error('No se pudo crear el evento en Google Calendar', e);
     }
-  } catch (e) {
-    console.error('No se pudo crear el evento en Google Calendar', e);
   }
 
   // Reserva web: el aviso de "cupo apartado" con los datos del abono le llega solo por WhatsApp.

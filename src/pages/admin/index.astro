@@ -231,14 +231,18 @@ if (Astro.request.method === 'POST') {
       console.error(e);
       return go('error', 'No se pudo cambiar la hora. Intenta de nuevo.', desde, id);
     }
+    // Google Calendar: se mueve el mismo evento (el horario anterior queda libre). Si la cita está en
+    // firme pero no quedó anotada (Google falló antes), se anota ahora en la hora nueva.
     let gcalFail = false;
-    if (appt.google_event_id) {
-      try {
-        await moveCalendarEvent(appt.google_event_id, moved);
-      } catch (e) {
-        console.error(e);
-        gcalFail = true;
+    try {
+      if (appt.google_event_id) await moveCalendarEvent(appt.google_event_id, moved);
+      else if (appt.status === 'confirmada') {
+        const eventId = await createCalendarEvent(moved, await getSettings());
+        if (eventId) await updateAppointment(id, { google_event_id: eventId });
       }
+    } catch (e) {
+      console.error(e);
+      gcalFail = true;
     }
     let wa: SendResult | null = null;
     if (notify && waOn) wa = await sendNoticeSafe({ ...moved, notified }, 'reagendada');
