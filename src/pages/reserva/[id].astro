@@ -128,27 +128,6 @@ const icsHref = `data:text/calendar;charset=utf-8,${encodeURIComponent(ics)}`;
         }
       </p>
     </div>
-    {
-      pending && (
-        <aside class="pin" aria-labelledby="pin-t" data-pin data-auto={upMsg && !upErr && hasReceipt ? '1' : undefined}>
-          <p class="pin-head">
-            <span class="pin-ico" aria-hidden="true"><Icon name="whatsapp" size={18} /></span>
-            <span id="pin-t" class="pin-t">{hasReceipt ? 'Envíale tu comprobante a Betsy' : 'Confirma tu reserva con Betsy'}</span>
-          </p>
-          <p class="pin-sub">Se abre WhatsApp con los datos de tu reserva ya escritos. Solo tienes que enviarlo.</p>
-          <div class="pin-acts">
-            <a class="btn btn-wa-big" href={wa} target="_blank" rel="noopener" data-send-betsy>
-              <Icon name="whatsapp" /> {hasReceipt ? 'Enviar a Betsy' : 'Confirmar por WhatsApp'}
-            </a>
-            {hasReceipt && (
-              <button type="button" class="btn btn-ghost pin-photo" data-share-photo data-src={`/reserva/${appt.id}/comprobante`} hidden>
-                Enviar también la foto
-              </button>
-            )}
-          </div>
-        </aside>
-      )
-    }
 
 
     {
@@ -196,6 +175,27 @@ const icsHref = `data:text/calendar;charset=utf-8,${encodeURIComponent(ics)}`;
         </dl>
       </div>
     </article>
+    {
+      pending && (
+        <aside class="pin" aria-labelledby="pin-t" data-pin data-auto={upMsg && !upErr && hasReceipt ? '1' : undefined}>
+          <p class="pin-head">
+            <span class="pin-ico" aria-hidden="true"><Icon name="whatsapp" size={18} /></span>
+            <span id="pin-t" class="pin-t">{hasReceipt ? 'Envíale tu comprobante a Betsy' : 'Confirma tu reserva con Betsy'}</span>
+          </p>
+          <p class="pin-sub">Se abre WhatsApp con los datos de tu reserva ya escritos. Solo tienes que enviarlo.</p>
+          <div class="pin-acts">
+            <a class="btn btn-wa-big" href={wa} target="_blank" rel="noopener" data-send-betsy>
+              <Icon name="whatsapp" /> {hasReceipt ? 'Enviar a Betsy' : 'Confirmar por WhatsApp'}
+            </a>
+            {hasReceipt && (
+              <button type="button" class="btn btn-ghost pin-photo" data-share-photo data-src={`/reserva/${appt.id}/comprobante`} hidden>
+                Enviar también la foto
+              </button>
+            )}
+          </div>
+        </aside>
+      )
+    }
 
     {
       !cancelled && (
