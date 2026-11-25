@@ -30,7 +30,14 @@ if (Astro.request.method === 'POST') {
     `/admin?${isDate(week) ? `desde=${week}&` : ''}${open ? `abrir=${open}&` : ''}${extra}${kind}=${encodeURIComponent(msg)}`;
   const goRedirect = (kind: 'ok' | 'error' | 'warn', msg: string, week = desde, open = '', extra = '') =>
     new Response(null, { status: 303, headers: { Location: goUrl(kind, msg, week, open, extra) } });
-  const go = goRedirect;
+  // Formularios que el panel envía por fetch (Accept: JSON): responden JSON y la página no se recarga.
+  const wantsJson = (Astro.request.headers.get('accept') ?? '').includes('application/json');
+  const go = (kind: 'ok' | 'error' | 'warn', msg: string, week = desde, open = '', extra = '') =>
+    wantsJson
+      ? new Response(JSON.stringify({ ok: kind !== 'error', kind, msg, next: goUrl(kind, msg, week, open) }), {
+          headers: { 'Content-Type': 'application/json', 'Cache-Control': 'no-store' },
+        })
+      : goRedirect(kind, msg, week, open, extra);
   const OOPS = 'Algo salió mal. Recarga la página e intenta de nuevo.';
   const citas = createCitas(citaStore);
   const waOn = waConfigured();
@@ -989,7 +996,7 @@ const todayOff = offOf(today);
             {a.status !== 'cancelada' && (
               <details class="ap-valor">
                 <summary>{valorOf(a).price == null ? 'Fijar el valor' : 'Ajustar el valor final'}</summary>
-                <form method="post" class="ap-valor-f">
+                <form method="post" class="ap-valor-f" data-ajax>
                   <input type="hidden" name="action" value="valor" />
                   <input type="hidden" name="id" value={a.id} />
                   <input type="hidden" name="desde" value={start} />
@@ -1009,6 +1016,7 @@ const todayOff = offOf(today);
                       : `El abono se recalcula al ${DEPOSIT_PCT}% del nuevo valor.`}
                   </small>
                   <button class="btn btn-ghost">Guardar valor</button>
+                  <p class="ajax-msg" role="status" data-ajax-msg hidden></p>
                 </form>
               </details>
             )}
@@ -2412,6 +2420,20 @@ const todayOff = offOf(today);
   .move-hint {
     color: var(--muted);
   }
+  .ajax-msg {
+    grid-column: 1 / -1;
+    margin: 0;
+    padding: 0.55rem 0.8rem;
+    border-radius: 10px;
+    font-size: var(--t-sm);
+    font-weight: 600;
+    background: #e6eadb;
+    color: #3f5a2a;
+  }
+  .ajax-msg.err {
+    background: #fdecea;
+    color: #8a1c12;
+  }
   .move-in[hidden] {
     display: none;
   }
@@ -2813,6 +2835,46 @@ const todayOff = offOf(today);
       if (ev && ev !== 'hello') navigator.sendBeacon('/api/admin/avisado', new URLSearchParams({ id, ev }));
     }),
   );
+
+  // Formularios de la cita que guardan sin recargar (por ahora: ajustar el valor). Al guardar se
+  // refrescan los datos de la cita en el diálogo; la agenda de atrás se actualiza al cerrarlo.
+  document.querySelectorAll<HTMLFormElement>('form[data-ajax]').forEach((form) => {
+    const out = form.querySelector<HTMLElement>('[data-ajax-msg]')!;
+    const btn = form.querySelector<HTMLButtonElement>('button:not([type=button])')!;
+    const dlg = form.closest('dialog');
+    form.addEventListener('input', () => (out.hidden = true));
+    form.addEventListener('submit', async (e) => {
+      e.preventDefault();
+      if (btn.disabled) return;
+      btn.disabled = true;
+      btn.classList.add('loading');
+      out.hidden = true;
+      try {
+        const r = await fetch(location.pathname, { method: 'POST', body: new FormData(form), headers: { Accept: 'application/json' } });
+        const data = (await r.json()) as { ok: boolean; msg: string; next: string };
+        out.textContent = data.ok ? `✅ ${data.msg}` : data.msg;
+        out.classList.toggle('err', !data.ok);
+        out.hidden = false;
+        if (!data.ok || !dlg) return;
+        // Trae la página de nuevo y cambia solo el bloque de datos de esta cita.
+        const html = await (await fetch(location.pathname + location.search, { headers: { Accept: 'text/html' }, cache: 'no-store' })).text();
+        const fresh = new DOMParser().parseFromString(html, 'text/html').querySelector(`#${CSS.escape(dlg.id)} .ap-info`);
+        const info = dlg.querySelector('.ap-info');
+        if (fresh && info) info.replaceWith(document.importNode(fresh, true));
+        if (!dlg.dataset.stale) {
+          dlg.dataset.stale = '1';
+          dlg.addEventListener('close', () => location.assign(data.next), { once: true });
+        }
+      } catch {
+        out.textContent = 'Sin conexión. Revisa el internet e intenta de nuevo.';
+        out.classList.add('err');
+        out.hidden = false;
+      } finally {
+        btn.disabled = false;
+        btn.classList.remove('loading');
+      }
+    });
+  });
 
   // Cambiar hora sin recargar: si el horario está ocupado o fuera de horario, el error sale en el formulario;
   // si se movió, aparece el botón para avisarle a la clienta por WhatsApp.
