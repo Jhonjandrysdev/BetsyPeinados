@@ -77,7 +77,7 @@ const ld = jsonLd ? (Array.isArray(jsonLd) ? jsonLd : [jsonLd]) : [];
         if (src) sessionStorage.setItem('bp-src', src);
         const from = sessionStorage.getItem('bp-src');
         if (from) {
-          document.querySelectorAll<HTMLAnchorElement>('a[href^="https://wa.me/"]').forEach((a) => {
+          document.querySelectorAll<HTMLAnchorElement>('a[href^="https://wa.me/"], a[href^="https://api.whatsapp.com/send"]').forEach((a) => {
             const url = new URL(a.href);
             const text = url.searchParams.get('text');
             if (text && !text.includes('(vía ')) {

@@ -19,7 +19,7 @@ export const NOTICE_EVENTS: { id: NoticeEvent; label: string; when: string }[] =
 
 export const DEFAULT_TEMPLATES: Record<NoticeEvent, string> = {
   apartada:
-    'Hola {nombre} 👋 Te escribe Betsy Peinados. Tu cupo de {servicio} para el {fecha} a las {hora} está apartado ✨\n\nPara confirmarlo transfiere el abono del {porcentaje} ({abono}) a la llave {llave} y envíame el comprobante por aquí. Sin abono no se garantiza la reserva.',
+    'Hola {nombre} 👋 Te escribe Betsy Peinados. Tu cupo de {servicio} para el {fecha} a las {hora} está apartado ✨\n\n💳 Para confirmarlo transfiere el abono del {porcentaje} ({abono}) a la llave {llave} y envíame el comprobante por aquí 🧾 Sin abono no se garantiza la reserva.',
   comprobante_rechazado:
     'Hola {nombre} 👋 Revisé el comprobante de tu cita de {servicio} del {fecha} a las {hora} y no lo pude validar: {motivo}.\n\nPor favor súbelo de nuevo en la página de tu reserva o envíamelo por aquí para confirmar tu cupo 💖',
   cupo_liberado:
@@ -27,10 +27,10 @@ export const DEFAULT_TEMPLATES: Record<NoticeEvent, string> = {
   abono:
     '¡Hola {nombre}! ✅ Recibí tu abono. Tu cita de {servicio} quedó CONFIRMADA para el {fecha} a las {hora} 🎀\n\nRecuerda venir con el cabello limpio y seco (no realizamos blower). ¡Te espero! 💖',
   recordatorio:
-    'Hola {nombre} 👋 Te recuerdo tu cita de {servicio} el {fecha} a las {hora} ✨ Recuerda: cabello limpio y seco.\n\n¿Me confirmas que vienes? Si necesitas otra hora, dime y la cambiamos.',
+    'Hola {nombre} 👋 Te recuerdo tu cita de {servicio} 📅 el {fecha} a las {hora} ⏰ ✨ Recuerda: cabello limpio y seco 💆‍♀️\n\n¿Me confirmas que vienes? 🙌 Si necesitas otra hora, dime y la cambiamos.',
   reagendada: 'Hola {nombre} 👋 Tu cita de {servicio} quedó para el {fecha} a las {hora} ✨ Si no te queda bien, respóndeme por aquí y lo ajustamos 💖',
-  gracias: '¡Gracias por venir, {nombre}! 💖 Si te tomas una foto con tu peinado, etiquétame en Instagram @{instagram}.',
-  cancelada: 'Hola {nombre}, tu cita de {servicio} del {fecha} a las {hora} quedó cancelada. Si quieres reprogramar, escríbeme por aquí 💖',
+  gracias: '¡Gracias por venir, {nombre}! 💖 Si te tomas una foto con tu peinado 📸 etiquétame en Instagram @{instagram} ✨',
+  cancelada: 'Hola {nombre} 👋 Tu cita de {servicio} del {fecha} a las {hora} quedó cancelada 🗓️ Si quieres reprogramar, escríbeme por aquí 💖',
 };
 
 export const PLACEHOLDERS = ['nombre', 'servicio', 'fecha', 'hora', 'valor', 'abono', 'porcentaje', 'llave', 'codigo', 'direccion', 'instagram', 'motivo'];

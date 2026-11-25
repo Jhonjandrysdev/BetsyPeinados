@@ -1,4 +1,5 @@
 ---
+import { waUrl } from '../lib/walink';
 import Icon from './Icon.astro';
 import { DEPOSIT_PCT, DEPOSIT_RULE, ONDAS_LENGTH_NOTE, PACKAGES, depositOf, packagesFor, type EventPackage } from '../lib/defaults';
 import { formatCOP } from '../lib/time';
@@ -19,7 +20,7 @@ const list = only ? all.filter((p) => only.includes(p.slug)) : all;
 const waText = (p: EventPackage) =>
   `¡Hola Betsy! Quiero apartar mi fecha para el paquete ${p.name}${p.price ? ` (${p.from ? 'desde ' : ''}${formatCOP(p.price)}${p.unit ? ` ${p.unit}` : ''})` : ''}. ` +
   `Fecha del evento: ___. ${p.slug === 'grupos' ? 'Somos ___ personas. ' : ''}${p.price ? '' : '¿Me cotizas? '}Sé que el cupo se asegura con el ${DEPOSIT_PCT}%.`;
-const wa = (p: EventPackage) => `https://wa.me/${s.whatsapp}?text=${encodeURIComponent(waText(p))}`;
+const wa = (p: EventPackage) => waUrl(s.whatsapp, waText(p));
 ---
 
 <ul class:list={['pkgs', { single: list.length === 1 }]}>

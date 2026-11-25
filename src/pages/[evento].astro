@@ -1,5 +1,6 @@
 ---
 // Páginas de aterrizaje por evento (/grados, /quince, /novias) para enlazar desde cada reel con ?src=reel.
+import { waUrl } from '../lib/walink';
 import Base from '../layouts/Base.astro';
 import Header from '../components/Header.astro';
 import Footer from '../components/Footer.astro';
@@ -28,7 +29,7 @@ const words: Record<string, string[]> = {
 const match = gallery.filter((g) => words[pkg.slug].some((w) => (g.alt || '').toLowerCase().includes(w)));
 const photos = (match.length >= 3 ? match : gallery).slice(0, 6);
 const faq = FAQ.filter((f) => /anticip|aparto|cabello|domicilio|cancelar/i.test(f.q));
-const wa = `https://wa.me/${s.whatsapp}?text=${encodeURIComponent(`¡Hola Betsy! Vi el paquete ${pkg.name} y quiero saber si tienes libre mi fecha: ___`)}`;
+const wa = waUrl(s.whatsapp, `¡Hola Betsy! 👋 Vi el paquete ${pkg.name} ✨ y quiero saber si tienes libre mi fecha 📅: ___`);
 const priceTxt = pkg.price ? `${pkg.from ? 'desde ' : ''}${formatCOP(pkg.price)}` : 'cotiza por WhatsApp';
 const title = `${pkg.title} en ${s.city} · ${priceTxt} · ${s.business_name}`;
 const description = `${pkg.pitch} Paquete ${pkg.name} ${pkg.price ? `por ${priceTxt}` : '(cotiza por WhatsApp)'} en ${s.city}. ${DEPOSIT_RULE}`;

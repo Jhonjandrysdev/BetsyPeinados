@@ -1,4 +1,5 @@
 ---
+import { waUrl } from '../lib/walink';
 import Icon from './Icon.astro';
 interface Props {
   number: string;
@@ -6,7 +7,7 @@ interface Props {
 const { number } = Astro.props;
 ---
 
-<a class="fab" href={`https://wa.me/${number}?text=${encodeURIComponent('¡Hola Betsy! Quiero agendar un peinado ✨')}`} target="_blank" rel="noopener" aria-label="Escribir por WhatsApp">
+<a class="fab" href={waUrl(number, '¡Hola Betsy! 👋 Quiero agendar un peinado ✨')} target="_blank" rel="noopener" aria-label="Escribir por WhatsApp">
   <Icon name="whatsapp" size={28} />
 </a>
 
