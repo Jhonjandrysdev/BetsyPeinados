@@ -7,14 +7,14 @@ import { publicStorageUrl } from '../../lib/supabase';
 import { limited } from '../../lib/http';
 import { DEPOSIT_PCT, POLICIES, hairLabel } from '../../lib/defaults';
 import { cupoLiberado, plazoDeAbono, resumenDeCita, tiempoRestante } from '../../lib/cita';
-import { formatCOP, prettyDate, prettyTime } from '../../lib/time';
+import { formatCOP, localDate, prettyDate, prettyTime } from '../../lib/time';
 
 const { id = '' } = Astro.params;
 const appt = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(id) ? await getAppointment(id) : null;
 if (!appt) return Astro.redirect('/reservar', 303);
 
 // La clienta sube el comprobante del abono desde esta misma página.
-let upMsg = Astro.url.searchParams.has('subido') ? '¡Comprobante recibido! Betsy lo revisa y te confirma la cita aquí y por WhatsApp.' : '';
+let upMsg = Astro.url.searchParams.has('subido') ? '¡Comprobante recibido! Te abrimos WhatsApp para que se lo envíes a Betsy.' : '';
 let upErr = false;
 if (Astro.request.method === 'POST') {
   upErr = true;
@@ -55,11 +55,27 @@ const gcal = `https://calendar.google.com/calendar/render?${new URLSearchParams(
   location: s.address,
   details: `Cita en ${s.business_name}. WhatsApp: +${s.whatsapp}`,
 })}`;
+// Sin WhatsApp automático: la clienta le manda a Betsy, desde su propio WhatsApp, la cita completa
+// y el enlace al comprobante (un toque: abre el chat de Betsy con el mensaje escrito).
+const origin = Astro.url.origin;
+const firstName = appt.customer_name.split(' ')[0];
+const lines = [
+  `¡Hola Betsy! Soy ${appt.customer_name} y acabo de reservar en la web ✨`,
+  '',
+  `• Servicio: ${appt.service_name}`,
+  `• Fecha: ${prettyDate(appt.starts_at)}`,
+  `• Hora: ${prettyTime(appt.starts_at)}`,
+  appt.home_service && appt.home_address ? `• Domicilio: ${appt.home_address}` : null,
+  appt.hair_length ? `• Largo: ${hairLabel(appt.hair_length)}` : null,
+  price != null ? `• Valor${resumen.exacto ? '' : ' desde'}: ${formatCOP(price)}` : null,
+  deposit ? `• Abono (${DEPOSIT_PCT}%): ${formatCOP(deposit)}` : null,
+  `• Reserva #${appt.id.slice(0, 8).toUpperCase()}`,
+  '',
+  hasReceipt ? `Comprobante del abono: ${origin}/reserva/${appt.id}/comprobante` : `Ya te transfiero el abono del ${DEPOSIT_PCT}% y te envío el comprobante.`,
+  `Ver la cita en tu panel: ${origin}/admin?desde=${localDate(new Date(appt.starts_at))}&abrir=${appt.id}`,
+].filter((l) => l !== null);
 const wa = `https://wa.me/${s.whatsapp}?text=${encodeURIComponent(
-  pending
-    ? `¡Hola Betsy! Soy ${appt.customer_name}. Aparté ${appt.service_name} para el ${prettyDate(appt.starts_at)} a las ${prettyTime(appt.starts_at)} (reserva #${appt.id.slice(0, 8).toUpperCase()}). ` +
-        `Te envío el comprobante del abono del ${DEPOSIT_PCT}%${deposit ? ` (${formatCOP(deposit)})` : ''} ✨`
-    : `¡Hola Betsy! Soy ${appt.customer_name}. Tengo cita de ${appt.service_name} para el ${prettyDate(appt.starts_at)} a las ${prettyTime(appt.starts_at)} ✨`,
+  pending ? lines.join('\n') : `¡Hola Betsy! Soy ${firstName}. Tengo cita de ${appt.service_name} para el ${prettyDate(appt.starts_at)} a las ${prettyTime(appt.starts_at)} ✨`,
 )}`;
 const cancelled = appt.status === 'cancelada';
 
@@ -176,14 +192,16 @@ const icsHref = `data:text/calendar;charset=utf-8,${encodeURIComponent(ics)}`;
                 </label>
               </form>
               <p class="pay-hint center" data-up-msg role="status" aria-live="polite">
-                Foto o PDF de la transferencia. También puedes enviarlo por WhatsApp.
+                Foto o PDF de la transferencia. Después te dejamos el mensaje listo para enviárselo a Betsy por WhatsApp.
               </p>
             </>
           )}
           {hasReceipt && (
-            <p class="pay-wait">
-              <span class="dot" aria-hidden="true" /> Comprobante en revisión. No cierres esta página si quieres ver la confirmación al instante.
-            </p>
+            <>
+              <p class="pay-wait">
+                <span class="dot" aria-hidden="true" /> Comprobante en revisión. Esta página cambia sola cuando Betsy confirme tu cita.
+              </p>
+            </>
           )}
         </section>
       )
@@ -228,7 +246,7 @@ const icsHref = `data:text/calendar;charset=utf-8,${encodeURIComponent(ics)}`;
     {
       !cancelled && (
         <div class="cta">
-          <a class="btn btn-clay" href={wa} target="_blank" rel="noopener"><Icon name="whatsapp" /> {pending && !hasReceipt ? 'Enviar comprobante por WhatsApp' : 'Escribir por WhatsApp'}</a>
+          {!pending && <a class="btn btn-clay" href={wa} target="_blank" rel="noopener"><Icon name="whatsapp" /> Escribir por WhatsApp</a>}
           <a class="btn btn-ghost" href={gcal} target="_blank" rel="noopener"><Icon name="google" /> Google Calendar</a>
           <a class="btn btn-ghost" href={icsHref} download={`cita-betsy-${code.toLowerCase()}.ics`}><Icon name="calendar" /> Descargar .ics</a>
         </div>
@@ -243,6 +261,32 @@ const icsHref = `data:text/calendar;charset=utf-8,${encodeURIComponent(ics)}`;
       )
     }
     <p class="small">¿Necesitas cambiar la fecha? Escríbeme por WhatsApp con al menos 24 horas de anticipación.</p>
+    {
+      pending && (
+        <aside class="pin" aria-labelledby="pin-t" data-pin data-auto={upMsg && !upErr && hasReceipt ? '1' : undefined}>
+          <details class="pin-in" open={hasReceipt ? true : undefined}>
+            <summary>
+              <span class="pin-ico" aria-hidden="true"><Icon name="whatsapp" size={18} /></span>
+              <span id="pin-t" class="pin-t">{hasReceipt ? 'Envíale tu comprobante a Betsy' : 'Tu mensaje para Betsy'}</span>
+              <span class="pin-more" aria-hidden="true">▾</span>
+            </summary>
+            <div class="pin-bubble">
+              {lines.map((l) => (l ? <p>{l}</p> : <br />))}
+            </div>
+          </details>
+          <div class="pin-acts">
+            <a class="btn btn-wa-big" href={wa} target="_blank" rel="noopener" data-send-betsy>
+              <Icon name="whatsapp" /> {hasReceipt ? 'Enviar a Betsy' : 'Escribirle a Betsy'}
+            </a>
+            {hasReceipt && (
+              <button type="button" class="btn btn-ghost pin-photo" data-share-photo data-src={`/reserva/${appt.id}/comprobante`} hidden>
+                Enviar también la foto
+              </button>
+            )}
+          </div>
+        </aside>
+      )
+    }
   </main>
 </Base>
 
@@ -306,6 +350,30 @@ const icsHref = `data:text/calendar;charset=utf-8,${encodeURIComponent(ics)}`;
     msg.textContent = original.name;
     document.querySelector<HTMLFormElement>('[data-up]')!.submit();
   });
+  // Mensaje fijado para Betsy: tras subir el comprobante se abre WhatsApp de una vez con todo escrito.
+  const pin = document.querySelector<HTMLElement>('[data-pin]');
+  const sendLink = pin?.querySelector<HTMLAnchorElement>('[data-send-betsy]');
+  if (pin?.dataset.auto && sendLink) {
+    const u = new URL(location.href);
+    u.searchParams.delete('subido');
+    history.replaceState(null, '', u.pathname + u.search);
+    setTimeout(() => location.assign(sendLink.href), 900);
+  }
+  // En celulares que lo permiten, también se puede mandar la foto misma (se elige el chat de Betsy).
+  const photoBtn = pin?.querySelector<HTMLButtonElement>('[data-share-photo]');
+  if (photoBtn && 'canShare' in navigator) {
+    fetch(photoBtn.dataset.src!, { cache: 'no-store' })
+      .then((r) => (r.ok ? r.blob() : null))
+      .then((b) => {
+        if (!b) return;
+        const ext = b.type === 'application/pdf' ? 'pdf' : b.type.split('/')[1] || 'jpg';
+        const f = new File([b], `comprobante.${ext}`, { type: b.type });
+        if (!navigator.canShare({ files: [f] })) return;
+        photoBtn.hidden = false;
+        photoBtn.addEventListener('click', () => navigator.share({ files: [f], title: 'Comprobante del abono' }).catch(() => {}));
+      })
+      .catch(() => {});
+  }
   // Cuando Betsy confirme el abono o ajuste el valor, la página se actualiza sola
   // (cada 15 s mientras espera el abono; cada minuto después, para no agotar el límite de consultas).
   const watch = document.querySelector<HTMLElement>('[data-status-watch]');
@@ -468,6 +536,94 @@ const icsHref = `data:text/calendar;charset=utf-8,${encodeURIComponent(ics)}`;
     inset: 0;
     opacity: 0;
     cursor: pointer;
+  }
+  .ok:has(.pin) {
+    padding-bottom: 14rem;
+  }
+  .pin {
+    position: fixed;
+    z-index: 40;
+    left: 50%;
+    bottom: max(0.75rem, env(safe-area-inset-bottom));
+    transform: translateX(-50%);
+    width: min(560px, calc(100% - 1.5rem));
+    display: grid;
+    gap: 0.6rem;
+    padding: 0.8rem;
+    border-radius: 20px;
+    background: #f0f2f5;
+    border: 1px solid #d1d7db;
+    box-shadow: 0 18px 40px -16px rgb(11 20 26 / 0.45);
+    color: #111b21;
+    text-align: left;
+  }
+  .pin-in summary {
+    display: flex;
+    align-items: center;
+    gap: 0.5rem;
+    list-style: none;
+    cursor: pointer;
+    font-weight: 700;
+  }
+  .pin-in summary::-webkit-details-marker {
+    display: none;
+  }
+  .pin-ico {
+    display: grid;
+    place-items: center;
+    width: 30px;
+    height: 30px;
+    border-radius: 50%;
+    background: #25d366;
+    color: #fff;
+    flex: none;
+  }
+  .pin-t {
+    flex: 1;
+  }
+  .pin-more {
+    color: #667781;
+    transition: transform 0.2s;
+  }
+  .pin-in[open] .pin-more {
+    transform: rotate(180deg);
+  }
+  .pin-bubble {
+    max-height: 32vh;
+    overflow-y: auto;
+    margin-top: 0.6rem;
+    padding: 0.6rem 0.8rem;
+    border-radius: 12px 12px 4px 12px;
+    background: #d9fdd3;
+    font-size: 0.86rem;
+    line-height: 1.4;
+    overflow-wrap: anywhere;
+  }
+  .pin-bubble p {
+    margin: 0;
+  }
+  .pin-acts {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 0.5rem;
+    justify-content: center;
+  }
+  .pin-acts .btn-wa-big {
+    flex: 1 1 220px;
+  }
+  .pin-photo {
+    flex: 1 1 160px;
+    justify-content: center;
+  }
+  .btn-wa-big {
+    justify-content: center;
+    min-height: 52px;
+    background: #1fa855;
+    color: #fff;
+    font-weight: 700;
+  }
+  .btn-wa-big:hover {
+    background: #178f47;
   }
   .pay-wait {
     display: flex;

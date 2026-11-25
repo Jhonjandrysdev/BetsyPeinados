@@ -42,6 +42,8 @@ export const onRequest = defineMiddleware(async (ctx, next) => {
   const res = await next();
 
   for (const [k, v] of Object.entries(SECURITY_HEADERS)) res.headers.set(k, v);
+  // El comprobante (PDF) se muestra dentro de una ventana del propio panel.
+  if (pathname === '/admin/comprobante') res.headers.set('X-Frame-Options', 'SAMEORIGIN');
   if (isAdminPath(pathname) || pathname.startsWith('/reserva/') || pathname.startsWith('/api/')) {
     res.headers.set('Cache-Control', 'no-store');
     res.headers.set('X-Robots-Tag', 'noindex, nofollow');

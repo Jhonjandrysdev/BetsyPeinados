@@ -115,7 +115,6 @@ const money = (n: number, currency: string | null) => {
 };
 // Cifra principal del mes: lo que cobró Meta (en pesos si se puede) o, sin ese dato, el estimado con la tarifa.
 const kpiValor = !real ? formatCOP(uso.estimado) : real.cop === null ? money(real.monto, real.moneda) : `${real.aproximado ? '≈ ' : ''}${formatCOP(real.cop)}`;
-const kpiEtiqueta = !real ? 'costo estimado' : real.aproximado ? `cobrado por Meta: ${money(real.monto, real.moneda)} (dólar a ${fmtUsdCop} pesos)` : 'cobrado por Meta (dato real)';
 const fmtRate = new Intl.NumberFormat('es-CO', { maximumFractionDigits: 2 }).format(rate);
 const sample: Appointment = {
   id: 'a1b2c3d4-0000-4000-8000-000000000000',
@@ -179,36 +178,46 @@ const sampleData = { a: sample, s, price: 80000, deposit: 40000 };
         <p class="muted">Para llevar la cuenta falta activar el WhatsApp automático en la base de datos (ver la guía).</p>
       ) : (
         <>
+          <p class="wa-explain">
+            Meta solo cobra las <b>plantillas</b>: los avisos que salen cuando la clienta no te ha escrito en las últimas 24 horas. Lo que respondes dentro de esas 24 horas es gratis.
+          </p>
           <div class="wa-kpis">
-            <p>
+            <div class="kpi main">
+              <span class="kpi-l">{real ? 'Cobrado por Meta' : 'Costo estimado'}</span>
               <strong>{kpiValor}</strong>
-              <span>{kpiEtiqueta}</span>
-            </p>
-            <p>
+              <small>{real ? (real.aproximado ? `${money(real.monto, real.moneda)} · dólar a ${fmtUsdCop}` : 'Dato real de Meta') : `${uso.cobrados} × ${fmtRate} pesos`}</small>
+            </div>
+            <div class="kpi">
+              <span class="kpi-l">Cobrados</span>
               <strong>{uso.cobrados}</strong>
-              <span>{uso.cobrados === 1 ? 'mensaje cobrado' : 'mensajes cobrados'}</span>
-            </p>
-            <p>
+              <small>{uso.cobrados === 1 ? 'plantilla enviada' : 'plantillas enviadas'}</small>
+            </div>
+            <div class="kpi">
+              <span class="kpi-l">Gratis</span>
               <strong>{uso.gratis}</strong>
-              <span>gratis (respuestas dentro de las 24 h)</span>
-            </p>
-            <p>
+              <small>respuestas dentro de 24 h</small>
+            </div>
+            <div class="kpi">
+              <span class="kpi-l">Recibidos</span>
               <strong>{uso.recibidos}</strong>
-              <span>{uso.recibidos === 1 ? 'mensaje recibido' : 'mensajes recibidos'}{uso.confirmo ? ` · ${uso.confirmo} «Confirmo»` : ''}</span>
-            </p>
+              <small>{uso.confirmo ? `${uso.confirmo} dijeron «Confirmo»` : 'de tus clientas'}</small>
+            </div>
           </div>
-          {vsPrev && (
+          {(vsPrev || real) && (
             <p class="muted wa-note">
-              {`Gasto estimado${isNow ? ' hasta hoy' : ''}: `}
-              {vsPrev.diferencia === 0
-                ? 'igual al del mes anterior.'
-                : `${vsPrev.diferencia > 0 ? '+' : '−'}${formatCOP(Math.abs(vsPrev.diferencia))}${vsPrev.porcentaje !== null ? ` (${vsPrev.porcentaje > 0 ? '+' : ''}${vsPrev.porcentaje} %)` : ''} frente a todo el mes anterior.`}
+              {vsPrev &&
+                `${isNow ? 'Hasta hoy' : 'Este mes'}: ${
+                  vsPrev.diferencia === 0
+                    ? 'igual que el mes anterior.'
+                    : `${vsPrev.diferencia > 0 ? '+' : '−'}${formatCOP(Math.abs(vsPrev.diferencia))}${vsPrev.porcentaje !== null ? ` (${vsPrev.porcentaje > 0 ? '+' : ''}${vsPrev.porcentaje} %)` : ''} frente al mes anterior.`
+                } `}
+              {real && `Con tu tarifa sería ${formatCOP(uso.estimado)}.`}
             </p>
           )}
           <ul class="wa-states" aria-label="Estado de los mensajes enviados">
-            <li><strong>{uso.porEstado.entregados}</strong> entregados ({uso.porEstado.leidos} ya leídos)</li>
-            <li class:list={{ bad: uso.porEstado.fallidos > 0 }}><strong>{uso.porEstado.fallidos}</strong> no se entregaron</li>
-            <li class:list={{ bad: uso.porEstado.bloqueados > 0 }}><strong>{uso.porEstado.bloqueados}</strong> bloqueados (sin permiso o por tope)</li>
+            <li><span class="st-dot ok" aria-hidden="true"></span><strong>{uso.porEstado.entregados}</strong> entregados ({uso.porEstado.leidos} leídos)</li>
+            <li class:list={{ bad: uso.porEstado.fallidos > 0 }}><span class="st-dot" aria-hidden="true"></span><strong>{uso.porEstado.fallidos}</strong> no se entregaron</li>
+            <li class:list={{ bad: uso.porEstado.bloqueados > 0 }}><span class="st-dot" aria-hidden="true"></span><strong>{uso.porEstado.bloqueados}</strong> bloqueados (sin permiso o por tope)</li>
           </ul>
           {estadoDelTope && estadoDelTope.nivel !== 'sin_tope' && (
             <div class:list={['wa-tope', estadoDelTope.nivel]}>
@@ -230,7 +239,6 @@ const sampleData = { a: sample, s, price: 80000, deposit: 40000 };
               </div>
             </div>
           )}
-          {real && <p class="muted wa-note">Estimado con tu tarifa: {formatCOP(uso.estimado)} ({uso.cobrados} × {fmtRate} pesos).</p>}
           {meta && 'error' in meta && <p class="muted wa-note">No se pudo leer el costo real en Meta ({meta.error}). Se muestra el estimado.</p>}
           {uso.porEvento.length > 0 && (
             <table class="wa-table">
@@ -276,28 +284,36 @@ const sampleData = { a: sample, s, price: 80000, deposit: 40000 };
       )}
     </div>
 
-    <form method="post" class="wa-set">
+    <form method="post" class="wa-set" aria-labelledby="wa-set-t">
       <input type="hidden" name="form" value="wa" />
-      <label class="field chk">
+      <h3 id="wa-set-t">Ajustes de cobro</h3>
+      <label class="wa-toggle">
         <input type="checkbox" name="auto" checked={s.wa_auto_reminder !== false} />
-        <span>Pedir confirmación sola el día antes (9:00 a. m.)</span>
+        <span>
+          <b>Pedir confirmación el día antes</b>
+          <small class="muted">Sale sola a las 9:00 a. m. a las clientas con cita al día siguiente.</small>
+        </span>
       </label>
-      <div class="field">
-        <label for="wa-rate">Precio por mensaje cobrado (pesos)</label>
-        <input id="wa-rate" name="rate" inputmode="decimal" value={fmtRate} maxlength="12" aria-describedby="wa-rate-h" />
-        <small class="hint" id="wa-rate-h">Meta cobra cada plantilla de Utilidad en Colombia; mira tu tarifa en WhatsApp Manager → Facturación.</small>
+      <div class="wa-fields">
+        <div class="field">
+          <label for="wa-rate">Precio por plantilla</label>
+          <div class="wa-input"><span aria-hidden="true">$</span><input id="wa-rate" name="rate" inputmode="decimal" value={fmtRate} maxlength="12" aria-describedby="wa-rate-h" /></div>
+          <small class="hint" id="wa-rate-h">En pesos. Lo ves en WhatsApp Manager → Facturación.</small>
+        </div>
+        <div class="field">
+          <label for="wa-tope">Tope mensual</label>
+          <div class="wa-input"><span aria-hidden="true">$</span><input id="wa-tope" name="tope" inputmode="numeric" value={fmtTope} maxlength="15" placeholder="Sin tope" aria-describedby="wa-tope-h" /></div>
+          <small class="hint" id="wa-tope-h">Al llegar aquí, las plantillas paran hasta el otro mes. Vacío = sin tope.</small>
+        </div>
+        <div class="field">
+          <label for="wa-usd">Dólar a</label>
+          <div class="wa-input"><span aria-hidden="true">$</span><input id="wa-usd" name="usd" inputmode="numeric" value={fmtUsdCop} maxlength="12" aria-describedby="wa-usd-h" /></div>
+          <small class="hint" id="wa-usd-h">Para pasar a pesos lo que Meta cobra en dólares.</small>
+        </div>
       </div>
-      <div class="field">
-        <label for="wa-tope">Tope mensual de gasto (pesos)</label>
-        <input id="wa-tope" name="tope" inputmode="numeric" value={fmtTope} maxlength="15" placeholder="Sin tope" aria-describedby="wa-tope-h" />
-        <small class="hint" id="wa-tope-h">Con el gasto estimado del mes en este valor, los avisos que se cobran dejan de salir hasta el mes siguiente. Vacío = sin tope.</small>
+      <div class="wa-set-acts">
+        <button class="btn btn-clay"><Icon name="check" /> Guardar ajustes</button>
       </div>
-      <div class="field">
-        <label for="wa-usd">Tasa del dólar (pesos)</label>
-        <input id="wa-usd" name="usd" inputmode="numeric" value={fmtUsdCop} maxlength="12" aria-describedby="wa-usd-h" />
-        <small class="hint" id="wa-usd-h">Para mostrar en pesos lo que cobra Meta si tu cuenta factura en dólares. Es un aproximado.</small>
-      </div>
-      <button class="btn btn-clay"><Icon name="check" /> Guardar</button>
     </form>
   </section>
 
@@ -386,7 +402,7 @@ const sampleData = { a: sample, s, price: 80000, deposit: 40000 };
   }
   .wa-steps {
     display: grid;
-    grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
+    grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
     gap: 0.5rem;
     margin: 0;
     padding: 0;
@@ -446,28 +462,54 @@ const sampleData = { a: sample, s, price: 80000, deposit: 40000 };
     width: 44px;
     flex: none;
   }
+  .wa-explain {
+    margin: 0;
+    padding: 0.7rem 0.9rem;
+    border-left: 3px solid #25d366;
+    border-radius: 0 10px 10px 0;
+    background: color-mix(in oklab, #25d366 8%, var(--white, #fff));
+    font-size: var(--t-sm);
+    line-height: 1.5;
+  }
   .wa-kpis {
     display: grid;
-    grid-template-columns: repeat(auto-fit, minmax(150px, 1fr));
+    grid-template-columns: repeat(4, minmax(0, 1fr));
     gap: 0.6rem;
   }
-  .wa-kpis p {
+  .kpi {
     display: grid;
-    gap: 0.2rem;
-    margin: 0;
+    align-content: start;
+    gap: 0.25rem;
     padding: 0.85rem 1rem;
     border-radius: 14px;
     background: var(--cream);
     min-width: 0;
   }
-  .wa-kpis strong {
-    font-size: 1.35rem;
-    line-height: 1.2;
+  .kpi.main {
+    background: color-mix(in oklab, var(--clay) 12%, var(--cream));
+  }
+  .kpi-l {
+    font-size: 0.72rem;
+    font-weight: 700;
+    letter-spacing: 0.06em;
+    text-transform: uppercase;
+    color: var(--muted);
+  }
+  .kpi strong {
+    font-size: 1.5rem;
+    line-height: 1.15;
+    font-variant-numeric: tabular-nums;
     overflow-wrap: anywhere;
   }
-  .wa-kpis span {
+  .kpi small {
     color: var(--muted);
-    font-size: 0.85rem;
+    font-size: 0.8rem;
+    line-height: 1.35;
+  }
+  @media (max-width: 760px) {
+    .wa-kpis {
+      grid-template-columns: repeat(2, minmax(0, 1fr));
+    }
   }
   .wa-note {
     margin: 0;
@@ -476,11 +518,34 @@ const sampleData = { a: sample, s, price: 80000, deposit: 40000 };
   .wa-states {
     display: flex;
     flex-wrap: wrap;
-    gap: 0.4rem 1rem;
-    margin: 0.6rem 0;
+    gap: 0.4rem;
+    margin: 0;
     padding: 0;
     list-style: none;
     font-size: var(--t-sm);
+  }
+  .wa-states li {
+    display: inline-flex;
+    align-items: center;
+    gap: 0.35rem;
+    padding: 0.3rem 0.7rem;
+    border: 1px solid var(--line);
+    border-radius: 999px;
+  }
+  .st-dot {
+    width: 0.5rem;
+    height: 0.5rem;
+    border-radius: 50%;
+    background: var(--line);
+  }
+  .st-dot.ok {
+    background: #3f8a4a;
+  }
+  .wa-states .bad {
+    border-color: #e5b5aa;
+  }
+  .wa-states .bad .st-dot {
+    background: #9c2a1a;
   }
   .wa-states .bad strong {
     color: #9c2a1a;
@@ -559,34 +624,74 @@ const sampleData = { a: sample, s, price: 80000, deposit: 40000 };
   }
   .wa-set {
     display: grid;
-    grid-template-columns: 1fr 1fr auto;
-    align-items: end;
-    gap: 0.8rem 1rem;
-    padding-top: 1rem;
+    gap: 1rem;
+    padding-top: 1.1rem;
     border-top: 1px dashed var(--line);
   }
-  .wa-set .chk {
-    display: flex;
-    flex-direction: row;
-    align-items: center;
-    gap: 0.5rem;
-    font-weight: 600;
-    align-self: center;
+  .wa-set h3 {
+    margin: 0;
+    font-size: 1.1rem;
   }
-  .wa-set .chk input {
-    width: 1.1rem;
-    height: 1.1rem;
+  .wa-toggle {
+    display: flex;
+    align-items: flex-start;
+    gap: 0.7rem;
+    padding: 0.8rem 1rem;
+    border-radius: 14px;
+    background: var(--cream);
+    cursor: pointer;
+  }
+  .wa-toggle input {
     flex: none;
+    width: 1.15rem;
+    height: 1.15rem;
+    margin-top: 0.15rem;
     accent-color: var(--clay);
   }
-  .wa-set .field {
+  .wa-toggle b {
+    display: block;
+  }
+  .wa-toggle small {
+    display: block;
+    font-size: var(--t-sm);
+  }
+  .wa-fields {
+    display: grid;
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+    align-items: start;
+    gap: 1rem;
+  }
+  .wa-fields .field {
+    display: grid;
+    gap: 0.35rem;
     min-width: 0;
   }
+  .wa-input {
+    position: relative;
+  }
+  .wa-input span {
+    position: absolute;
+    left: 0.85rem;
+    top: 50%;
+    transform: translateY(-50%);
+    color: var(--muted);
+    pointer-events: none;
+  }
+  .wa-input input {
+    width: 100%;
+    padding-left: 1.7rem;
+    font-variant-numeric: tabular-nums;
+  }
+  .wa-set-acts {
+    display: flex;
+    justify-content: flex-end;
+  }
   @media (max-width: 760px) {
-    .wa-set {
+    .wa-fields {
       grid-template-columns: 1fr;
     }
-    .wa-set .btn {
+    .wa-set-acts .btn {
+      width: 100%;
       justify-content: center;
     }
   }

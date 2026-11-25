@@ -28,7 +28,7 @@ export default defineConfig({
         `img-src 'self' data: blob: ${SUPABASE_HOST}`.trim(),
         "font-src 'self'",
         `connect-src 'self' ${SUPABASE_HOST}`.trim(),
-        "frame-src https://www.google.com https://maps.google.com",
+        "frame-src 'self' https://www.google.com https://maps.google.com",
         "object-src 'none'",
         "base-uri 'self'",
         "frame-ancestors 'none'",
