@@ -7,14 +7,14 @@ import { publicStorageUrl } from '../../lib/supabase';
 import { limited } from '../../lib/http';
 import { DEPOSIT_PCT, POLICIES, hairLabel } from '../../lib/defaults';
 import { cupoLiberado, plazoDeAbono, resumenDeCita, tiempoRestante } from '../../lib/cita';
-import { formatCOP, prettyDate, prettyTime } from '../../lib/time';
+import { formatCOP, localDate, prettyDate, prettyTime } from '../../lib/time';
 
 const { id = '' } = Astro.params;
 const appt = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(id) ? await getAppointment(id) : null;
 if (!appt) return Astro.redirect('/reservar', 303);
 
 // La clienta sube el comprobante del abono desde esta misma página.
-let upMsg = Astro.url.searchParams.has('subido') ? '¡Comprobante recibido! Betsy lo revisa y te confirma la cita aquí y por WhatsApp.' : '';
+let upMsg = Astro.url.searchParams.has('subido') ? '¡Comprobante recibido! Falta un paso: envíale tu reserva a Betsy por WhatsApp con el botón verde.' : '';
 let upErr = false;
 if (Astro.request.method === 'POST') {
   upErr = true;
@@ -55,11 +55,27 @@ const gcal = `https://calendar.google.com/calendar/render?${new URLSearchParams(
   location: s.address,
   details: `Cita en ${s.business_name}. WhatsApp: +${s.whatsapp}`,
 })}`;
+// Sin WhatsApp automático: la clienta le manda a Betsy, desde su propio WhatsApp, la cita completa
+// y el enlace al comprobante (un toque: abre el chat de Betsy con el mensaje escrito).
+const origin = Astro.url.origin;
+const firstName = appt.customer_name.split(' ')[0];
+const lines = [
+  `¡Hola Betsy! Soy ${appt.customer_name} y acabo de reservar en la web ✨`,
+  '',
+  `• Servicio: ${appt.service_name}`,
+  `• Fecha: ${prettyDate(appt.starts_at)}`,
+  `• Hora: ${prettyTime(appt.starts_at)}`,
+  appt.home_service && appt.home_address ? `• Domicilio: ${appt.home_address}` : null,
+  appt.hair_length ? `• Largo: ${hairLabel(appt.hair_length)}` : null,
+  price != null ? `• Valor${resumen.exacto ? '' : ' desde'}: ${formatCOP(price)}` : null,
+  deposit ? `• Abono (${DEPOSIT_PCT}%): ${formatCOP(deposit)}` : null,
+  `• Reserva #${appt.id.slice(0, 8).toUpperCase()}`,
+  '',
+  hasReceipt ? `Comprobante del abono: ${origin}/reserva/${appt.id}/comprobante` : `Ya te transfiero el abono del ${DEPOSIT_PCT}% y te envío el comprobante.`,
+  `Ver la cita en tu panel: ${origin}/admin?desde=${localDate(new Date(appt.starts_at))}&abrir=${appt.id}`,
+].filter((l) => l !== null);
 const wa = `https://wa.me/${s.whatsapp}?text=${encodeURIComponent(
-  pending
-    ? `¡Hola Betsy! Soy ${appt.customer_name}. Aparté ${appt.service_name} para el ${prettyDate(appt.starts_at)} a las ${prettyTime(appt.starts_at)} (reserva #${appt.id.slice(0, 8).toUpperCase()}). ` +
-        `Te envío el comprobante del abono del ${DEPOSIT_PCT}%${deposit ? ` (${formatCOP(deposit)})` : ''} ✨`
-    : `¡Hola Betsy! Soy ${appt.customer_name}. Tengo cita de ${appt.service_name} para el ${prettyDate(appt.starts_at)} a las ${prettyTime(appt.starts_at)} ✨`,
+  pending ? lines.join('\n') : `¡Hola Betsy! Soy ${firstName}. Tengo cita de ${appt.service_name} para el ${prettyDate(appt.starts_at)} a las ${prettyTime(appt.starts_at)} ✨`,
 )}`;
 const cancelled = appt.status === 'cancelada';
 
@@ -176,14 +192,23 @@ const icsHref = `data:text/calendar;charset=utf-8,${encodeURIComponent(ics)}`;
                 </label>
               </form>
               <p class="pay-hint center" data-up-msg role="status" aria-live="polite">
-                Foto o PDF de la transferencia. También puedes enviarlo por WhatsApp.
+                Foto o PDF de la transferencia. Después te dejamos el mensaje listo para enviárselo a Betsy por WhatsApp.
               </p>
             </>
           )}
           {hasReceipt && (
-            <p class="pay-wait">
-              <span class="dot" aria-hidden="true" /> Comprobante en revisión. No cierres esta página si quieres ver la confirmación al instante.
-            </p>
+            <>
+              <div class="send-betsy">
+                <p class="pay-step">Último paso · Avísale a Betsy</p>
+                <p class="pay-txt">Se abre el chat de Betsy con tu cita y el enlace a tu comprobante ya escritos. Solo toca «Enviar».</p>
+                <a class="btn btn-wa-big" href={wa} target="_blank" rel="noopener" data-send-betsy>
+                  <Icon name="whatsapp" /> Enviar mi reserva a Betsy
+                </a>
+              </div>
+              <p class="pay-wait">
+                <span class="dot" aria-hidden="true" /> Comprobante en revisión. Esta página cambia sola cuando Betsy confirme tu cita.
+              </p>
+            </>
           )}
         </section>
       )
@@ -228,7 +253,7 @@ const icsHref = `data:text/calendar;charset=utf-8,${encodeURIComponent(ics)}`;
     {
       !cancelled && (
         <div class="cta">
-          <a class="btn btn-clay" href={wa} target="_blank" rel="noopener"><Icon name="whatsapp" /> {pending && !hasReceipt ? 'Enviar comprobante por WhatsApp' : 'Escribir por WhatsApp'}</a>
+          <a class="btn btn-clay" href={wa} target="_blank" rel="noopener"><Icon name="whatsapp" /> {pending ? (hasReceipt ? 'Enviar mi reserva a Betsy' : 'Escribirle a Betsy') : 'Escribir por WhatsApp'}</a>
           <a class="btn btn-ghost" href={gcal} target="_blank" rel="noopener"><Icon name="google" /> Google Calendar</a>
           <a class="btn btn-ghost" href={icsHref} download={`cita-betsy-${code.toLowerCase()}.ics`}><Icon name="calendar" /> Descargar .ics</a>
         </div>
@@ -468,6 +493,32 @@ const icsHref = `data:text/calendar;charset=utf-8,${encodeURIComponent(ics)}`;
     inset: 0;
     opacity: 0;
     cursor: pointer;
+  }
+  .send-betsy {
+    display: grid;
+    gap: 0.5rem;
+    justify-items: center;
+    margin-bottom: 1rem;
+    padding: 1.1rem 1rem;
+    border-radius: 18px;
+    background: color-mix(in oklab, #25d366 10%, var(--white, #fff));
+    border: 1.5px solid color-mix(in oklab, #25d366 45%, transparent);
+    text-align: center;
+  }
+  .send-betsy .pay-step,
+  .send-betsy .pay-txt {
+    margin: 0;
+  }
+  .btn-wa-big {
+    justify-content: center;
+    width: min(100%, 360px);
+    min-height: 52px;
+    background: #1fa855;
+    color: #fff;
+    font-weight: 700;
+  }
+  .btn-wa-big:hover {
+    background: #178f47;
   }
   .pay-wait {
     display: flex;
