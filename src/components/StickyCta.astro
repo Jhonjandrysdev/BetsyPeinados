@@ -1,4 +1,5 @@
 ---
+import { waUrl } from '../lib/walink';
 import Icon from './Icon.astro';
 interface Props {
   href: string;
@@ -11,7 +12,7 @@ const { href, label = 'Apartar mi fecha', whatsapp } = Astro.props;
 <div class="sticky-cta" data-sticky-cta>
   <a href={href} class="btn btn-clay sc-main"><Icon name="calendar" /> {label}</a>
   <a
-    href={`https://wa.me/${whatsapp}?text=${encodeURIComponent('¡Hola Betsy! Quiero agendar un peinado ✨')}`}
+    href={waUrl(whatsapp, '¡Hola Betsy! 👋 Quiero agendar un peinado ✨')}
     class="sc-wa"
     target="_blank"
     rel="noopener"

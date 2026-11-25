@@ -130,7 +130,7 @@ export async function createCalendarEvent(a: Appointment, s: SiteSettings): Prom
     a.home_service ? `🏠 A domicilio: ${a.home_address ?? ''}` : null,
     a.status === 'pendiente' ? 'Estado: esperando comprobante del abono' : null,
     `Clienta: ${a.customer_name}`,
-    `WhatsApp: +${a.customer_phone.replace(/^\+/, '')} · https://wa.me/${a.customer_phone.replace(/\D/g, '')}`,
+    `WhatsApp: +${a.customer_phone.replace(/^\+/, '')} · https://api.whatsapp.com/send?phone=${a.customer_phone.replace(/\D/g, '')}`,
     a.customer_email ? `Correo: ${a.customer_email}` : '',
     a.notes ? `Notas: ${a.notes}` : '',
     '',

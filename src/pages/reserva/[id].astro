@@ -1,4 +1,5 @@
 ---
+import { waUrl } from '../../lib/walink';
 import Base from '../../layouts/Base.astro';
 import Header from '../../components/Header.astro';
 import Icon from '../../components/Icon.astro';
@@ -7,7 +8,7 @@ import { publicStorageUrl } from '../../lib/supabase';
 import { limited } from '../../lib/http';
 import { DEPOSIT_PCT, POLICIES, hairLabel } from '../../lib/defaults';
 import { cupoLiberado, plazoDeAbono, resumenDeCita, tiempoRestante } from '../../lib/cita';
-import { formatCOP, localDate, prettyDate, prettyTime } from '../../lib/time';
+import { formatCOP, prettyDate, prettyTime } from '../../lib/time';
 
 const { id = '' } = Astro.params;
 const appt = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(id) ? await getAppointment(id) : null;
@@ -60,23 +61,23 @@ const gcal = `https://calendar.google.com/calendar/render?${new URLSearchParams(
 const origin = Astro.url.origin;
 const firstName = appt.customer_name.split(' ')[0];
 const lines = [
-  `¡Hola Betsy! Soy ${appt.customer_name} y acabo de reservar en la web ✨`,
+  `¡Hola Betsy! 👋 Soy ${appt.customer_name} y acabo de reservar en la web ✨`,
   '',
-  `• Servicio: ${appt.service_name}`,
-  `• Fecha: ${prettyDate(appt.starts_at)}`,
-  `• Hora: ${prettyTime(appt.starts_at)}`,
-  appt.home_service && appt.home_address ? `• Domicilio: ${appt.home_address}` : null,
-  appt.hair_length ? `• Largo: ${hairLabel(appt.hair_length)}` : null,
-  price != null ? `• Valor${resumen.exacto ? '' : ' desde'}: ${formatCOP(price)}` : null,
-  deposit ? `• Abono (${DEPOSIT_PCT}%): ${formatCOP(deposit)}` : null,
-  `• Reserva #${appt.id.slice(0, 8).toUpperCase()}`,
+  `💇‍♀️ Servicio: ${appt.service_name}`,
+  `📅 Fecha: ${prettyDate(appt.starts_at)}`,
+  `⏰ Hora: ${prettyTime(appt.starts_at)}`,
+  appt.home_service && appt.home_address ? `🏡 Domicilio: ${appt.home_address}` : null,
+  appt.hair_length ? `📏 Largo: ${hairLabel(appt.hair_length)}` : null,
+  price != null ? `💰 Valor${resumen.exacto ? '' : ' desde'}: ${formatCOP(price)}` : null,
+  deposit ? `💳 Abono (${DEPOSIT_PCT}%): ${formatCOP(deposit)}` : null,
+  `🔖 Reserva #${appt.id.slice(0, 8).toUpperCase()}`,
   '',
-  hasReceipt ? `Comprobante del abono: ${origin}/reserva/${appt.id}/comprobante` : 'Quiero confirmar mi reserva. Quedo atenta al valor y a los datos para el abono 🙌',
-  `Ver la cita en tu panel: ${origin}/admin?desde=${localDate(new Date(appt.starts_at))}&abrir=${appt.id}`,
+  hasReceipt ? `🧾 Comprobante del abono: ${origin}/reserva/${appt.id}/comprobante` : '¿Me confirmas mi reserva? 🙏 Quedo atenta al valor y a los datos para el abono 💖',
 ].filter((l) => l !== null);
-const wa = `https://wa.me/${s.whatsapp}?text=${encodeURIComponent(
-  pending ? lines.join('\n') : `¡Hola Betsy! Soy ${firstName}. Tengo cita de ${appt.service_name} para el ${prettyDate(appt.starts_at)} a las ${prettyTime(appt.starts_at)} ✨`,
-)}`;
+const wa = waUrl(
+  s.whatsapp,
+  pending ? lines.join('\n') : `¡Hola Betsy! 👋 Soy ${firstName}. Tengo cita de ${appt.service_name} para el ${prettyDate(appt.starts_at)} a las ${prettyTime(appt.starts_at)} ✨`,
+);
 const cancelled = appt.status === 'cancelada';
 
 // Talón del boleto: día y mes en hora de Colombia

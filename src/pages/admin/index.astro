@@ -1,4 +1,5 @@
 ---
+import { waUrl } from '../../lib/walink';
 import Admin from '../../layouts/Admin.astro';
 import Icon from '../../components/Icon.astro';
 import { SlotTakenError, citaStore, getAppointment, getAppointments, getBlockedDates, getGoogleConnection, getHours, getServices, getSettings, getTemplates, updateAppointment } from '../../lib/db';
@@ -406,7 +407,7 @@ const waText = (a: Appointment, kind: WaKind = waKind(a)) => {
   const { price, deposit } = valorOf(a);
   return fillTemplate(templates[kind] ?? DEFAULT_TEMPLATES[kind], { a, s: settings, price, deposit });
 };
-const waLink = (a: Appointment, kind: WaKind = waKind(a)) => `https://wa.me/${a.customer_phone}?text=${encodeURIComponent(waText(a, kind))}`;
+const waLink = (a: Appointment, kind: WaKind = waKind(a)) => waUrl(a.customer_phone, waText(a, kind));
 const waLabel = (a: Appointment) =>
   ({
     recordatorio: 'Pedir confirmación',
