@@ -358,19 +358,12 @@ export async function deleteReceipt(path: string): Promise<void> {
   check(await supabaseAdmin().storage.from('comprobantes').remove([path]));
 }
 
-/** Enlace temporal (10 min) para que Betsy vea el comprobante. */
 /** Archivo del comprobante, para servirlo desde el propio panel (sin enlaces que caducan). */
 export async function receiptFile(path: string): Promise<Blob | null> {
   if (demoMode) return null;
   const { data, error } = await supabaseAdmin().storage.from('comprobantes').download(path);
   if (error) console.error('No se pudo leer el comprobante', error);
   return data ?? null;
-}
-
-export async function receiptUrl(path: string): Promise<string | null> {
-  if (demoMode) return null;
-  const { data } = await supabaseAdmin().storage.from('comprobantes').createSignedUrl(path, 600);
-  return data?.signedUrl ?? null;
 }
 
 export async function markNotified(a: Appointment, ev: string): Promise<void> {
