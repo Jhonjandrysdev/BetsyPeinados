@@ -1,7 +1,7 @@
 ---
 import Admin from '../../layouts/Admin.astro';
 import Icon from '../../components/Icon.astro';
-import { SlotTakenError, citaStore, getAppointment, getAppointments, getBlockedDates, getGoogleConnection, getHours, getServices, getSettings, getTemplates, receiptUrl, updateAppointment } from '../../lib/db';
+import { SlotTakenError, citaStore, getAppointment, getAppointments, getBlockedDates, getGoogleConnection, getHours, getServices, getSettings, getTemplates, updateAppointment } from '../../lib/db';
 import { DEFAULT_TEMPLATES, NOTICE_EVENTS, fillTemplate, type NoticeEvent } from '../../lib/messages';
 import { TEXTO_TOPE_AGOTADO } from '../../lib/tope-whatsapp';
 import { estadoTopeActual, sendFree, sendNotice, sendNoticeSafe, waConfigured, waErrorText, waMessagesForPhones, waNumber, windowOpen, type SendResult } from '../../lib/whatsapp';
@@ -450,12 +450,6 @@ const selectedDay = thisWeek ? today : start;
 
 // Un diálogo de detalle por cita (semana + hoy + próxima), sin duplicados.
 const dialogAppts = [...new Map([...appts, ...todayAll, ...(next ? [next] : [])].map((a) => [a.id, a])).values()];
-// Enlaces temporales a los comprobantes, para verlos en una ventana dentro del panel.
-const receiptLinks = new Map(
-  await Promise.all(
-    dialogAppts.filter((a) => a.receipt_path).map(async (a) => [a.id, await receiptUrl(a.receipt_path!).catch(() => null)] as const),
-  ),
-);
 const isPdf = (p: string | null | undefined) => Boolean(p && /\.pdf$/i.test(p));
 
 // WhatsApp automático: conversación de cada clienta (si está conectado o ya hay mensajes guardados).
@@ -930,7 +924,7 @@ const todayOff = offOf(today);
                     <button
                       type="button"
                       class="link-btn"
-                      data-rcpt={receiptLinks.get(a.id) ?? `/admin/comprobante?id=${a.id}`}
+                      data-rcpt={`/admin/comprobante?id=${a.id}`}
                       data-pdf={isPdf(a.receipt_path) ? '1' : undefined}
                       data-who={a.customer_name}
                     >
@@ -1100,7 +1094,7 @@ const todayOff = offOf(today);
                 <header class="chat-h">
                   <Icon name="whatsapp" size={16} /> <span>Conversación de WhatsApp</span>
                 </header>
-                <ol class="chat-list" data-chat={waNumber(a.customer_phone)} aria-live="polite">
+                <ol class="chat-list" data-chat={waNumber(a.customer_phone)} data-sig={chatOf(a).map((m) => `${m.id}:${m.status}`).join(',')} aria-live="polite">
                   {chatOf(a).length === 0 && <li class="chat-empty">Aún no hay mensajes con {who}.</li>}
                   {chatOf(a).map((m) => (
                     <li class:list={['msg', m.direction, m.status]}>
@@ -1126,7 +1120,7 @@ const todayOff = offOf(today);
                 </ol>
                 {waOn &&
                   (canReply(a) ? (
-                    <form method="post" class="chat-form">
+                    <form method="post" class="chat-form" data-chat-form>
                       <input type="hidden" name="action" value="reply" />
                       <input type="hidden" name="id" value={a.id} />
                       <input type="hidden" name="desde" value={start} />
@@ -1135,6 +1129,7 @@ const todayOff = offOf(today);
                       <button class="btn btn-wa btn-icon" aria-label="Enviar">
                         <Icon name="arrow" />
                       </button>
+                      <p class="chat-err" role="alert" data-chat-err hidden></p>
                     </form>
                   ) : (
                     <p class="chat-note muted">
@@ -1197,11 +1192,12 @@ const todayOff = offOf(today);
     </header>
     <div class="rcpt-body">
       <img data-rcpt-img alt="Comprobante de transferencia" hidden />
-      <p class="rcpt-pdf" data-rcpt-pdf hidden>
-        Este comprobante es un PDF.
-        <a class="btn btn-clay" data-rcpt-link target="_blank" rel="noopener"><Icon name="external" /> Abrir PDF</a>
+      <iframe data-rcpt-pdf title="Comprobante en PDF" hidden></iframe>
+      <p class="muted rcpt-msg" data-rcpt-loading role="status">Cargando…</p>
+      <p class="rcpt-actions">
+        <button type="button" class="btn btn-soft btn-sm" data-rcpt-retry hidden>Intentar de nuevo</button>
+        <a class="btn btn-soft btn-sm" data-rcpt-link target="_blank" rel="noopener"><Icon name="external" size={16} /> Abrir en otra pestaña</a>
       </p>
-      <p class="muted" data-rcpt-loading>Cargando…</p>
     </div>
   </dialog>
 
@@ -1375,11 +1371,27 @@ const todayOff = offOf(today);
   .rcpt-body [hidden] {
     display: none;
   }
-  .rcpt-pdf {
-    display: grid;
-    gap: 0.8rem;
-    justify-items: center;
-    text-align: center;
+  .rcpt.is-pdf {
+    width: min(94vw, 760px);
+  }
+  .rcpt-body iframe {
+    display: block;
+    width: 100%;
+    height: calc(92vh - 150px);
+    min-height: 320px;
+    border: 0;
+    border-radius: 14px;
+    background: #fff;
+  }
+  .rcpt-msg {
+    margin: 0;
+  }
+  .rcpt-actions {
+    display: flex;
+    flex-wrap: wrap;
+    justify-content: center;
+    gap: 0.5rem;
+    margin: 0.8rem 0 0;
   }
   .review {
     display: flex;
@@ -2436,10 +2448,19 @@ const todayOff = offOf(today);
   .move-hint {
     color: var(--muted);
   }
+  /* Tema fijo de WhatsApp: no cambia con el resto del panel ni al actualizarse la conversación. */
   .chat {
+    --wa-head: #008069;
+    --wa-bg: #efeae2;
+    --wa-in: #ffffff;
+    --wa-out: #d9fdd3;
+    --wa-ink: #111b21;
+    --wa-meta: #667781;
     margin-top: 1rem;
+    border: 1px solid #d1d7db;
     border-radius: var(--r-md);
-    background: #efe7dc;
+    background: var(--wa-bg);
+    color: var(--wa-ink);
     overflow: hidden;
   }
   .chat-h {
@@ -2451,8 +2472,8 @@ const todayOff = offOf(today);
     font-weight: 700;
     letter-spacing: 0.08em;
     text-transform: uppercase;
-    color: var(--muted);
-    border-bottom: 1px solid var(--line);
+    color: #fff;
+    background: var(--wa-head);
   }
   .chat-list {
     display: flex;
@@ -2465,65 +2486,75 @@ const todayOff = offOf(today);
     overscroll-behavior: contain;
     list-style: none;
   }
-  .chat-empty {
+  .chat-list :global(.chat-empty) {
     align-self: center;
-    padding: 0.6rem;
-    color: var(--muted);
+    padding: 0.35rem 0.8rem;
+    border-radius: 8px;
+    background: #fff;
+    color: var(--wa-meta);
     font-size: var(--t-sm);
   }
-  .msg {
+  .chat-list :global(.msg) {
     display: grid;
     gap: 0.15rem;
     max-width: 85%;
     padding: 0.5rem 0.75rem;
     border-radius: 14px;
-    background: var(--white);
-    box-shadow: 0 1px 1px rgb(42 28 22 / 0.08);
+    background: var(--wa-in);
+    color: var(--wa-ink);
+    box-shadow: 0 1px 0.5px rgb(11 20 26 / 0.13);
   }
-  .msg.in {
+  .chat-list :global(.msg.in) {
     align-self: flex-start;
     border-bottom-left-radius: 4px;
   }
-  .msg.out {
+  .chat-list :global(.msg.out) {
     align-self: flex-end;
-    background: #dcf3d0;
+    background: var(--wa-out);
     border-bottom-right-radius: 4px;
   }
-  .msg.out.fallido,
-  .msg.out.bloqueado {
+  .chat-list :global(.msg.out.fallido),
+  .chat-list :global(.msg.out.bloqueado) {
     background: #f8e1dc;
   }
-  .msg .msg-manual {
+  .chat-list :global(.msg .msg-manual) {
     justify-self: start;
     font-size: 0.78rem;
     font-weight: 600;
   }
-  .msg p {
+  .chat-list :global(.msg p) {
     margin: 0;
     white-space: pre-wrap;
     overflow-wrap: anywhere;
     font-size: var(--t-sm);
     line-height: 1.4;
   }
-  .msg small {
+  .chat-list :global(.msg small) {
     justify-self: end;
-    color: var(--muted);
+    color: var(--wa-meta);
     font-size: 0.72rem;
   }
-  .msg .msg-err {
+  .chat-list :global(.msg .msg-err) {
     justify-self: start;
     color: #9c2a1a;
     overflow-wrap: anywhere;
   }
-  .tick.leido {
-    color: #2a7bd4;
+  .chat-list :global(.tick.leido) {
+    color: #53bdeb;
   }
   .chat-form {
     display: flex;
+    flex-wrap: wrap;
     align-items: flex-end;
     gap: 0.5rem;
     padding: 0.6rem 0.8rem 0.8rem;
-    border-top: 1px solid var(--line);
+    background: #f0f2f5;
+  }
+  .chat-err {
+    flex-basis: 100%;
+    margin: 0;
+    color: #9c2a1a;
+    font-size: var(--t-sm);
   }
   .chat-form textarea {
     flex: 1;
@@ -2531,16 +2562,17 @@ const todayOff = offOf(today);
     min-height: 44px;
     max-height: 140px;
     padding: 0.6rem 0.9rem;
-    border: 1.5px solid var(--line);
+    border: 1.5px solid transparent;
     border-radius: 22px;
-    background: var(--white);
+    background: #fff;
+    color: var(--wa-ink);
     font: inherit;
     font-size: 16px;
     resize: vertical;
   }
   .chat-form textarea:focus {
     outline: none;
-    border-color: var(--clay);
+    border-color: var(--wa-head);
   }
   .chat-form .btn-icon {
     flex: none;
@@ -2549,7 +2581,8 @@ const todayOff = offOf(today);
     margin: 0;
     padding: 0.6rem 1rem 0.8rem;
     font-size: var(--t-sm);
-    border-top: 1px solid var(--line);
+    background: #f0f2f5;
+    color: var(--wa-meta);
   }
   .chat-note a {
     color: inherit;
@@ -2862,28 +2895,58 @@ const todayOff = offOf(today);
     }
   });
 
-  // Comprobante en una ventana dentro del panel.
+  // Comprobante en una ventana dentro del panel (imagen o PDF), servido por el propio panel.
   const rcpt = document.querySelector<HTMLDialogElement>('#rcpt');
   const rImg = rcpt?.querySelector<HTMLImageElement>('[data-rcpt-img]');
+  const rPdf = rcpt?.querySelector<HTMLIFrameElement>('[data-rcpt-pdf]');
   const rLoad = rcpt?.querySelector<HTMLElement>('[data-rcpt-loading]');
+  const rRetry = rcpt?.querySelector<HTMLButtonElement>('[data-rcpt-retry]');
+  const rLink = rcpt?.querySelector<HTMLAnchorElement>('[data-rcpt-link]');
+  let rUrl = '';
+  let rTries = 0;
+  const loadImg = () => {
+    if (!rImg || !rLoad || !rRetry) return;
+    rImg.hidden = true;
+    rRetry.hidden = true;
+    rLoad.hidden = false;
+    rLoad.textContent = 'Cargando…';
+    rImg.src = `${rUrl}&t=${Date.now()}`;
+  };
   rImg?.addEventListener('load', () => {
     rLoad!.hidden = true;
     rImg.hidden = false;
   });
-  rImg?.addEventListener('error', () => (rLoad!.textContent = 'No se pudo cargar el comprobante. Recarga la página e intenta de nuevo.'));
+  rImg?.addEventListener('error', () => {
+    if (!rImg.getAttribute('src')) return;
+    // Un reintento automático (red lenta del celular); si vuelve a fallar, botón para reintentar.
+    if (rTries++ < 1) return void setTimeout(loadImg, 800);
+    rLoad!.textContent = 'No se pudo cargar el comprobante.';
+    rRetry!.hidden = false;
+  });
+  rRetry?.addEventListener('click', () => {
+    rTries = 0;
+    loadImg();
+  });
+  rcpt?.addEventListener('close', () => {
+    rImg?.removeAttribute('src');
+    rPdf?.removeAttribute('src');
+  });
   document.querySelectorAll<HTMLButtonElement>('[data-rcpt]').forEach((b) =>
     b.addEventListener('click', () => {
-      if (!rcpt || !rImg || !rLoad) return;
-      const url = b.dataset.rcpt!;
+      if (!rcpt || !rImg || !rPdf || !rLoad || !rLink) return;
+      rUrl = b.dataset.rcpt!;
+      rTries = 0;
       const pdf = b.dataset.pdf === '1';
       rcpt.querySelector('#rcpt-t')!.textContent = `Comprobante de ${b.dataset.who ?? ''}`.trim();
-      rImg.hidden = true;
-      rImg.removeAttribute('src');
-      rLoad.textContent = 'Cargando…';
-      rLoad.hidden = pdf;
-      rcpt.querySelector<HTMLElement>('[data-rcpt-pdf]')!.hidden = !pdf;
-      rcpt.querySelector<HTMLAnchorElement>('[data-rcpt-link]')!.href = url;
-      if (!pdf) rImg.src = url;
+      rLink.href = rUrl;
+      rcpt.classList.toggle('is-pdf', pdf);
+      rPdf.hidden = !pdf;
+      if (pdf) {
+        rImg.hidden = true;
+        rLoad.hidden = true;
+        rRetry!.hidden = true;
+        rPdf.src = rUrl;
+      } else loadImg();
       rcpt.showModal();
     }),
   );
@@ -2955,22 +3018,57 @@ const todayOff = offOf(today);
   document.querySelectorAll<HTMLDialogElement>('dialog.ap').forEach((d) => {
     const list = d.querySelector<HTMLElement>('[data-chat]');
     if (!list) return;
-    let lastSig = '';
+    // Firma de lo que ya pintó el servidor: solo se vuelve a pintar si llega algo nuevo.
+    let lastSig = list.dataset.sig ?? '';
+    const paint = (messages: ChatMsg[]) => {
+      const sig = messages.map((m) => `${m.id}:${m.status}`).join(',');
+      if (sig === lastSig) return;
+      lastSig = sig;
+      renderChat(list, messages);
+    };
     const refresh = async () => {
       if (!d.open || document.hidden) return;
       try {
         const r = await fetch(`/api/admin/whatsapp?phone=${encodeURIComponent(list.dataset.chat!)}`, { headers: { Accept: 'application/json' } });
         if (!r.ok) return;
-        const { messages } = (await r.json()) as { messages: ChatMsg[] };
-        const sig = messages.map((m) => `${m.id}:${m.status}`).join(',');
-        if (sig !== lastSig) {
-          lastSig = sig;
-          renderChat(list, messages);
-        }
+        paint(((await r.json()) as { messages: ChatMsg[] }).messages);
       } catch {
         /* sin conexión: se intenta en la próxima vuelta */
       }
     };
+    // Enviar sin recargar la página: el mensaje aparece en la conversación y la cita sigue abierta.
+    const form = d.querySelector<HTMLFormElement>('[data-chat-form]');
+    const err = form?.querySelector<HTMLElement>('[data-chat-err]');
+    form?.addEventListener('submit', async (e) => {
+      e.preventDefault();
+      const ta = form.querySelector('textarea')!;
+      const btn = form.querySelector<HTMLButtonElement>('button')!;
+      if (!ta.value.trim() || btn.disabled) return;
+      btn.disabled = true;
+      btn.classList.add('loading');
+      if (err) err.hidden = true;
+      try {
+        const r = await fetch('/api/admin/whatsapp', { method: 'POST', body: new FormData(form), headers: { Accept: 'application/json' } });
+        const data = (await r.json().catch(() => ({}))) as { ok?: boolean; error?: string; messages?: ChatMsg[] };
+        if (data.messages?.length) paint(data.messages);
+        if (data.ok) {
+          ta.value = '';
+          list.scrollTop = list.scrollHeight;
+        } else if (err) {
+          err.textContent = data.error ?? 'No se pudo enviar. Intenta de nuevo.';
+          err.hidden = false;
+        }
+      } catch {
+        if (err) {
+          err.textContent = 'Sin conexión. Revisa el internet e intenta de nuevo.';
+          err.hidden = false;
+        }
+      } finally {
+        btn.disabled = false;
+        btn.classList.remove('loading');
+        ta.focus();
+      }
+    });
     new MutationObserver(() => {
       window.clearInterval(chatTimer);
       if (!d.open) return;
